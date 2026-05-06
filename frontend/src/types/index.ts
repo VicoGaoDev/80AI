@@ -1,5 +1,5 @@
 export interface UserInfo {
-  id: number;
+  id: string;
   username: string;
   email?: string | null;
   role: "user" | "admin" | "superadmin";
@@ -35,7 +35,7 @@ export interface ImageResult {
 export type TaskMode = "generate" | "inpaint" | "promptReverse";
 
 export interface TaskResult {
-  id: number;
+  id: string;
   model: string;
   prompt: string;
   num_images: number;
@@ -46,11 +46,14 @@ export interface TaskResult {
   status: "pending" | "queued" | "processing" | "success" | "failed";
   error_message?: string;
   created_at: string;
+  enqueued_at?: string | null;
   images: ImageResult[];
 }
 
 export interface HistoryItem {
-  task_id: number;
+  item_type: "task" | "prompt_history";
+  task_id?: string | null;
+  history_id?: number | null;
   display_id?: string;
   username?: string;
   avatar_url?: string;
@@ -76,7 +79,7 @@ export interface HistoryFilter {
   model?: string;
   prompt?: string;
   status?: string;
-  user_id?: number;
+  user_id?: string;
   start_date?: string;
   end_date?: string;
 }
@@ -89,9 +92,10 @@ export interface HistoryResponse {
 
 export interface UserHistoryCard {
   history_id?: number | null;
+  item_type: "task" | "prompt_history";
   display_id?: string;
-  task_id: number;
-  image_id: number;
+  task_id?: string | null;
+  image_id?: number | null;
   image_url: string;
   preview_url?: string;
   thumb_url?: string;
@@ -124,7 +128,7 @@ export interface UserHistoryResponse {
 }
 
 export interface AdminUser {
-  id: number;
+  id: string;
   username: string;
   email?: string | null;
   avatar_url?: string;
@@ -137,14 +141,14 @@ export interface AdminUser {
 
 export interface CreditLog {
   id: number;
-  user_id: number;
+  user_id: string;
   username: string;
   amount: number;
   type: "allocate" | "consume";
   mode: TaskMode | "manual";
   description: string;
   operator_name: string;
-  task_id?: number;
+  task_id?: string;
   created_at: string;
 }
 
@@ -189,7 +193,7 @@ export interface AdminAnalyticsQuery {
   granularity: AdminAnalyticsGranularity;
   start_date?: string;
   end_date?: string;
-  user_id?: number;
+  user_id?: string;
   model?: string;
   mode?: TaskMode;
   status?: string;
@@ -359,6 +363,7 @@ export interface ExternalApiSceneBindingCreatePayload {
 }
 
 export interface ExternalApiSceneBindingMetaPayload {
+  scene_key: string;
   scene_label: string;
   scene_description: string;
   sort_order: number;

@@ -1,12 +1,14 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.utils.business_id import generate_business_id
 
 
 class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    business_id = Column(String(32), unique=True, nullable=False, index=True, default=generate_business_id)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     model = Column(String(50), default="")
     mode = Column(String(20), default="generate")
@@ -23,6 +25,7 @@ class Task(Base):
     status = Column(String(20), default="pending")
     error_message = Column(Text, default="")
     created_at = Column(DateTime, server_default=func.now())
+    enqueued_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", backref="tasks")

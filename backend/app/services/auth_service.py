@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.user import User
+from app.services.business_id_service import user_external_id
 from app.utils.security import create_access_token, hash_password, verify_password
 
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -45,7 +46,7 @@ def register_user(db: Session, username: str, email: str, password: str) -> tupl
     db.add(user)
     db.commit()
     db.refresh(user)
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user_external_id(user), user.role)
     return token, user
 
 
@@ -70,7 +71,7 @@ def authenticate_user(db: Session, account: str, password: str) -> tuple[str, Us
     if user.status == "disabled":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
 
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user_external_id(user), user.role)
     return token, user
 
 

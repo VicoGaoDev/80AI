@@ -263,6 +263,7 @@ class ExternalApiSceneBindingUpdate(BaseModel):
 
 
 class ExternalApiSceneBindingMetaUpdate(BaseModel):
+    scene_key: str = ""
     scene_label: str
     scene_description: str = ""
     sort_order: int = 0
@@ -272,6 +273,16 @@ class ExternalApiSceneBindingMetaUpdate(BaseModel):
     aspect_ratio_options_json: str = "[]"
     image_size_options_json: str = "[]"
     custom_size_options_json: str = "[]"
+
+    @field_validator("scene_key")
+    @classmethod
+    def validate_scene_meta_key(cls, value: str) -> str:
+        cleaned = value.strip().lower()
+        if not cleaned:
+            return ""
+        if not all(ch.islower() or ch.isdigit() or ch == "_" for ch in cleaned):
+            raise ValueError("场景标识仅支持小写字母、数字和下划线")
+        return cleaned
 
     @field_validator("scene_label", "scene_description")
     @classmethod

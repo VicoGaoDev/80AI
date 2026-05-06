@@ -18,7 +18,7 @@ class TaskFlowState {
 
   final bool isSubmitting;
   final bool isPolling;
-  final List<int> activeTaskIds;
+  final List<String> activeTaskIds;
   final List<TaskResult> tasks;
   final String? errorMessage;
 
@@ -27,7 +27,7 @@ class TaskFlowState {
   TaskFlowState copyWith({
     bool? isSubmitting,
     bool? isPolling,
-    List<int>? activeTaskIds,
+    List<String>? activeTaskIds,
     List<TaskResult>? tasks,
     String? errorMessage,
     bool clearError = false,

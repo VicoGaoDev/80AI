@@ -67,7 +67,7 @@ type SubmitMode = Exclude<GenerateMode, "promptReverse">;
 
 interface GeneratedTaskItem {
   localId: string;
-  taskId: number | null;
+  taskId: string | null;
   mode: SubmitMode;
   prompt: string;
   model?: string;
@@ -321,7 +321,7 @@ function updateGeneratedTask(localId: string, updater: (task: GeneratedTaskItem)
   ));
 }
 
-function updateGeneratedTaskByTaskId(taskId: number, updater: (task: GeneratedTaskItem) => GeneratedTaskItem) {
+function updateGeneratedTaskByTaskId(taskId: string, updater: (task: GeneratedTaskItem) => GeneratedTaskItem) {
   generatedTasks.value = generatedTasks.value.map((task) => (
     task.taskId === taskId ? updater(task) : task
   ));
@@ -330,7 +330,7 @@ function updateGeneratedTaskByTaskId(taskId: number, updater: (task: GeneratedTa
 const activePollingTaskIds = computed(() => (
   generatedTasks.value
     .filter((task) => task.taskId && task.status !== "success" && task.status !== "failed")
-    .map((task) => task.taskId as number)
+    .map((task) => task.taskId as string)
 ));
 
 function stopAllTaskPolling() {
@@ -347,7 +347,7 @@ function handleExtendedToolMenuClick({ key }: { key: string }) {
   }
 }
 
-function syncTaskFromResult(taskId: number, data: TaskResult) {
+function syncTaskFromResult(taskId: string, data: TaskResult) {
   const current = generatedTasks.value.find((task) => task.taskId === taskId);
   if (!current) return;
   const previousStatus = current.status;
@@ -394,8 +394,8 @@ function convertHistoryCardToGeneratedTask(item: UserHistoryCard): GeneratedTask
       ? "imageEdit"
       : "textGenerate";
   return {
-    localId: `history-${item.task_id}`,
-    taskId: item.task_id,
+    localId: `history-${item.task_id || item.history_id || "unknown"}`,
+    taskId: item.task_id || null,
     mode: taskMode,
     prompt: item.prompt || "",
     model: item.model || undefined,
@@ -421,9 +421,9 @@ async function loadRecentGeneratedTasks() {
 
   try {
     const res = await fetchHistory(1, MAX_RECENT_GENERATED_TASKS);
-    const seenTaskIds = new Set<number>();
+    const seenTaskIds = new Set<string>();
     const recentTasks = res.items
-      .filter((item) => item.mode !== "promptReverse" && !seenTaskIds.has(item.task_id) && seenTaskIds.add(item.task_id))
+      .filter((item) => item.mode !== "promptReverse" && !!item.task_id && !seenTaskIds.has(item.task_id) && seenTaskIds.add(item.task_id))
       .slice(0, MAX_RECENT_GENERATED_TASKS)
       .map(convertHistoryCardToGeneratedTask);
 

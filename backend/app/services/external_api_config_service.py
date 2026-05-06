@@ -523,8 +523,18 @@ def update_scene_binding_meta(
     body: ExternalApiSceneBindingMetaUpdate,
 ) -> ExternalApiSceneBindingOut:
     binding = _require_custom_scene_binding(db, scene_key)
+    next_scene_key = body.scene_key or scene_key
+    if next_scene_key != scene_key:
+        existing = (
+            db.query(ExternalApiSceneBinding)
+            .filter(ExternalApiSceneBinding.scene_key == next_scene_key)
+            .first()
+        )
+        if existing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="场景标识已存在")
     if not body.scene_label.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="场景名称不能为空")
+    binding.scene_key = next_scene_key
     binding.scene_label = body.scene_label
     binding.scene_description = body.scene_description
     binding.sort_order = body.sort_order

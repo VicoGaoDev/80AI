@@ -40,7 +40,7 @@ const creditsTarget = ref<AdminUser | null>(null);
 const creditsForm = reactive({ amount: 0, description: "" });
 const whitelistOpen = ref(false);
 const whitelistKeyword = ref("");
-const whitelistLoadingId = ref<number | null>(null);
+const whitelistLoadingId = ref<string | null>(null);
 
 const columns = [
   { title: "ID", dataIndex: "id", width: 70 },

@@ -40,7 +40,7 @@ def list_history(
 
 @router.delete("/tasks/{task_id}")
 def delete_history_task(
-    task_id: int,
+    task_id: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

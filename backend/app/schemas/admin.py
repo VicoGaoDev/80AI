@@ -9,7 +9,7 @@ class CreateUserRequest(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: int
+    id: str
     username: str
     email: str | None = None
     avatar_url: str = ""
@@ -33,14 +33,14 @@ class ResetCreditsRequest(BaseModel):
 
 class CreditLogOut(BaseModel):
     id: int
-    user_id: int
+    user_id: str
     username: str = ""
     amount: int
     type: str
     mode: str = ""
     description: str = ""
     operator_name: str = ""
-    task_id: int | None = None
+    task_id: str | None = None
     created_at: datetime | None = None
 
 

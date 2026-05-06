@@ -128,6 +128,7 @@ const sceneForm = reactive<ExternalApiSceneBindingCreatePayload>({
   custom_size_options_json: DEFAULT_CUSTOM_SIZE_OPTIONS_JSON,
 });
 const sceneMetaForm = reactive<ExternalApiSceneBindingMetaPayload>({
+  scene_key: "",
   scene_label: "",
   scene_description: "",
   sort_order: 0,
@@ -279,6 +280,7 @@ function isCopyableSceneType(
 
 function fillSceneMetaForm(record: ExternalApiSceneBinding) {
   sceneEditingKey.value = record.scene_key;
+  sceneMetaForm.scene_key = record.scene_key;
   sceneMetaForm.scene_label = record.scene_label || "";
   sceneMetaForm.scene_description = record.scene_description || "";
   sceneMetaForm.sort_order = Number(record.sort_order || 0);
@@ -603,6 +605,10 @@ async function handleCreateScene() {
 
 async function handleSaveSceneMeta() {
   if (!sceneEditingKey.value) return;
+  if (!sceneMetaForm.scene_key.trim()) {
+    message.warning("请输入场景标识");
+    return;
+  }
   if (!sceneMetaForm.scene_label.trim()) {
     message.warning("请输入场景名称");
     return;
@@ -614,6 +620,7 @@ async function handleSaveSceneMeta() {
   sceneMetaSaving.value = true;
   try {
     await updateExternalApiSceneBindingMeta(sceneEditingKey.value, {
+      scene_key: sceneMetaForm.scene_key.trim().toLowerCase(),
       scene_label: sceneMetaForm.scene_label.trim(),
       scene_description: sceneMetaForm.scene_description.trim(),
       sort_order: Number(sceneMetaForm.sort_order || 0),
@@ -1130,10 +1137,18 @@ function copySecret(value: string, label: string) {
       <a-form layout="vertical">
         <a-row :gutter="16">
           <a-col :span="12">
+            <a-form-item label="场景标识" required>
+              <a-input v-model:value="sceneMetaForm.scene_key" class="warm-input" placeholder="例如：banana_ultra" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
             <a-form-item label="场景名称" required>
               <a-input v-model:value="sceneMetaForm.scene_label" class="warm-input" />
             </a-form-item>
           </a-col>
+        </a-row>
+
+        <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="排序值">
               <a-input-number v-model:value="sceneMetaForm.sort_order" class="warm-input-number" :min="0" style="width: 100%" />

@@ -1,11 +1,23 @@
+import logging
+import time
+import uuid
 from pathlib import Path
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, inspect, text
 from app.database import engine, Base
 from app.config import settings
+from app.logging_utils import clear_request_context, set_request_context, setup_logging
+from app.utils.business_id import generate_business_id
 import app.models  # noqa: F401 — ensure all models are registered
+
+setup_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
+
+access_logger = logging.getLogger("app.access")
+error_logger = logging.getLogger("app.error")
 
 app = FastAPI(title="Banana Web - AI 绘图系统", version="1.0.0")
 
@@ -18,6 +30,57 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    request.state.user_id = None
+    set_request_context(request_id)
+    start = time.perf_counter()
+    response = None
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        status_code = response.status_code if response else 500
+        user_id = getattr(request.state, "user_id", None)
+        set_request_context(request_id, user_id)
+        access_logger.info(
+            "request completed",
+            extra={
+                "event": "http.request.completed",
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": status_code,
+                "duration_ms": duration_ms,
+                "client_ip": request.client.host if request.client else "",
+                "user_agent": request.headers.get("user-agent", ""),
+            },
+        )
+        clear_request_context()
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", "-")
+    user_id = getattr(request.state, "user_id", None)
+    set_request_context(request_id, user_id)
+    error_logger.exception(
+        "unhandled exception",
+        extra={
+            "event": "http.request.unhandled_exception",
+            "method": request.method,
+            "path": request.url.path,
+            "client_ip": request.client.host if request.client else "",
+            "user_agent": request.headers.get("user-agent", ""),
+        },
+    )
+    clear_request_context()
+    return JSONResponse(status_code=500, content={"detail": "服务器内部错误", "request_id": request_id})
+
+
 @app.on_event("startup")
 def on_startup():
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
@@ -25,6 +88,7 @@ def on_startup():
         Base.metadata.create_all(bind=engine)
     _ensure_user_whitelist_column()
     _ensure_user_identity_schema()
+    _ensure_business_id_schema()
     _ensure_prompt_history_columns()
     _ensure_image_required_columns()
     _ensure_task_credit_cost_column()
@@ -72,6 +136,8 @@ def _ensure_schema_compat():
             conn.execute(text("ALTER TABLE tasks ADD COLUMN credit_cost INTEGER DEFAULT 0"))
         if "error_message" not in task_columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN error_message TEXT"))
+        if "enqueued_at" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN enqueued_at DATETIME"))
 
     image_columns = {col["name"] for col in inspector.get_columns("images")}
     with engine.begin() as conn:
@@ -354,6 +420,62 @@ def _ensure_user_identity_schema():
             conn.execute(text("CREATE INDEX ix_users_username ON users (username)"))
 
 
+def _has_unique_index(inspector, table_name: str, column_name: str) -> bool:
+    for index in inspector.get_indexes(table_name):
+        if index.get("unique") and (index.get("column_names") or []) == [column_name]:
+            return True
+    for constraint in inspector.get_unique_constraints(table_name):
+        if (constraint.get("column_names") or []) == [column_name]:
+            return True
+    return False
+
+
+def _ensure_business_id_schema():
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "users" not in table_names and "tasks" not in table_names:
+        return
+
+    with engine.begin() as conn:
+        if "users" in table_names:
+            user_columns = {col["name"] for col in inspector.get_columns("users")}
+            if "business_id" not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN business_id VARCHAR(32) NULL"))
+        if "tasks" in table_names:
+            task_columns = {col["name"] for col in inspector.get_columns("tasks")}
+            if "business_id" not in task_columns:
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN business_id VARCHAR(32) NULL"))
+
+    from app.database import SessionLocal
+    from app.models.user import User
+    from app.models.task import Task
+
+    db = SessionLocal()
+    try:
+        changed = False
+        for user in db.query(User).filter((User.business_id.is_(None)) | (User.business_id == "")).all():
+            user.business_id = generate_business_id()
+            changed = True
+        for task in db.query(Task).filter((Task.business_id.is_(None)) | (Task.business_id == "")).all():
+            task.business_id = generate_business_id()
+            changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        if "users" in table_names and not _has_unique_index(inspector, "users", "business_id"):
+            conn.execute(text("CREATE UNIQUE INDEX uq_users_business_id ON users (business_id)"))
+        if "tasks" in table_names and not _has_unique_index(inspector, "tasks", "business_id"):
+            conn.execute(text("CREATE UNIQUE INDEX uq_tasks_business_id ON tasks (business_id)"))
+        if "users" in table_names:
+            conn.execute(text("ALTER TABLE users MODIFY COLUMN business_id VARCHAR(32) NOT NULL"))
+        if "tasks" in table_names:
+            conn.execute(text("ALTER TABLE tasks MODIFY COLUMN business_id VARCHAR(32) NOT NULL"))
+
+
 def _ensure_image_required_columns():
     inspector = inspect(engine)
     if "images" not in inspector.get_table_names():
@@ -392,7 +514,7 @@ def _ensure_task_credit_cost_column():
         return
 
     task_columns = {col["name"] for col in inspector.get_columns("tasks")}
-    if "credit_cost" in task_columns and "custom_size" in task_columns:
+    if "credit_cost" in task_columns and "custom_size" in task_columns and "enqueued_at" in task_columns:
         return
 
     with engine.begin() as conn:
@@ -400,6 +522,8 @@ def _ensure_task_credit_cost_column():
             conn.execute(text("ALTER TABLE tasks ADD COLUMN credit_cost INTEGER DEFAULT 0"))
         if "custom_size" not in task_columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN custom_size VARCHAR(50) DEFAULT ''"))
+        if "enqueued_at" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN enqueued_at DATETIME"))
 
 
 def _ensure_scene_binding_required_columns():

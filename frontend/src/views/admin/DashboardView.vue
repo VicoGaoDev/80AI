@@ -50,7 +50,7 @@ const ready = ref(false);
 
 const filters = reactive<{
   status: string | undefined;
-  user_id: number | undefined;
+  user_id: string | undefined;
   model: string | undefined;
   mode: TaskMode | undefined;
   dateRange: [Dayjs, Dayjs] | null;

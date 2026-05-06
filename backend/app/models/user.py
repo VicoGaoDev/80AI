@@ -1,11 +1,13 @@
 from sqlalchemy import Boolean, Column, Integer, String, DateTime, func
 from app.database import Base
+from app.utils.business_id import generate_business_id
 
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    business_id = Column(String(32), unique=True, nullable=False, index=True, default=generate_business_id)
     username = Column(String(50), nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=True, index=True)
     email_verified = Column(Boolean, default=False, nullable=False, server_default="0")

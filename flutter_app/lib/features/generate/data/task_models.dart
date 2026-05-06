@@ -44,7 +44,7 @@ class TaskResult {
     required this.images,
   });
 
-  final int id;
+  final String id;
   final String mode;
   final String model;
   final String prompt;
@@ -62,7 +62,7 @@ class TaskResult {
 
   factory TaskResult.fromJson(Map<String, dynamic> json) {
     return TaskResult(
-      id: json['id'] as int? ?? 0,
+      id: json['id'] as String? ?? '',
       mode: json['mode'] as String? ?? 'generate',
       model: json['model'] as String? ?? '',
       prompt: json['prompt'] as String? ?? '',
@@ -87,14 +87,14 @@ class CreateTaskResponse {
     this.taskId,
   });
 
-  final int? taskId;
-  final List<int> taskIds;
+  final String? taskId;
+  final List<String> taskIds;
 
   factory CreateTaskResponse.fromJson(Map<String, dynamic> json) {
     return CreateTaskResponse(
-      taskId: (json['task_id'] as num?)?.toInt(),
+      taskId: json['task_id'] as String?,
       taskIds: (json['task_ids'] as List<dynamic>? ?? [])
-          .map((item) => (item as num).toInt())
+          .map((item) => item.toString())
           .toList(),
     );
   }

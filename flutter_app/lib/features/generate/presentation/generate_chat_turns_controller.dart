@@ -85,7 +85,7 @@ class GenerateChatTurn {
   });
 
   final String prompt;
-  final List<int> taskIds;
+  final List<String> taskIds;
   final bool isGenerating;
   final List<GenerateChatTurnResultImage> resultImages;
   final String? errorMessage;
@@ -95,7 +95,7 @@ class GenerateChatTurn {
   final double generatingAspectRatio;
 }
 
-bool _sameIdSet(List<int> a, List<int> b) {
+bool _sameIdSet(List<String> a, List<String> b) {
   if (a.length != b.length) return false;
   final aa = [...a]..sort();
   final bb = [...b]..sort();
@@ -116,7 +116,7 @@ class GenerateChatTurnsNotifier extends StateNotifier<List<GenerateChatTurn>> {
 
   void appendRunning(
     String prompt,
-    List<int> taskIds, {
+    List<String> taskIds, {
     required int slotCount,
     required double aspectRatio,
   }) {
@@ -128,7 +128,7 @@ class GenerateChatTurnsNotifier extends StateNotifier<List<GenerateChatTurn>> {
       ...state,
       GenerateChatTurn(
         prompt: t,
-        taskIds: List<int>.from(taskIds),
+        taskIds: List<String>.from(taskIds),
         isGenerating: true,
         generatingSlotCount: slots,
         generatingAspectRatio: ar,
@@ -240,7 +240,7 @@ class GenerateChatTurnsNotifier extends StateNotifier<List<GenerateChatTurn>> {
         turns.add(
           GenerateChatTurn(
             prompt: p,
-            taskIds: item.taskId > 0 ? [item.taskId] : const [],
+            taskIds: item.taskId == null || item.taskId!.isEmpty ? const [] : [item.taskId!],
             isGenerating: false,
             resultImages: images,
             errorMessage: failed ? '生图失败，请重新发起试试呢！' : null,

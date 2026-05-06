@@ -6,7 +6,7 @@ import type { AdminAnalyticsGranularity, AdminUser, TaskMode } from "@/types";
 
 type FilterState = {
   status?: string;
-  user_id?: number;
+  user_id?: string;
   model?: string;
   mode?: TaskMode;
   dateRange: [Dayjs, Dayjs] | null;

@@ -21,7 +21,7 @@ const page = ref(1);
 const pageSize = ref(20);
 const loading = ref(false);
 
-const filterUserId = ref<number | undefined>(undefined);
+const filterUserId = ref<string | undefined>(undefined);
 const filterDateRange = ref<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 const filterDirection = ref<"increase" | "decrease" | undefined>(undefined);
 const filterMode = ref<TaskMode | "manual" | undefined>(undefined);

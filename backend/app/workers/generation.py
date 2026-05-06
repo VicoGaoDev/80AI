@@ -21,6 +21,7 @@ from app.database import SessionLocal
 from app.models.image import Image
 from app.models.regenerate_log import RegenerateLog
 from app.models.task import Task
+from app.services.business_id_service import task_external_id, user_external_id
 from app.services.distributed_lock_service import acquire_redis_lock, release_redis_lock
 from app.services.cos_service import build_object_key, load_image_bytes, upload_bytes_to_cos
 from app.services.external_api_config_service import (
@@ -449,6 +450,14 @@ def _recover_single_image_after_exception(image_id: int, error_message: str) -> 
 
 
 def _process_task(task_id: int, *, use_distributed_lock: bool = True):
+    started_at = time.perf_counter()
+    logger.info(
+        "task processing started",
+        extra={
+            "event": "task.worker.started",
+            "task_id": task_id,
+        },
+    )
     task_lock = None
     if use_distributed_lock:
         task_lock = acquire_redis_lock(
@@ -456,21 +465,74 @@ def _process_task(task_id: int, *, use_distributed_lock: bool = True):
             timeout_seconds=TASK_PROCESSING_LOCK_TIMEOUT_SECONDS,
         )
         if task_lock.status == "contended":
-            logger.info("Skip duplicate task delivery: task_id=%s", task_id)
+            logger.info(
+                "Skip duplicate task delivery: task_id=%s",
+                task_id,
+                extra={
+                    "event": "task.worker.duplicate_skipped",
+                    "task_id": task_id,
+                },
+            )
             return
         if task_lock.status == "unavailable":
-            logger.error("Task lock unavailable: task_id=%s", task_id)
+            logger.error(
+                "Task lock unavailable: task_id=%s",
+                task_id,
+                extra={
+                    "event": "task.worker.lock_unavailable",
+                    "task_id": task_id,
+                },
+            )
             raise RuntimeError(TASK_LOCK_UNAVAILABLE_ERROR)
     db = SessionLocal()
     try:
         task = db.query(Task).filter(Task.id == task_id).first()
         if not task:
+            logger.warning(
+                "Task not found when processing started",
+                extra={
+                    "event": "task.worker.not_found",
+                    "task_id": task_id,
+                },
+            )
             return
         if task.status not in {"pending", "queued", "processing"}:
+            logger.info(
+                "Skip task processing due to terminal status",
+                extra={
+                    "event": "task.worker.skipped",
+                    "task_id": task_id,
+                    "task_status": task.status,
+                },
+            )
             return
+        queue_duration_ms = None
+        total_duration_ms = None
+        if task.created_at is not None:
+            now_ts = time.time()
+            created_ts = task.created_at.timestamp()
+            total_duration_ms = round(max(now_ts - created_ts, 0) * 1000, 2)
+            if task.enqueued_at is not None:
+                queue_duration_ms = round(max(task.enqueued_at.timestamp() - created_ts, 0) * 1000, 2)
+            else:
+                queue_duration_ms = round(
+                    max((now_ts - created_ts) * 1000 - ((time.perf_counter() - started_at) * 1000), 0),
+                    2,
+                )
         task.status = "processing"
         task.error_message = ""
         db.commit()
+        logger.info(
+            "Task status switched to processing",
+            extra={
+                "event": "task.worker.processing",
+                "task_id": task_external_id(task),
+                "user_id": user_external_id(task.user),
+                "mode": task.mode or "generate",
+                "model": task.model or "",
+                "queue_duration_ms": queue_duration_ms,
+            },
+        )
 
         images = db.query(Image).filter(Image.task_id == task_id).all()
         pending_images = [image for image in images if image.status == "pending"]
@@ -478,6 +540,18 @@ def _process_task(task_id: int, *, use_distributed_lock: bool = True):
             task.status = _resolve_task_status(images)
             task.error_message = "" if task.status == "success" else (task.error_message or "生图失败")
             db.commit()
+            logger.info(
+                "Task finished without pending images",
+                extra={
+                    "event": "task.worker.completed",
+                    "task_id": task_external_id(task),
+                    "user_id": user_external_id(task.user),
+                    "task_status": task.status,
+                    "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                    "queue_duration_ms": queue_duration_ms,
+                    "total_duration_ms": total_duration_ms,
+                },
+            )
             return
         ref_urls = _parse_reference_images(task)
         task_mode = (task.mode or "generate").lower()
@@ -528,9 +602,35 @@ def _process_task(task_id: int, *, use_distributed_lock: bool = True):
         if task.status == "success":
             task.error_message = ""
         db.commit()
+        logger.info(
+            "Task processing finished",
+            extra={
+                "event": "task.worker.completed",
+                "task_id": task_external_id(task),
+                "user_id": user_external_id(task.user),
+                "task_status": task.status,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                "queue_duration_ms": queue_duration_ms,
+                "total_duration_ms": round(max(time.time() - task.created_at.timestamp(), 0) * 1000, 2)
+                if task.created_at is not None
+                else None,
+            },
+        )
     except Exception as exc:
         _rollback_session_safely(db)
-        logger.exception("Task processing crashed: task_id=%s", task_id)
+        logger.exception(
+            "Task processing crashed: task_id=%s",
+            task_id,
+            extra={
+                "event": "task.worker.crashed",
+                "task_id": task_external_id(task) if "task" in locals() and task else str(task_id),
+                "user_id": user_external_id(task.user) if "task" in locals() and task else None,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                "total_duration_ms": round(max(time.time() - task.created_at.timestamp(), 0) * 1000, 2)
+                if "task" in locals() and task and task.created_at is not None
+                else None,
+            },
+        )
         _recover_task_after_exception(task_id, str(exc))
     finally:
         db.close()
@@ -728,8 +828,24 @@ def get_generation_dispatch_mode() -> str:
 def dispatch_generation_task(task_id: int) -> str:
     mode = get_generation_dispatch_mode()
     if mode == "celery":
+        logger.info(
+            "Dispatch generation task to celery",
+            extra={
+                "event": "task.worker.dispatched",
+                "task_id": task_id,
+                "dispatch_mode": "celery",
+            },
+        )
         generate_images_task.delay(task_id)
         return "queued"
+    logger.info(
+        "Dispatch generation task to sync worker",
+        extra={
+            "event": "task.worker.dispatched",
+            "task_id": task_id,
+            "dispatch_mode": "sync",
+        },
+    )
     generate_images_sync(task_id)
     return "sync"
 

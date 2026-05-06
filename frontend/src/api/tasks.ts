@@ -2,8 +2,8 @@ import client from "./client";
 import type { TaskResult } from "@/types";
 
 export interface CreateTaskResponse {
-  task_id?: number | null;
-  task_ids: number[];
+  task_id?: string | null;
+  task_ids: string[];
 }
 
 export function createTask(data: {
@@ -21,11 +21,11 @@ export function createTask(data: {
   return client.post("/tasks", data);
 }
 
-export function getTask(taskId: number): Promise<TaskResult> {
+export function getTask(taskId: string): Promise<TaskResult> {
   return client.get(`/tasks/${taskId}`);
 }
 
-export function getTasks(taskIds: number[]): Promise<TaskResult[]> {
+export function getTasks(taskIds: string[]): Promise<TaskResult[]> {
   const params = new URLSearchParams();
   taskIds.forEach((taskId) => {
     params.append("task_ids", String(taskId));

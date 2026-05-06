@@ -43,7 +43,7 @@ export function deletePromptHistory(id: number): Promise<void> {
 export function getCreditLogs(params: {
   page?: number;
   page_size?: number;
-  user_id?: number;
+  user_id?: string;
   start_date?: string;
   end_date?: string;
   direction?: "increase" | "decrease";

@@ -8,7 +8,7 @@ class AuthUser {
     this.avatarUrl = '',
   });
 
-  final int id;
+  final String id;
   final String username;
   final String? email;
   final String role;
@@ -17,7 +17,7 @@ class AuthUser {
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     return AuthUser(
-      id: json['id'] as int? ?? 0,
+      id: json['id'] as String? ?? '',
       username: json['username'] as String? ?? '',
       email: json['email'] as String?,
       role: json['role'] as String? ?? 'user',

@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    LOG_LEVEL: str = "INFO"
+    LOG_JSON: bool = False
     WEB_CONCURRENCY: int = 4
     ALLOW_SYNC_GENERATION_FALLBACK: bool = True
 

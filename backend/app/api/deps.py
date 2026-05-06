@@ -1,14 +1,17 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.logging_utils import set_request_context
 from app.models.user import User
+from app.services.business_id_service import get_user_by_business_id, user_external_id
 from app.utils.security import decode_access_token
 
 security = HTTPBearer()
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
@@ -17,11 +20,14 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 无效或已过期")
 
     user_id = payload.get("sub")
-    user = db.query(User).filter(User.id == int(user_id)).first()
+    user = get_user_by_business_id(db, str(user_id))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
     if user.status == "disabled":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
+    external_id = user_external_id(user)
+    request.state.user_id = external_id
+    set_request_context(getattr(request.state, "request_id", "-"), external_id)
     return user
 
 

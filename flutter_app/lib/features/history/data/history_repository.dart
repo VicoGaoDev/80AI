@@ -28,7 +28,7 @@ class HistoryRepository {
     }
   }
 
-  Future<void> deleteTask(int taskId) async {
+  Future<void> deleteTask(String taskId) async {
     try {
       await _dio.delete<void>('/history/tasks/$taskId');
     } on DioException catch (error) {

@@ -1,50 +1,98 @@
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.config import settings
 from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, UserBrief, ChangePasswordRequest
+from app.services.business_id_service import get_user_by_business_id, user_external_id
 from app.services.auth_service import authenticate_user, change_password, register_user
 from app.models.prompt_history import PromptHistory
 from app.services.admin_service import get_credit_logs
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
+audit_logger = logging.getLogger("app.audit")
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 AVATAR_MAX_SIZE = 1 * 1024 * 1024  # 1 MB
 
 
 def _user_brief(user: User) -> UserBrief:
     return UserBrief(
-        id=user.id, username=user.username, email=user.email, role=user.role,
+        id=user_external_id(user), username=user.username, email=user.email, role=user.role,
         avatar_url=user.avatar_url or "", credits=user.credits,
     )
 
 
 @router.post("/register", response_model=LoginResponse)
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
+def register(body: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     token, user = register_user(db, body.username, body.email, body.password)
+    request.state.user_id = user_external_id(user)
+    audit_logger.info(
+        "user registered",
+        extra={
+            "event": "auth.register.success",
+            "account": body.email.strip().lower(),
+            "client_ip": request.client.host if request.client else "",
+            "user_agent": request.headers.get("user-agent", ""),
+            "user_id": user_external_id(user),
+        },
+    )
     return LoginResponse(token=token, user=_user_brief(user))
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
-    token, user = authenticate_user(db, body.account, body.password)
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    normalized_account = (body.account or "").strip()
+    try:
+        token, user = authenticate_user(db, normalized_account, body.password)
+    except HTTPException:
+        audit_logger.warning(
+            "login failed",
+            extra={
+                "event": "auth.login.failed",
+                "account": normalized_account,
+                "client_ip": request.client.host if request.client else "",
+                "user_agent": request.headers.get("user-agent", ""),
+            },
+        )
+        raise
+    request.state.user_id = user_external_id(user)
+    audit_logger.info(
+        "login succeeded",
+        extra={
+            "event": "auth.login.success",
+            "account": normalized_account,
+            "client_ip": request.client.host if request.client else "",
+            "user_agent": request.headers.get("user-agent", ""),
+            "user_id": user_external_id(user),
+        },
+    )
     return LoginResponse(token=token, user=_user_brief(user))
 
 
 @router.post("/change-password")
 def change_pwd(
     body: ChangePasswordRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     change_password(db, user, body.old_password, body.new_password)
+    audit_logger.info(
+        "password changed",
+        extra={
+            "event": "auth.password.changed",
+            "client_ip": request.client.host if request.client else "",
+            "user_agent": request.headers.get("user-agent", ""),
+            "user_id": user_external_id(user),
+        },
+    )
     return {"message": "密码修改成功"}
 
 
@@ -57,7 +105,7 @@ def get_me(user: User = Depends(get_current_user)):
 def my_credit_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user_id: Optional[int] = Query(None),
+    user_id: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     direction: Optional[str] = Query(None, pattern="^(increase|decrease)$"),
@@ -66,7 +114,12 @@ def my_credit_logs(
     db: Session = Depends(get_db),
 ):
     is_admin = user.role in ("admin", "superadmin")
-    effective_user_id = user_id if is_admin else user.id
+    effective_user_id = user.id
+    if is_admin and user_id:
+        target_user = get_user_by_business_id(db, user_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        effective_user_id = target_user.id
     return get_credit_logs(db, user_id=effective_user_id, page=page, page_size=page_size,
                            start_date=start_date, end_date=end_date, direction=direction, mode=mode)
 

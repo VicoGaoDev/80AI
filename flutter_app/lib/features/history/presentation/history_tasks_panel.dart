@@ -147,7 +147,7 @@ class _HistoryTasksPanelState extends ConsumerState<HistoryTasksPanel> {
       );
       return;
     }
-    if (item.taskId <= 0) {
+    if (item.itemType != 'task' || item.taskId == null || item.taskId!.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('该记录无法重新生成')),
@@ -219,14 +219,18 @@ class _HistoryTasksPanelState extends ConsumerState<HistoryTasksPanel> {
     if (!confirmed || !mounted) return;
 
     try {
-      if (item.taskId < 0) {
+      if (item.itemType == 'prompt_history') {
         final hid = item.historyId;
         if (hid == null) {
           throw const AppException('无法删除该记录');
         }
         await ref.read(historyRepositoryProvider).deletePromptHistoryItem(hid);
       } else {
-        await ref.read(historyRepositoryProvider).deleteTask(item.taskId);
+        final taskId = item.taskId;
+        if (taskId == null || taskId.isEmpty) {
+          throw const AppException('无法删除该记录');
+        }
+        await ref.read(historyRepositoryProvider).deleteTask(taskId);
       }
       await ref.read(historyListControllerProvider.notifier).refresh();
       await ref.read(authControllerProvider.notifier).refreshMe();
@@ -347,7 +351,7 @@ class _HistoryTasksPanelState extends ConsumerState<HistoryTasksPanel> {
         children: [
           SmoothChildSwitcher(
             contentKey:
-                '${items.length}:${items.isEmpty ? 0 : items.first.taskId}:${items.isEmpty ? 0 : items.last.taskId}',
+                '${items.length}:${items.isEmpty ? "" : items.first.taskId ?? items.first.historyId}:${items.isEmpty ? "" : items.last.taskId ?? items.last.historyId}',
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,

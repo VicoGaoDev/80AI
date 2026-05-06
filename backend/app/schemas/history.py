@@ -17,7 +17,9 @@ class HistoryImageOut(BaseModel):
 
 
 class HistoryItem(BaseModel):
-    task_id: int
+    item_type: str = "task"
+    task_id: str | None = None
+    history_id: int | None = None
     display_id: str = ""
     username: str = ""
     avatar_url: str = ""
@@ -46,9 +48,10 @@ class HistoryResponse(BaseModel):
 
 class UserHistoryCardItem(BaseModel):
     history_id: int | None = None
+    item_type: str = "task"
     display_id: str = ""
-    task_id: int
-    image_id: int
+    task_id: str | None = None
+    image_id: int | None = None
     image_url: str = ""
     preview_url: str = ""
     thumb_url: str = ""

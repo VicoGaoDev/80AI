@@ -20,6 +20,8 @@ from app.services.image_delivery_service import (
     serialize_asset_urls,
     serialize_image,
 )
+from app.services.business_id_service import task_external_id
+from app.utils.business_id import normalize_business_id
 
 
 def _parse_refs(raw: str | None) -> list[str]:
@@ -123,8 +125,9 @@ def get_user_history(
         visible_images = _serialize_history_images(task.images, cos_config=cos_config)
         items.append({
             "history_id": None,
-            "display_id": str(task.id),
-            "task_id": task.id,
+            "item_type": "task",
+            "display_id": task_external_id(task),
+            "task_id": task_external_id(task),
             "image_id": image.id,
             "image_url": image_payload["image_url"],
             "preview_url": image_payload["preview_url"],
@@ -156,8 +159,9 @@ def get_user_history(
         source_asset = serialize_asset_urls(row.source_image or "", cos_config=cos_config)
         items.append({
             "history_id": row.id,
+            "item_type": "prompt_history",
             "display_id": f"PR-{row.id}",
-            "task_id": -row.id,
+            "task_id": None,
             "image_id": -row.id,
             "image_url": "",
             "preview_url": "",
@@ -191,8 +195,9 @@ def get_user_history(
     return {"total": total, "items": items[start_index:start_index + page_size]}
 
 
-def delete_user_history_task(db: Session, user_id: int, task_id: int):
-    task = db.query(Task).filter(Task.id == task_id, Task.user_id == user_id).first()
+def delete_user_history_task(db: Session, user_id: int, task_id: str):
+    normalized_task_id = normalize_business_id(task_id)
+    task = db.query(Task).filter(Task.business_id == normalized_task_id, Task.user_id == user_id).first()
     if not task:
         return False
 
@@ -202,7 +207,7 @@ def delete_user_history_task(db: Session, user_id: int, task_id: int):
         for image in list(task.images):
             db.delete(image)
 
-    db.query(CreditLog).filter(CreditLog.task_id == task_id).update(
+    db.query(CreditLog).filter(CreditLog.task_id == task.id).update(
         {"task_id": None},
         synchronize_session=False,
     )
@@ -282,7 +287,10 @@ def get_all_history(
         soft_deleted_count = sum(1 for img in task.images if img.is_deleted)
 
         items.append({
-            "task_id": task.id,
+            "item_type": "task",
+            "task_id": task_external_id(task),
+            "history_id": None,
+            "display_id": task_external_id(task),
             "username": user_cache[task.user_id]["username"],
             "avatar_url": user_cache[task.user_id]["avatar_url"],
             "model": task.model or "",
@@ -315,7 +323,9 @@ def get_all_history(
             }
 
         items.append({
-            "task_id": -log.id,
+            "item_type": "prompt_history",
+            "task_id": None,
+            "history_id": log.id,
             "display_id": f"PR-{log.id}",
             "username": user_cache[log.user_id]["username"],
             "avatar_url": user_cache[log.user_id]["avatar_url"],

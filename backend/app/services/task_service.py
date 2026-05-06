@@ -1,3 +1,5 @@
+from datetime import datetime
+import logging
 import json
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
@@ -7,14 +9,17 @@ from app.models.image import Image
 from app.models.user import User
 from app.models.credit_log import CreditLog
 from app.models.prompt_history import PromptHistory
+from app.services.business_id_service import task_external_id, user_external_id
 from app.services.distributed_lock_service import acquire_redis_lock, release_redis_lock
 from app.services.external_api_config_service import SCENE_INPAINT, get_scene_credit_cost
+from app.utils.business_id import normalize_business_id
 
 ACTIVE_TASK_STATUSES = ("pending", "queued", "processing")
 ENQUEUE_FAILURE_DESCRIPTION = "任务入队失败，返还积分"
 TASK_SUBMISSION_LOCK_PREFIX = "banana:tasks:submission:user"
 TASK_SUBMISSION_LOCK_TIMEOUT_SECONDS = 30
 TASK_SUBMISSION_LOCK_BLOCKING_TIMEOUT_SECONDS = 5
+task_logger = logging.getLogger("app.task")
 
 
 def _is_credit_exempt_user(user: User | None) -> bool:
@@ -69,18 +74,35 @@ def create_tasks(
         source_image=source_image,
         mask_image=mask_image,
     )
-
     submission_lock = acquire_redis_lock(
         _task_submission_lock_name(user_id),
         timeout_seconds=TASK_SUBMISSION_LOCK_TIMEOUT_SECONDS,
         blocking_timeout_seconds=TASK_SUBMISSION_LOCK_BLOCKING_TIMEOUT_SECONDS,
     )
     if submission_lock.status == "contended":
+        task_logger.warning(
+            "task submission rejected by submission lock",
+            extra={
+                "event": "task.create.lock_contended",
+                "user_id": str(user_id),
+                "mode": mode,
+                "model": model.strip(),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="当前提交任务较多，请稍后重试",
         )
     if submission_lock.status == "unavailable" and not settings.allow_sync_generation_fallback:
+        task_logger.error(
+            "task submission lock unavailable",
+            extra={
+                "event": "task.create.lock_unavailable",
+                "user_id": str(user_id),
+                "mode": mode,
+                "model": model.strip(),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="任务提交锁服务不可用，请稍后重试",
@@ -100,6 +122,17 @@ def create_tasks(
                 detail="用户不存在",
             )
         scene_key = SCENE_INPAINT if mode == "inpaint" else model.strip()
+        task_logger.info(
+            "task submission accepted",
+            extra={
+                "event": "task.create.requested",
+                "user_id": user_external_id(user),
+                "mode": mode,
+                "model": model.strip(),
+                "task_count": 1 if mode == "inpaint" else num_images,
+                "prompt_length": len((prompt or "").strip()),
+            },
+        )
         unit_cost = get_scene_credit_cost(db, scene_key)
         task_count = 1 if mode == "inpaint" else num_images
         ensure_task_submission_capacity(db, user_id=user_id, new_task_count=task_count)
@@ -163,8 +196,30 @@ def create_tasks(
         db.commit()
         for task in tasks:
             db.refresh(task)
+        task_logger.info(
+            "tasks created",
+            extra={
+                "event": "task.create.persisted",
+                "user_id": user_external_id(user),
+                "task_ids": [task_external_id(task) for task in tasks],
+                "task_count": len(tasks),
+                "mode": mode,
+                "model": normalized_model,
+                "credit_cost": per_task_credit_cost,
+                "total_cost": actual_total_cost,
+            },
+        )
         return tasks
     except Exception:
+        task_logger.exception(
+            "task creation failed",
+            extra={
+                "event": "task.create.failed",
+                "user_id": user_external_id(user) if "user" in locals() and user else str(user_id),
+                "mode": mode,
+                "model": model.strip(),
+            },
+        )
         db.rollback()
         raise
     finally:
@@ -187,6 +242,14 @@ def ensure_task_submission_capacity(db: Session, user_id: int, new_task_count: i
             .count()
         )
         if current_user_active_count + normalized_new_task_count > per_user_limit:
+            task_logger.warning(
+                "task submission exceeded per-user limit",
+                extra={
+                    "event": "task.create.user_limit_exceeded",
+                    "user_id": str(user_id),
+                    "task_count": normalized_new_task_count,
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=(
@@ -203,6 +266,14 @@ def ensure_task_submission_capacity(db: Session, user_id: int, new_task_count: i
             .count()
         )
         if current_global_active_count + normalized_new_task_count > global_limit:
+            task_logger.warning(
+                "task submission exceeded global limit",
+                extra={
+                    "event": "task.create.global_limit_exceeded",
+                    "user_id": str(user_id),
+                    "task_count": normalized_new_task_count,
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="当前排队任务较多，请稍后再试",
@@ -218,10 +289,43 @@ def mark_tasks_queued(db: Session, task_ids: list[int]) -> None:
         .filter(Task.id.in_(task_ids), Task.status == "pending")
         .all()
     )
+    enqueued_at = datetime.utcnow()
     for task in tasks:
         task.status = "queued"
         task.error_message = ""
+        task.enqueued_at = enqueued_at
     db.commit()
+    task_logger.info(
+        "tasks marked queued",
+        extra={
+            "event": "task.dispatch.queued",
+            "task_ids": [task_external_id(task) for task in tasks],
+            "task_count": len(tasks),
+        },
+    )
+
+
+def mark_tasks_dispatched(db: Session, task_ids: list[int]) -> None:
+    if not task_ids:
+        return
+
+    tasks = db.query(Task).filter(Task.id.in_(task_ids)).all()
+    if not tasks:
+        return
+
+    enqueued_at = datetime.utcnow()
+    for task in tasks:
+        if task.enqueued_at is None:
+            task.enqueued_at = enqueued_at
+    db.commit()
+    task_logger.info(
+        "tasks marked dispatched",
+        extra={
+            "event": "task.dispatch.persisted",
+            "task_ids": [task_external_id(task) for task in tasks],
+            "task_count": len(tasks),
+        },
+    )
 
 
 def mark_tasks_enqueue_failed(
@@ -270,10 +374,19 @@ def mark_tasks_enqueue_failed(
         user.credits += refund_total
 
     db.commit()
+    task_logger.error(
+        "tasks enqueue failed",
+        extra={
+            "event": "task.dispatch.failed",
+            "task_ids": [task_external_id(task) for task in tasks],
+            "task_count": len(tasks),
+        },
+    )
 
 
-def get_task_detail(db: Session, task_id: int, user_id: int | None = None) -> Task:
-    query = db.query(Task).filter(Task.id == task_id)
+def get_task_detail(db: Session, task_id: str, user_id: int | None = None) -> Task:
+    normalized_task_id = normalize_business_id(task_id)
+    query = db.query(Task).filter(Task.business_id == normalized_task_id)
     if user_id is not None:
         query = query.filter(Task.user_id == user_id)
     task = query.first()
@@ -282,21 +395,24 @@ def get_task_detail(db: Session, task_id: int, user_id: int | None = None) -> Ta
     return task
 
 
-def get_task_details(db: Session, task_ids: list[int], user_id: int | None = None) -> list[Task]:
+def get_task_details(db: Session, task_ids: list[str], user_id: int | None = None) -> list[Task]:
     if not task_ids:
         return []
 
     normalized_ids = []
-    seen_ids: set[int] = set()
+    seen_ids: set[str] = set()
     for task_id in task_ids:
-        if task_id in seen_ids:
+        normalized_task_id = normalize_business_id(task_id)
+        if not normalized_task_id:
             continue
-        seen_ids.add(task_id)
-        normalized_ids.append(task_id)
+        if normalized_task_id in seen_ids:
+            continue
+        seen_ids.add(normalized_task_id)
+        normalized_ids.append(normalized_task_id)
 
-    query = db.query(Task).filter(Task.id.in_(normalized_ids))
+    query = db.query(Task).filter(Task.business_id.in_(normalized_ids))
     if user_id is not None:
         query = query.filter(Task.user_id == user_id)
 
-    task_map = {task.id: task for task in query.all()}
+    task_map = {task.business_id: task for task in query.all()}
     return [task_map[task_id] for task_id in normalized_ids if task_id in task_map]

@@ -42,34 +42,34 @@ export function createUser(data: { username: string; password: string; role?: st
   return client.post("/admin/users", data);
 }
 
-export function updateUserStatus(userId: number, status: string): Promise<AdminUser> {
+export function updateUserStatus(userId: string, status: string): Promise<AdminUser> {
   return client.put(`/admin/users/${userId}/status`, { status });
 }
 
-export function updateUserRole(userId: number, role: string): Promise<AdminUser> {
+export function updateUserRole(userId: string, role: string): Promise<AdminUser> {
   return client.put(`/admin/users/${userId}/role`, { role });
 }
 
-export function updateUserWhitelist(userId: number, isWhitelisted: boolean): Promise<AdminUser> {
+export function updateUserWhitelist(userId: string, isWhitelisted: boolean): Promise<AdminUser> {
   return client.put(`/admin/users/${userId}/whitelist`, { is_whitelisted: isWhitelisted });
 }
 
-export function resetUserPassword(userId: number, newPassword: string): Promise<AdminUser> {
+export function resetUserPassword(userId: string, newPassword: string): Promise<AdminUser> {
   return client.put(`/admin/users/${userId}/reset-password`, { new_password: newPassword });
 }
 
-export function allocateCredits(userId: number, amount: number, description?: string): Promise<AdminUser> {
+export function allocateCredits(userId: string, amount: number, description?: string): Promise<AdminUser> {
   return client.post(`/admin/users/${userId}/credits`, { amount, description: description || "" });
 }
 
-export function resetUserCredits(userId: number, description?: string): Promise<AdminUser> {
+export function resetUserCredits(userId: string, description?: string): Promise<AdminUser> {
   return client.post(`/admin/users/${userId}/credits/reset`, { description: description || "" });
 }
 
 export function getCreditLogs(
   page = 1,
   pageSize = 20,
-  userId?: number,
+  userId?: string,
   direction?: "increase" | "decrease",
   mode?: "generate" | "inpaint" | "promptReverse" | "manual",
 ): Promise<{ total: number; items: CreditLog[] }> {

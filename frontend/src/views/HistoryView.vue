@@ -66,15 +66,22 @@ const activeFilterCount = computed(() => {
 });
 const hasMoreHistory = computed(() => items.value.length < total.value);
 
-const currentPageIds = computed(() => items.value.map((item) => item.image_id));
+const currentPageIds = computed(() => (
+  items.value
+    .map((item) => item.image_id)
+    .filter((id): id is number => typeof id === "number")
+));
 const selectedItems = computed(() => (
-  items.value.filter((item) => selectedImageIds.value.includes(item.image_id))
+  items.value.filter((item) => typeof item.image_id === "number" && selectedImageIds.value.includes(item.image_id))
 ));
 const selectedCount = computed(() => selectedItems.value.length);
 const selectableCount = computed(() => items.value.length);
 const downloadableSelectedItems = computed(() => selectedItems.value.filter((item) => !!item.image_url));
 const allVisibleSelected = computed(() => (
-  !!items.value.length && items.value.every((item) => selectedImageIds.value.includes(item.image_id))
+  !!items.value.length
+  && items.value
+    .filter((item) => typeof item.image_id === "number")
+    .every((item) => selectedImageIds.value.includes(item.image_id as number))
 ));
 
 function hasRunningTasks(list: UserHistoryCard[]) {
@@ -339,6 +346,13 @@ function invertVisibleSelection() {
   selectedImageIds.value = currentPageIds.value.filter((id) => !selectedImageIds.value.includes(id));
 }
 
+function getHistoryItemKey(item: UserHistoryCard) {
+  if (typeof item.image_id === "number") return item.image_id;
+  if (item.task_id) return item.task_id;
+  if (item.history_id) return `history-${item.history_id}`;
+  return `${item.mode}-${item.created_at}`;
+}
+
 function clearSelection() {
   selectedImageIds.value = [];
 }
@@ -408,10 +422,13 @@ async function handleDelete(item: UserHistoryCard) {
       if (item.mode === "promptReverse" && item.history_id) {
         await deletePromptHistory(item.history_id);
       } else {
+        if (typeof item.image_id !== "number") return;
         await deleteImage(item.image_id);
       }
       message.success("删除成功");
-      selectedImageIds.value = selectedImageIds.value.filter((id) => id !== item.image_id);
+      if (typeof item.image_id === "number") {
+        selectedImageIds.value = selectedImageIds.value.filter((id) => id !== item.image_id);
+      }
       if (items.value.length === 1 && page.value > 1) page.value -= 1;
       if (detailItem.value?.image_id === item.image_id) detailOpen.value = false;
       await loadHistory();
@@ -432,6 +449,7 @@ async function handleBatchDownload() {
   let successCount = 0;
   for (const item of downloadableSelectedItems.value) {
     try {
+      if (typeof item.image_id !== "number") continue;
       await downloadBlob(item.image_id, item.image_url);
       successCount += 1;
       await wait(180);
@@ -465,7 +483,9 @@ async function deleteSelectedItems() {
 
   if (successIds.length) {
     selectedImageIds.value = selectedImageIds.value.filter((id) => !successIds.includes(id));
-    if (detailItem.value && successIds.includes(detailItem.value.image_id)) detailOpen.value = false;
+    if (detailItem.value && typeof detailItem.value.image_id === "number" && successIds.includes(detailItem.value.image_id)) {
+      detailOpen.value = false;
+    }
     if (successIds.length === items.value.length && page.value > 1) page.value -= 1;
   }
 
@@ -644,13 +664,17 @@ function handleReedit(item: UserHistoryCard) {
       <TransitionGroup v-else name="history-card" tag="div" class="history-grid">
         <div
           v-for="(item, index) in items"
-          :key="item.image_id"
+          :key="getHistoryItemKey(item)"
           class="result-card warm-card"
           :style="{ '--history-card-delay': `${Math.min(index, 9) * 45}ms` }"
           @click="openDetail(item)"
         >
           <div v-if="batchMode" class="result-card-select" @click.stop>
-            <a-checkbox :checked="isSelected(item.image_id)" @change="handleSelectChange(item.image_id, $event)" />
+            <a-checkbox
+              :checked="typeof item.image_id === 'number' ? isSelected(item.image_id) : false"
+              :disabled="typeof item.image_id !== 'number'"
+              @change="typeof item.image_id === 'number' && handleSelectChange(item.image_id, $event)"
+            />
           </div>
 
           <div class="result-card-media">
@@ -690,8 +714,8 @@ function handleReedit(item: UserHistoryCard) {
                   type="text"
                   size="small"
                   class="ghost-icon-btn"
-                  :disabled="!item.image_url || item.mode === 'promptReverse'"
-                  @click.stop="download(item.image_id, item.image_url)"
+                  :disabled="!item.image_url || item.mode === 'promptReverse' || typeof item.image_id !== 'number'"
+                  @click.stop="typeof item.image_id === 'number' && download(item.image_id, item.image_url)"
                 >
                   <template #icon><DownloadOutlined /></template>
                 </a-button>
@@ -729,7 +753,7 @@ function handleReedit(item: UserHistoryCard) {
       centered
     >
       <template v-if="detailItem">
-        <div :key="detailItem.image_id" class="detail-layout">
+        <div :key="getHistoryItemKey(detailItem)" class="detail-layout">
           <div class="detail-left">
             <div class="detail-section">
               <div v-if="detailItem.mode === 'promptReverse'" class="detail-label">反推原图</div>
@@ -821,8 +845,8 @@ function handleReedit(item: UserHistoryCard) {
               <a-button
                 type="text"
                 class="ghost-icon-btn detail-action-btn"
-                :disabled="!detailItem.image_url"
-                @click="download(detailItem.image_id, detailItem.image_url)"
+                :disabled="!detailItem.image_url || typeof detailItem.image_id !== 'number'"
+                @click="typeof detailItem.image_id === 'number' && download(detailItem.image_id, detailItem.image_url)"
               >
                 <template #icon><DownloadOutlined /></template>
               </a-button>

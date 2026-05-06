@@ -12,7 +12,7 @@ class LoginResponse(BaseModel):
 
 
 class UserBrief(BaseModel):
-    id: int
+    id: str
     username: str
     email: str | None = None
     role: str

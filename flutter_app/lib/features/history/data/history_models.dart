@@ -29,6 +29,7 @@ class UserHistoryCardItem {
     required this.taskId,
     required this.imageId,
     this.historyId,
+    this.itemType = 'task',
     required this.prompt,
     required this.model,
     this.mode = 'generate',
@@ -46,9 +47,10 @@ class UserHistoryCardItem {
     required this.images,
   });
 
-  final int taskId;
-  final int imageId;
+  final String? taskId;
+  final int? imageId;
   final int? historyId;
+  final String itemType;
   final String prompt;
   final String model;
   final String mode;
@@ -67,9 +69,10 @@ class UserHistoryCardItem {
 
   factory UserHistoryCardItem.fromJson(Map<String, dynamic> json) {
     return UserHistoryCardItem(
-      taskId: json['task_id'] as int? ?? 0,
-      imageId: json['image_id'] as int? ?? 0,
+      taskId: json['task_id'] as String?,
+      imageId: json['image_id'] as int?,
       historyId: json['history_id'] as int?,
+      itemType: json['item_type'] as String? ?? 'task',
       prompt: json['prompt'] as String? ?? '',
       model: json['model'] as String? ?? '',
       mode: json['mode'] as String? ?? 'generate',

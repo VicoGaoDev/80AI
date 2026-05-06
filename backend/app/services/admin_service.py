@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from app.models.user import User
 from app.models.task import Task
 from app.models.credit_log import CreditLog
+from app.services.business_id_service import get_user_by_business_id, task_external_id, user_external_id
 from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION,
     PROMPT_REVERSE_MODE,
@@ -38,7 +39,21 @@ class AnalyticsRecord:
     created_at: datetime
 
 
-def create_user(db: Session, username: str, password: str, role: str = "user", operator: User | None = None) -> User:
+def _serialize_user(user: User) -> dict:
+    return {
+        "id": user_external_id(user),
+        "username": user.username,
+        "email": user.email,
+        "avatar_url": user.avatar_url or "",
+        "role": user.role,
+        "status": user.status,
+        "is_whitelisted": bool(user.is_whitelisted),
+        "credits": int(user.credits or 0),
+        "created_at": user.created_at,
+    }
+
+
+def create_user(db: Session, username: str, password: str, role: str = "user", operator: User | None = None) -> dict:
     if username == "administrator":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该用户名为系统保留，不可使用")
     exists = db.query(User).filter(User.username == username).first()
@@ -55,23 +70,24 @@ def create_user(db: Session, username: str, password: str, role: str = "user", o
     db.add(user)
     db.commit()
     db.refresh(user)
-    return user
+    return _serialize_user(user)
 
 
-def list_users(db: Session) -> list[User]:
-    return (
+def list_users(db: Session) -> list[dict]:
+    users = (
         db.query(User)
         .filter(User.role != "superadmin")
         .order_by(User.created_at.desc())
         .all()
     )
+    return [_serialize_user(user) for user in users]
 
 
-def update_user_status(db: Session, user_id: int, new_status: str) -> User:
+def update_user_status(db: Session, user_id: str, new_status: str) -> dict:
     if new_status not in ("active", "disabled"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="状态必须是 active 或 disabled")
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if user.role == "superadmin":
@@ -82,14 +98,14 @@ def update_user_status(db: Session, user_id: int, new_status: str) -> User:
     user.status = new_status
     db.commit()
     db.refresh(user)
-    return user
+    return _serialize_user(user)
 
 
-def update_user_role(db: Session, user_id: int, new_role: str) -> User:
+def update_user_role(db: Session, user_id: str, new_role: str) -> dict:
     if new_role not in ("user", "admin"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色必须是 user 或 admin")
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if user.role == "superadmin":
@@ -100,11 +116,11 @@ def update_user_role(db: Session, user_id: int, new_role: str) -> User:
     user.role = new_role
     db.commit()
     db.refresh(user)
-    return user
+    return _serialize_user(user)
 
 
-def update_user_whitelist(db: Session, user_id: int, is_whitelisted: bool) -> User:
-    user = db.query(User).filter(User.id == user_id).first()
+def update_user_whitelist(db: Session, user_id: str, is_whitelisted: bool) -> dict:
+    user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if user.role == "superadmin":
@@ -113,14 +129,14 @@ def update_user_whitelist(db: Session, user_id: int, is_whitelisted: bool) -> Us
     user.is_whitelisted = is_whitelisted
     db.commit()
     db.refresh(user)
-    return user
+    return _serialize_user(user)
 
 
-def reset_user_password(db: Session, user_id: int, new_password: str) -> User:
+def reset_user_password(db: Session, user_id: str, new_password: str) -> dict:
     if len(new_password) < 6:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码至少6位")
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if user.role == "superadmin":
@@ -129,13 +145,13 @@ def reset_user_password(db: Session, user_id: int, new_password: str) -> User:
     user.password_hash = hash_password(new_password)
     db.commit()
     db.refresh(user)
-    return user
+    return _serialize_user(user)
 
 
-def allocate_credits(db: Session, user_id: int, amount: int, description: str, operator_id: int) -> User:
+def allocate_credits(db: Session, user_id: str, amount: int, description: str, operator_id: int) -> dict:
     if amount == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="积分数量不能为 0")
-    user = db.query(User).filter(User.id == user_id).first()
+    user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if user.credits + amount < 0:
@@ -143,7 +159,7 @@ def allocate_credits(db: Session, user_id: int, amount: int, description: str, o
 
     user.credits += amount
     log = CreditLog(
-        user_id=user_id,
+        user_id=user.id,
         amount=amount,
         type="allocate",
         description=description or ("管理员充值" if amount > 0 else "管理员扣减"),
@@ -152,11 +168,11 @@ def allocate_credits(db: Session, user_id: int, amount: int, description: str, o
     db.add(log)
     db.commit()
     db.refresh(user)
-    return user
+    return _serialize_user(user)
 
 
-def reset_user_credits(db: Session, user_id: int, description: str, operator_id: int) -> User:
-    user = db.query(User).filter(User.id == user_id).first()
+def reset_user_credits(db: Session, user_id: str, description: str, operator_id: int) -> dict:
+    user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if user.credits <= 0:
@@ -165,7 +181,7 @@ def reset_user_credits(db: Session, user_id: int, description: str, operator_id:
     deducted_amount = int(user.credits or 0)
     user.credits = 0
     log = CreditLog(
-        user_id=user_id,
+        user_id=user.id,
         amount=-deducted_amount,
         type="allocate",
         description=description or f"管理员积分清零（原余额 {deducted_amount}）",
@@ -174,7 +190,7 @@ def reset_user_credits(db: Session, user_id: int, description: str, operator_id:
     db.add(log)
     db.commit()
     db.refresh(user)
-    return user
+    return _serialize_user(user)
 
 
 def _resolve_credit_log_mode(log: CreditLog, task_modes: dict[int, str]) -> str:
@@ -205,10 +221,14 @@ def get_credit_logs(
     logs = query.order_by(CreditLog.created_at.desc()).all()
 
     task_ids = {log.task_id for log in logs if log.task_id}
-    task_modes = {
-        task.id: (task.mode or "generate")
+    task_cache = {
+        task.id: task
         for task in db.query(Task).filter(Task.id.in_(task_ids)).all()
     } if task_ids else {}
+    task_modes = {
+        task_id: (task.mode or "generate")
+        for task_id, task in task_cache.items()
+    }
 
     filtered_logs: list[CreditLog] = []
     for log in logs:
@@ -235,14 +255,14 @@ def get_credit_logs(
         operator = operator_cache.get(log.operator_id) if log.operator_id else None
         items.append({
             "id": log.id,
-            "user_id": log.user_id,
+            "user_id": user_external_id(user_cache[log.user_id]),
             "username": user_cache[log.user_id].username if user_cache[log.user_id] else "",
             "amount": log.amount,
             "type": log.type,
             "mode": _resolve_credit_log_mode(log, task_modes),
             "description": log.description,
             "operator_name": operator.username if operator else "",
-            "task_id": log.task_id,
+            "task_id": task_external_id(task_cache.get(log.task_id)) if log.task_id else None,
             "created_at": log.created_at,
         })
     return {"total": total, "items": items}

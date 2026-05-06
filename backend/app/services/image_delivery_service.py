@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.image import Image
 from app.models.task import Task
+from app.services.business_id_service import task_external_id
 from app.services.cos_service import CosRuntimeConfig, get_cos_config
 
 
@@ -119,7 +120,7 @@ def serialize_image(image: Image, *, cos_config: CosRuntimeConfig | None = None)
 
 def serialize_task(task: Task, *, cos_config: CosRuntimeConfig | None = None) -> dict:
     return {
-        "id": task.id,
+        "id": task_external_id(task),
         "mode": task.mode or "generate",
         "model": task.model or "",
         "prompt": task.prompt or "",
@@ -131,5 +132,6 @@ def serialize_task(task: Task, *, cos_config: CosRuntimeConfig | None = None) ->
         "status": task.status,
         "error_message": task.error_message or "",
         "created_at": task.created_at,
+        "enqueued_at": task.enqueued_at,
         "images": [serialize_image(image, cos_config=cos_config) for image in task.images],
     }

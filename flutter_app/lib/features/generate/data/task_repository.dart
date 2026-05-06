@@ -39,7 +39,7 @@ class TaskRepository {
     }
   }
 
-  Future<List<TaskResult>> getTasks(List<int> taskIds) async {
+  Future<List<TaskResult>> getTasks(List<String> taskIds) async {
     try {
       final query = taskIds.map((id) => 'task_ids=$id').join('&');
       final response = await _dio.get<List<dynamic>>('/tasks?$query');

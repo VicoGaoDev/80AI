@@ -16,8 +16,8 @@ class TaskCreate(BaseModel):
 
 
 class TaskCreateResponse(BaseModel):
-    task_id: int | None = None
-    task_ids: list[int] = Field(default_factory=list)
+    task_id: str | None = None
+    task_ids: list[str] = Field(default_factory=list)
 
 
 class ImageOut(BaseModel):
@@ -34,7 +34,7 @@ class ImageOut(BaseModel):
 
 
 class TaskOut(BaseModel):
-    id: int
+    id: str
     mode: str = "generate"
     model: str = ""
     prompt: str = ""
@@ -46,6 +46,7 @@ class TaskOut(BaseModel):
     status: str
     error_message: str = ""
     created_at: datetime | None = None
+    enqueued_at: datetime | None = None
     images: list[ImageOut] = []
 
     model_config = {"from_attributes": True}
