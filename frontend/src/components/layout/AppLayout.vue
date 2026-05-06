@@ -70,7 +70,7 @@ const primaryMenuItems = [
 ];
 
 function getPrimaryMenuIconSrc(item: (typeof primaryMenuItems)[number]) {
-  if (currentTheme.value === "dark" && item.darkIconSrc) {
+  if (currentTheme.value !== "warm" && item.darkIconSrc) {
     return item.darkIconSrc;
   }
   return item.iconSrc;
@@ -1053,6 +1053,18 @@ watch(
   }
 }
 
+html:is([data-theme="dark"], [data-theme="midnight"]) .app-layout {
+  :deep(.ant-menu-item-danger:hover) {
+    background: rgba(185, 56, 42, 0.14) !important;
+    color: #de8f84 !important;
+  }
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdown-menu-item-danger:hover {
+  background: rgba(185, 56, 42, 0.14) !important;
+  color: #de8f84 !important;
+}
+
 .mobile-auth-actions {
   display: flex;
   flex-direction: column;
@@ -1227,6 +1239,8 @@ watch(
 
 .route-page-shell {
   min-width: 0;
+  background: var(--theme-page-base);
+  border-radius: 0;
 }
 
 .route-page-forward-enter-active,
@@ -1235,32 +1249,27 @@ watch(
 .route-page-back-leave-active {
   transition:
     opacity var(--motion-duration-reveal-fast) var(--motion-ease-soft),
-    transform var(--motion-duration-reveal) var(--motion-ease-enter),
-    filter var(--motion-duration-reveal-fast) var(--motion-ease-soft);
+    transform var(--motion-duration-reveal) var(--motion-ease-enter);
 }
 
 .route-page-forward-enter-from {
   opacity: 0;
   transform: translate3d(18px, 0, 0);
-  filter: blur(8px);
 }
 
 .route-page-forward-leave-to {
   opacity: 0;
   transform: translate3d(-14px, 0, 0);
-  filter: blur(6px);
 }
 
 .route-page-back-enter-from {
   opacity: 0;
   transform: translate3d(-18px, 0, 0);
-  filter: blur(8px);
 }
 
 .route-page-back-leave-to {
   opacity: 0;
   transform: translate3d(14px, 0, 0);
-  filter: blur(6px);
 }
 
 .route-page-forward-enter-to,
@@ -1269,7 +1278,6 @@ watch(
 .route-page-back-leave-from {
   opacity: 1;
   transform: translate3d(0, 0, 0);
-  filter: blur(0);
 }
 
 :deep(.mobile-nav-drawer .ant-drawer-header) {
@@ -1438,6 +1446,17 @@ watch(
   border: 1px solid var(--theme-panel-border);
   background: linear-gradient(180deg, var(--theme-panel-bg), var(--theme-panel-bg-soft));
   box-shadow: 0 16px 28px var(--theme-shadow-soft);
+  color: var(--theme-title);
+}
+
+.warm-dropdown .ant-dropdown-menu,
+.warm-dropdown .ant-dropdown-menu .ant-dropdown-menu-title-content,
+.warm-dropdown .ant-dropdown-menu .ant-dropdown-menu-item,
+.warm-dropdown .ant-dropdown-menu .ant-dropdown-menu-item span,
+.warm-dropdown .ant-dropdown-menu .ant-dropdown-menu-item a,
+.warm-dropdown .ant-dropdown-menu .ant-dropdown-menu-submenu-title,
+.warm-dropdown .ant-dropdown-menu .ant-dropdown-menu-submenu-title span {
+  color: var(--theme-title) !important;
 }
 
 .warm-dropdown .ant-dropdown-menu-item {
@@ -1458,9 +1477,15 @@ watch(
 
 .warm-dropdown .ant-dropdown-menu-item:hover {
   background: linear-gradient(180deg, var(--theme-panel-bg-soft), var(--theme-panel-bg-strong));
-  color: var(--theme-accent-text-hover);
+  color: var(--theme-accent-text-hover) !important;
   box-shadow: 0 10px 22px var(--theme-card-shadow);
   transform: translateY(-1px);
+}
+
+.warm-dropdown .ant-dropdown-menu-item:hover span,
+.warm-dropdown .ant-dropdown-menu-item:hover a,
+.warm-dropdown .ant-dropdown-menu-item:hover .ant-dropdown-menu-title-content {
+  color: var(--theme-accent-text-hover) !important;
 }
 
 .warm-dropdown .ant-dropdown-menu-item-selected {
@@ -1471,6 +1496,12 @@ watch(
     0 10px 22px var(--theme-shadow-strong);
 }
 
+.warm-dropdown .ant-dropdown-menu-item-selected span,
+.warm-dropdown .ant-dropdown-menu-item-selected a,
+.warm-dropdown .ant-dropdown-menu-item-selected .ant-dropdown-menu-title-content {
+  color: var(--theme-accent-contrast) !important;
+}
+
 .warm-dropdown .ant-dropdown-menu-item .anticon {
   font-size: 16px;
   color: currentColor;
@@ -1478,6 +1509,12 @@ watch(
 
 .warm-dropdown .ant-dropdown-menu-item-danger {
   color: #c85a49 !important;
+}
+
+.warm-dropdown .ant-dropdown-menu-item-danger span,
+.warm-dropdown .ant-dropdown-menu-item-danger a,
+.warm-dropdown .ant-dropdown-menu-item-danger .ant-dropdown-menu-title-content {
+  color: inherit !important;
 }
 
 .warm-dropdown .ant-dropdown-menu-item-danger:hover {

@@ -715,7 +715,8 @@ onMounted(() => {
   margin-top: 6px;
 }
 
-:global(html[data-theme="dark"]) {
+:global(html[data-theme="dark"]),
+:global(html[data-theme="midnight"]) {
   .home-page {
     .hero-section,
     .hero-visual,
@@ -799,7 +800,7 @@ onMounted(() => {
 
     .showcase-skeleton-media,
     .showcase-skeleton-line {
-      background: #ececef !important;
+      background: var(--theme-panel-bg-strong) !important;
     }
 
     .showcase-marquee::before {
@@ -947,7 +948,8 @@ onMounted(() => {
 </style>
 
 <style lang="scss">
-html[data-theme="dark"] .home-page .hero-section.hero-section {
+html[data-theme="dark"] .home-page .hero-section.hero-section,
+html[data-theme="midnight"] .home-page .hero-section.hero-section {
   background: var(--theme-page-base) !important;
   border: none !important;
   box-shadow: none !important;
@@ -956,7 +958,10 @@ html[data-theme="dark"] .home-page .hero-section.hero-section {
 
 html[data-theme="dark"] .home-page .section-block,
 html[data-theme="dark"] .home-page .showcase-shell,
-html[data-theme="dark"] .home-page .promise-shell {
+html[data-theme="dark"] .home-page .promise-shell,
+html[data-theme="midnight"] .home-page .section-block,
+html[data-theme="midnight"] .home-page .showcase-shell,
+html[data-theme="midnight"] .home-page .promise-shell {
   background: var(--theme-page-base) !important;
   border-color: transparent !important;
   box-shadow: none !important;
@@ -964,26 +969,33 @@ html[data-theme="dark"] .home-page .promise-shell {
 }
 
 html[data-theme="dark"] .home-page .showcase-marquee,
-html[data-theme="dark"] .home-page .showcase-skeleton-row {
+html[data-theme="dark"] .home-page .showcase-skeleton-row,
+html[data-theme="midnight"] .home-page .showcase-marquee,
+html[data-theme="midnight"] .home-page .showcase-skeleton-row {
   background: var(--theme-page-base) !important;
 }
 
-html[data-theme="dark"] .home-page .showcase-marquee::before {
+html[data-theme="dark"] .home-page .showcase-marquee::before,
+html[data-theme="midnight"] .home-page .showcase-marquee::before {
   background: linear-gradient(90deg, var(--theme-page-base) 0%, rgba(var(--theme-page-base-rgb), 0) 100%) !important;
 }
 
-html[data-theme="dark"] .home-page .showcase-marquee::after {
+html[data-theme="dark"] .home-page .showcase-marquee::after,
+html[data-theme="midnight"] .home-page .showcase-marquee::after {
   background: linear-gradient(270deg, var(--theme-page-base) 0%, rgba(var(--theme-page-base-rgb), 0) 100%) !important;
 }
 
-html[data-theme="dark"] .home-page .highlight-card.warm-card {
+html[data-theme="dark"] .home-page .highlight-card.warm-card,
+html[data-theme="midnight"] .home-page .highlight-card.warm-card {
   background: var(--theme-panel-bg) !important;
   border: 1px solid var(--theme-panel-border) !important;
   box-shadow: 0 10px 24px var(--theme-shadow-soft) !important;
 }
 
 html[data-theme="dark"] .home-page .metric-card,
-html[data-theme="dark"] .home-page .promise-item {
+html[data-theme="dark"] .home-page .promise-item,
+html[data-theme="midnight"] .home-page .metric-card,
+html[data-theme="midnight"] .home-page .promise-item {
   background: var(--theme-panel-bg) !important;
   border-color: var(--theme-panel-border) !important;
   box-shadow: none !important;
@@ -992,7 +1004,11 @@ html[data-theme="dark"] .home-page .promise-item {
 html[data-theme="dark"] .home-page .hero-panel,
 html[data-theme="dark"] .home-page .hero-secondary-btn,
 html[data-theme="dark"] .home-page .hero-badge,
-html[data-theme="dark"] .home-page .showcase-empty {
+html[data-theme="dark"] .home-page .showcase-empty,
+html[data-theme="midnight"] .home-page .hero-panel,
+html[data-theme="midnight"] .home-page .hero-secondary-btn,
+html[data-theme="midnight"] .home-page .hero-badge,
+html[data-theme="midnight"] .home-page .showcase-empty {
   background: var(--theme-panel-bg) !important;
   box-shadow: none !important;
 }

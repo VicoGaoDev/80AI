@@ -371,8 +371,8 @@ watch(() => props.maskUrl, async () => {
   width: 100%;
   border-radius: 18px;
   overflow: hidden;
-  background: #fff8ec;
-  border: 1px solid #f0ddbb;
+  background: var(--theme-panel-bg-soft);
+  border: 1px solid var(--theme-panel-border);
 }
 
 .repaint-image {

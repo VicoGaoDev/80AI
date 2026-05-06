@@ -1544,6 +1544,59 @@ function handleReedit(item: UserHistoryCard) {
   }
 }
 
+html:is([data-theme="dark"], [data-theme="midnight"]) .history-page .history-overlay-btn {
+  border-color: var(--theme-panel-border) !important;
+  background: rgba(var(--theme-surface-strong-rgb), 0.9) !important;
+  color: var(--theme-accent-text) !important;
+  box-shadow: 0 10px 20px var(--theme-shadow-soft);
+
+  &:hover,
+  &:focus {
+    background: var(--theme-surface-strong) !important;
+    border-color: var(--theme-border-strong) !important;
+    color: var(--theme-accent-text-hover) !important;
+    box-shadow: 0 14px 26px var(--theme-shadow-medium);
+  }
+
+  &[disabled] {
+    border-color: var(--theme-panel-border) !important;
+    background: rgba(var(--theme-surface-strong-rgb), 0.42) !important;
+    color: var(--text-muted) !important;
+    box-shadow: none;
+  }
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .history-page .history-overlay-btn-danger,
+html:is([data-theme="dark"], [data-theme="midnight"]) .history-page .history-feedback-btn.history-overlay-btn-failed {
+  border-color: rgba(222, 143, 132, 0.24) !important;
+  background: rgba(185, 56, 42, 0.82) !important;
+  color: #fff5f2 !important;
+  box-shadow: 0 12px 24px rgba(140, 40, 28, 0.3);
+
+  &:hover,
+  &:focus {
+    background: rgba(185, 56, 42, 0.92) !important;
+    border-color: rgba(240, 176, 166, 0.3) !important;
+    color: #fff7f5 !important;
+    box-shadow: 0 16px 28px rgba(140, 40, 28, 0.38);
+  }
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .history-page .history-overlay-btn-active {
+  border-color: var(--theme-border-accent) !important;
+  background: var(--theme-accent) !important;
+  color: var(--theme-accent-contrast) !important;
+  box-shadow: 0 14px 28px var(--theme-shadow-strong);
+
+  &:hover,
+  &:focus {
+    background: var(--theme-accent-strong) !important;
+    border-color: var(--theme-border-accent) !important;
+    color: #ffffff !important;
+    box-shadow: 0 16px 30px var(--theme-shadow-strong);
+  }
+}
+
 .detail-section + .detail-section {
   margin-top: 18px;
 }

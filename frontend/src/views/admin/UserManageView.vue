@@ -670,6 +670,16 @@ function fmtTime(t: string) { return t ? new Date(t).toLocaleString("zh-CN") : "
   border-color: #f2e3c6;
 }
 
+html:is([data-theme="dark"], [data-theme="midnight"]) .warm-page .warm-tag-role-admin,
+html:is([data-theme="dark"], [data-theme="midnight"]) .warm-page .warm-tag-role-user,
+html:is([data-theme="dark"], [data-theme="midnight"]) .warm-page .warm-tag-whitelist,
+html:is([data-theme="dark"], [data-theme="midnight"]) .warm-page .warm-tag-muted {
+  background: var(--theme-panel-bg) !important;
+  border-color: var(--theme-panel-border) !important;
+  color: var(--text-secondary) !important;
+  box-shadow: none !important;
+}
+
 .whitelist-dialog {
   display: flex;
   flex-direction: column;

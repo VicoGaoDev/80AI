@@ -81,7 +81,7 @@ export default {};
 
 <style scoped lang="scss">
 .img-card {
-  background: #fff;
+  background: var(--card-bg);
   border-radius: var(--card-radius);
   box-shadow: var(--card-shadow);
   overflow: hidden;
@@ -99,7 +99,7 @@ export default {};
   overflow: hidden;
   cursor: pointer;
   position: relative;
-  background: #fafafa;
+  background: var(--theme-panel-bg-soft);
 
   img {
     width: 100%;
@@ -130,12 +130,14 @@ export default {};
 }
 
 .overlay-btn {
-  background: rgba(255, 255, 255, 0.9) !important;
-  border: none !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  background: rgba(var(--theme-surface-strong-rgb), 0.9) !important;
+  border: 1px solid var(--theme-panel-border) !important;
+  color: var(--theme-accent-text) !important;
+  box-shadow: 0 2px 8px var(--theme-shadow-soft);
 
   &:hover {
-    background: #fff !important;
+    background: var(--theme-surface-strong) !important;
+    color: var(--theme-accent-text-hover) !important;
   }
 }
 
@@ -148,7 +150,7 @@ export default {};
   justify-content: center;
 
   &.error {
-    background: #fff1f0;
+    background: rgba(185, 56, 42, 0.12);
   }
 }
 

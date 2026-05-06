@@ -23,6 +23,7 @@ const qrInput = ref<HTMLInputElement | null>(null);
 const currentTheme = ref<AppThemeName>(getCurrentTheme());
 
 const themeOptions = [
+  { label: appThemes.midnight.label, value: appThemes.midnight.key, desc: "VSCode 风格的真暗色，背景 #181818、按钮 #1f1f1f" },
   { label: appThemes.dark.label, value: appThemes.dark.key, desc: "选中菜单、主操作和整体背景走黑灰风格" },
   { label: appThemes.warm.label, value: appThemes.warm.key, desc: "恢复当前暖色橙金风格" },
 ] as const;

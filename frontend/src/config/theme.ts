@@ -10,6 +10,10 @@ export const appThemes = {
     key: "dark",
     label: "黑色主题",
   },
+  midnight: {
+    key: "midnight",
+    label: "暗黑主题",
+  },
 } as const;
 
 export type AppThemeName = keyof typeof appThemes;
@@ -17,5 +21,5 @@ export type AppThemeName = keyof typeof appThemes;
 export const DEFAULT_APP_THEME: AppThemeName = "warm";
 
 export function isAppThemeName(value: string | null | undefined): value is AppThemeName {
-  return value === "warm" || value === "dark";
+  return value === "warm" || value === "dark" || value === "midnight";
 }

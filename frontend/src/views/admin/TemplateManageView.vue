@@ -738,8 +738,8 @@ function fmtTime(t: string) {
   height: 132px;
   border-radius: 16px;
   overflow: hidden;
-  border: 1px solid #f0dfbe;
-  background: #fff8ec;
+  border: 1px solid var(--theme-panel-border);
+  background: var(--theme-panel-bg-soft);
   flex-shrink: 0;
 
   img {
@@ -756,7 +756,7 @@ function fmtTime(t: string) {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #a88e68;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
@@ -772,8 +772,8 @@ function fmtTime(t: string) {
   height: 84px;
   border-radius: 14px;
   overflow: hidden;
-  border: 1px solid #f0dfbe;
-  background: #fff8ec;
+  border: 1px solid var(--theme-panel-border);
+  background: var(--theme-panel-bg-soft);
 
   img {
     width: 100%;
@@ -787,7 +787,25 @@ function fmtTime(t: string) {
   position: absolute;
   top: 4px;
   right: 4px;
-  background: rgba(255, 255, 255, 0.92) !important;
+  background: rgba(var(--theme-surface-strong-rgb), 0.92) !important;
+  border: 1px solid var(--theme-panel-border) !important;
+  color: #d6574b !important;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .warm-page .template-action-btn.template-action-btn-primary {
+  background: var(--theme-panel-bg-strong) !important;
+  color: var(--theme-accent-text) !important;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .warm-page .template-action-btn.template-action-btn-danger {
+  background: rgba(185, 56, 42, 0.12) !important;
+  color: #de8f84 !important;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .warm-page .ref-remove {
+  background: rgba(var(--theme-surface-strong-rgb), 0.92) !important;
+  border-color: var(--theme-panel-border) !important;
+  color: #de8f84 !important;
 }
 
 .ref-add {

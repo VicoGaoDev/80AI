@@ -28,7 +28,7 @@ function applyTheme(theme: AppThemeName) {
   if (typeof document === "undefined") return;
 
   document.documentElement.setAttribute(APP_THEME_ATTRIBUTE, theme);
-  document.documentElement.style.colorScheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.style.colorScheme = theme === "midnight" ? "dark" : "light";
 }
 
 export function getCurrentTheme(): AppThemeName {
