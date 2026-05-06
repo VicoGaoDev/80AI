@@ -17,6 +17,10 @@ import type {
   ExternalApiSceneBindingMetaPayload,
   ExternalApiConfigStatus,
   ExternalApiConfigTestResult,
+  FeedbackDetail,
+  FeedbackListResponse,
+  AdminFeedbackQuery,
+  FeedbackUpdatePayload,
   HistoryFilter,
   HistoryResponse,
 } from "@/types";
@@ -99,6 +103,26 @@ export function getAdminHistory(
   if (filter?.start_date) params.start_date = filter.start_date;
   if (filter?.end_date) params.end_date = filter.end_date;
   return client.get("/admin/history", { params });
+}
+
+export function listAdminFeedbacks(
+  page = 1,
+  pageSize = 20,
+  query?: AdminFeedbackQuery,
+): Promise<FeedbackListResponse> {
+  const params: Record<string, unknown> = { page, page_size: pageSize };
+  if (query?.user_id) params.user_id = query.user_id;
+  if (query?.task_id) params.task_id = query.task_id;
+  if (query?.status) params.status = query.status;
+  return client.get("/admin/feedback", { params });
+}
+
+export function getAdminFeedbackDetail(feedbackId: string): Promise<FeedbackDetail> {
+  return client.get(`/admin/feedback/${feedbackId}`);
+}
+
+export function updateAdminFeedback(feedbackId: string, payload: FeedbackUpdatePayload): Promise<FeedbackDetail> {
+  return client.patch(`/admin/feedback/${feedbackId}`, payload);
 }
 
 export function getAdminAnalyticsSummary(query: AdminAnalyticsQuery): Promise<AdminAnalyticsSummary> {

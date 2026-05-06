@@ -132,6 +132,59 @@ export interface UserHistoryResponse {
   items: UserHistoryCard[];
 }
 
+export type FeedbackStatus = "pending" | "processing" | "completed";
+
+export interface FeedbackTaskSummary {
+  task_id: string;
+  model: string;
+  mode: TaskMode;
+  source: TaskSource;
+  prompt: string;
+  status: string;
+  created_at?: string | null;
+}
+
+export interface FeedbackItem {
+  feedback_id: string;
+  user_id: string;
+  username: string;
+  task_id: string;
+  status: FeedbackStatus;
+  content: string;
+  process_note: string;
+  result_note: string;
+  handler_id?: string | null;
+  handler_name: string;
+  handled_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  task: FeedbackTaskSummary;
+}
+
+export interface FeedbackDetail extends FeedbackItem {
+  task_user_id: string;
+}
+
+export interface FeedbackListResponse {
+  total: number;
+  items: FeedbackItem[];
+}
+
+export interface FeedbackListQuery {
+  task_id?: string;
+  status?: FeedbackStatus;
+}
+
+export interface FeedbackUpdatePayload {
+  status?: FeedbackStatus;
+  process_note?: string;
+  result_note?: string;
+}
+
+export interface AdminFeedbackQuery extends FeedbackListQuery {
+  user_id?: string;
+}
+
 export interface AdminUser {
   id: string;
   username: string;

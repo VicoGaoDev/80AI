@@ -94,6 +94,7 @@ def on_startup():
     _ensure_task_credit_cost_column()
     _ensure_scene_binding_required_columns()
     _ensure_template_required_columns()
+    _ensure_feedback_schema()
     if settings.should_run_schema_compat:
         _ensure_schema_compat()
     _backfill_task_credit_costs()
@@ -578,6 +579,72 @@ def _ensure_scene_binding_required_columns():
         )
 
 
+def _ensure_feedback_schema():
+    inspector = inspect(engine)
+    if "feedback" not in inspector.get_table_names():
+        return
+
+    feedback_columns = {col["name"] for col in inspector.get_columns("feedback")}
+    feedback_indexes = {index["name"] for index in inspector.get_indexes("feedback")}
+
+    with engine.begin() as conn:
+        if "business_id" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN business_id VARCHAR(32) NULL"))
+        if "user_id" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN user_id INTEGER"))
+        if "task_id" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN task_id INTEGER"))
+        if "content" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN content TEXT"))
+        if "status" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN status VARCHAR(20) DEFAULT 'pending'"))
+        if "process_note" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN process_note VARCHAR(5000) DEFAULT ''"))
+        if "result_note" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN result_note VARCHAR(5000) DEFAULT ''"))
+        if "handled_by" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN handled_by INTEGER"))
+        if "handled_at" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN handled_at DATETIME"))
+        if "created_at" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+        if "updated_at" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+
+        conn.execute(text("UPDATE feedback SET process_note = '' WHERE process_note IS NULL"))
+        conn.execute(text("UPDATE feedback SET result_note = '' WHERE result_note IS NULL"))
+        conn.execute(text("UPDATE feedback SET status = 'pending' WHERE status IS NULL OR status = ''"))
+
+        if "ix_feedback_user_id" not in feedback_indexes:
+            conn.execute(text("CREATE INDEX ix_feedback_user_id ON feedback (user_id)"))
+        if "ix_feedback_task_id" not in feedback_indexes:
+            conn.execute(text("CREATE INDEX ix_feedback_task_id ON feedback (task_id)"))
+        if "ix_feedback_status" not in feedback_indexes:
+            conn.execute(text("CREATE INDEX ix_feedback_status ON feedback (status)"))
+        if "ix_feedback_handled_by" not in feedback_indexes:
+            conn.execute(text("CREATE INDEX ix_feedback_handled_by ON feedback (handled_by)"))
+
+    from app.database import SessionLocal
+    from app.models.feedback import Feedback
+
+    db = SessionLocal()
+    try:
+        changed = False
+        rows = db.query(Feedback).filter((Feedback.business_id.is_(None)) | (Feedback.business_id == "")).all()
+        for row in rows:
+            row.business_id = generate_business_id()
+            changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+    refreshed_indexes = {index["name"] for index in inspect(engine).get_indexes("feedback")}
+    if "ix_feedback_business_id" not in refreshed_indexes:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE UNIQUE INDEX ix_feedback_business_id ON feedback (business_id)"))
+
+
 def _backfill_task_credit_costs():
     from app.database import SessionLocal
     from app.models.task import Task
@@ -680,12 +747,13 @@ upload_path = Path(settings.UPLOAD_DIR)
 upload_path.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(upload_path)), name="uploads")
 
-from app.api import auth, tasks, images, history, admin, upload, api_key, templates, prompt_reverse, external_api_config  # noqa: E402
+from app.api import auth, tasks, images, history, admin, upload, api_key, templates, prompt_reverse, external_api_config, feedback  # noqa: E402
 app.include_router(auth.router)
 app.include_router(templates.router)
 app.include_router(tasks.router)
 app.include_router(images.router)
 app.include_router(history.router)
+app.include_router(feedback.router)
 app.include_router(admin.router)
 app.include_router(upload.router)
 app.include_router(api_key.router)

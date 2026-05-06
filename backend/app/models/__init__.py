@@ -7,6 +7,7 @@ from app.models.external_api_config import ExternalApiConfig
 from app.models.external_api_scene_binding import ExternalApiSceneBinding
 from app.models.credit_log import CreditLog
 from app.models.prompt_history import PromptHistory
+from app.models.feedback import Feedback
 from app.models.template import Template
 from app.models.template_tag import TemplateTag
 from app.models.template_tag_relation import TemplateTagRelation
@@ -21,6 +22,7 @@ __all__ = [
     "ExternalApiSceneBinding",
     "CreditLog",
     "PromptHistory",
+    "Feedback",
     "Template",
     "TemplateTag",
     "TemplateTagRelation",

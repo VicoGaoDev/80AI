@@ -1,0 +1,27 @@
+import client from "./client";
+import type { FeedbackDetail, FeedbackListQuery, FeedbackListResponse } from "@/types";
+
+export function createFeedback(taskId: string, content: string): Promise<FeedbackDetail> {
+  return client.post("/feedback", {
+    task_id: taskId,
+    content,
+  });
+}
+
+export function listMyFeedbacks(
+  page = 1,
+  pageSize = 20,
+  query?: FeedbackListQuery,
+): Promise<FeedbackListResponse> {
+  const params: Record<string, unknown> = {
+    page,
+    page_size: pageSize,
+  };
+  if (query?.task_id) params.task_id = query.task_id;
+  if (query?.status) params.status = query.status;
+  return client.get("/feedback", { params });
+}
+
+export function getMyFeedbackDetail(feedbackId: string): Promise<FeedbackDetail> {
+  return client.get(`/feedback/${feedbackId}`);
+}

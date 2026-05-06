@@ -23,6 +23,7 @@ import {
   ThunderboltOutlined,
   DownOutlined,
   UndoOutlined,
+  MessageOutlined,
 } from "@ant-design/icons-vue";
 import { getTaskScenes } from "@/api/config";
 import { fetchHistory } from "@/api/history";
@@ -33,6 +34,7 @@ import { uploadReferenceImage } from "@/api/upload";
 import { getMe, getPromptHistory, deletePromptHistory } from "@/api/auth";
 import { useAuthStore } from "@/stores/auth";
 import RepaintCanvas from "@/components/generate/RepaintCanvas.vue";
+import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import type { GenerationModelOption, ImageResult, PromptHistoryItem, SceneOptionItem, TaskResult, TaskSceneConfig, UserHistoryCard } from "@/types";
 
 const auth = useAuthStore();
@@ -127,6 +129,13 @@ const repaintCanvasRef = ref<{
 
 const previewVisible = ref(false);
 const previewCurrent = ref("");
+const feedbackDialogOpen = ref(false);
+const feedbackTarget = ref<{
+  taskId: string;
+  model?: string;
+  prompt: string;
+  createdAt: string;
+} | null>(null);
 
 const historyVisible = ref(false);
 const historyItems = ref<PromptHistoryItem[]>([]);
@@ -989,6 +998,20 @@ function handlePreview(url: string) {
   previewVisible.value = true;
 }
 
+function openFeedbackDialogForGeneratedTask(task: GeneratedTaskItem) {
+  if (!task.taskId) {
+    message.warning("当前任务尚未生成完成，暂时无法提交反馈");
+    return;
+  }
+  feedbackTarget.value = {
+    taskId: task.taskId,
+    model: task.model,
+    prompt: task.prompt,
+    createdAt: task.createdAt,
+  };
+  feedbackDialogOpen.value = true;
+}
+
 function getResultDisplayUrl(img: ImageResult) {
   return getDisplayImageUrl(img);
 }
@@ -1847,6 +1870,16 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                 :style="{ '--generate-result-delay': `${Math.min(index, 9) * 45}ms` }"
                 :class="{ pending: item.image.status === 'pending' }"
               >
+                <a-tooltip v-if="item.taskId" title="反馈">
+                  <button
+                    type="button"
+                    class="result-more-trigger icon-chip"
+                    :class="{ 'result-more-trigger-failed': item.image.status === 'failed' }"
+                    @click.stop="openFeedbackDialogForGeneratedTask(item.task)"
+                  >
+                    <MessageOutlined class="result-more-icon" />
+                  </button>
+                </a-tooltip>
                 <div
                   class="result-frame"
                   :class="{
@@ -1859,20 +1892,26 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   <template v-if="item.image.status === 'success' && getResultDisplayUrl(item.image)">
                     <img :src="getResultDisplayUrl(item.image)" alt="生成结果" loading="lazy" />
                     <div class="result-actions">
-                      <a-button shape="circle" class="icon-chip" @click.stop="handlePreview(getResultPreviewUrl(item.image))">
-                        <template #icon><EyeOutlined /></template>
-                      </a-button>
-                      <a-button
-                        shape="circle"
-                        class="icon-chip"
-                        :disabled="!item.taskId"
-                        @click.stop="handleRegenerate(item.task)"
-                      >
-                        <template #icon><ReloadOutlined /></template>
-                      </a-button>
-                      <a-button shape="circle" class="icon-chip" @click.stop="handleDownload(item.image.id, item.image.image_url, item.image.preview_url)">
-                        <template #icon><DownloadOutlined /></template>
-                      </a-button>
+                      <a-tooltip title="查看原图">
+                        <a-button shape="circle" class="icon-chip" @click.stop="handlePreview(getResultPreviewUrl(item.image))">
+                          <template #icon><EyeOutlined /></template>
+                        </a-button>
+                      </a-tooltip>
+                      <a-tooltip title="重新生成">
+                        <a-button
+                          shape="circle"
+                          class="icon-chip"
+                          :disabled="!item.taskId"
+                          @click.stop="handleRegenerate(item.task)"
+                        >
+                          <template #icon><ReloadOutlined /></template>
+                        </a-button>
+                      </a-tooltip>
+                      <a-tooltip title="下载原图">
+                        <a-button shape="circle" class="icon-chip" @click.stop="handleDownload(item.image.id, item.image.image_url, item.image.preview_url)">
+                          <template #icon><DownloadOutlined /></template>
+                        </a-button>
+                      </a-tooltip>
                     </div>
                   </template>
 
@@ -1976,6 +2015,13 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
         }"
       />
     </div>
+    <FeedbackDialog
+      v-model:open="feedbackDialogOpen"
+      :task-id="feedbackTarget?.taskId"
+      :model="feedbackTarget?.model"
+      :prompt="feedbackTarget?.prompt"
+      :created-at="feedbackTarget?.createdAt"
+    />
   </div>
 </template>
 
@@ -3290,6 +3336,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   display: inline-block;
   width: 100%;
   margin: 0 0 16px;
+  position: relative;
   border-radius: 20px;
   break-inside: avoid;
   -webkit-column-break-inside: avoid;
@@ -3338,7 +3385,9 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   }
 
   &.failed {
-    background: #fff7f5;
+    border-color: rgba(214, 87, 75, 0.34);
+    background: linear-gradient(180deg, #fff0ed, #ffe1db);
+    box-shadow: 0 16px 30px rgba(214, 87, 75, 0.16);
     min-height: 220px;
   }
 }
@@ -3355,7 +3404,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
 .failed-image {
   object-fit: contain !important;
   padding: 28px;
-  background: #fffdfb;
+  background: linear-gradient(180deg, #fff2ef, #ffdcd5);
   opacity: 0.96;
 }
 
@@ -3405,16 +3454,59 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   &.error {
     background: linear-gradient(
       180deg,
-      rgba(255, 247, 245, 0.4),
-      rgba(255, 247, 245, 0.86)
+      rgba(255, 233, 228, 0.42),
+      rgba(255, 221, 214, 0.92)
     );
-    color: #d45b4d;
+    color: #c9493c;
+  }
+}
+
+.result-more-trigger.icon-chip {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  opacity: 1;
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: none;
+  backdrop-filter: blur(6px);
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-soft);
+
+  &:hover,
+  &:focus {
+    background: rgba(255, 255, 255, 0.94) !important;
+    border-color: rgba(255, 255, 255, 0.94) !important;
+    color: #684825 !important;
+    box-shadow: 0 14px 22px rgba(0, 0, 0, 0.12);
+  }
+}
+
+.result-more-icon {
+  font-size: 16px;
+}
+
+.result-more-trigger-failed.icon-chip {
+  border-color: rgba(201, 73, 60, 0.42) !important;
+  background: rgba(201, 73, 60, 0.18) !important;
+  color: #c9493c !important;
+  box-shadow: 0 10px 22px rgba(201, 73, 60, 0.2);
+
+  &:hover,
+  &:focus {
+    background: rgba(201, 73, 60, 0.94) !important;
+    border-color: rgba(201, 73, 60, 0.94) !important;
+    color: #fff7f5 !important;
+    box-shadow: 0 14px 26px rgba(201, 73, 60, 0.3);
   }
 }
 
 .icon-chip {
   width: 36px;
   height: 36px;
+  border-radius: 999px !important;
   border: none !important;
   background: rgba(255, 255, 255, 0.92) !important;
   color: #684825 !important;

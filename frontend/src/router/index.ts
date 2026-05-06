@@ -35,6 +35,18 @@ const router = createRouter({
           component: () => import("@/views/CreditLogsView.vue"),
         },
         {
+          path: "feedbacks",
+          name: "FeedbackList",
+          meta: { requiresAuth: true },
+          component: () => import("@/views/FeedbackListView.vue"),
+        },
+        {
+          path: "feedbacks/:feedbackId",
+          name: "FeedbackDetail",
+          meta: { requiresAuth: true },
+          component: () => import("@/views/FeedbackDetailView.vue"),
+        },
+        {
           path: "settings",
           name: "Settings",
           meta: { requiresAuth: true },
@@ -57,6 +69,18 @@ const router = createRouter({
           name: "Dashboard",
           meta: { requiresAdmin: true },
           component: () => import("@/views/admin/DashboardView.vue"),
+        },
+        {
+          path: "admin/feedbacks",
+          name: "AdminFeedbackManage",
+          meta: { requiresAdmin: true },
+          component: () => import("@/views/admin/FeedbackManageView.vue"),
+        },
+        {
+          path: "admin/feedbacks/:feedbackId",
+          name: "AdminFeedbackDetail",
+          meta: { requiresAdmin: true },
+          component: () => import("@/views/admin/FeedbackDetailView.vue"),
         },
         {
           path: "admin/api-key",

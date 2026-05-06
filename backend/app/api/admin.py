@@ -11,6 +11,7 @@ from app.schemas.admin import (
     UpdateWhitelistRequest, ResetPasswordRequest, StatsOut, AllocateCreditsRequest, ResetCreditsRequest, CreditLogOut,
     AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut,
 )
+from app.schemas.feedback import FeedbackDetail, FeedbackListResponse, FeedbackUpdateRequest
 from app.schemas.history import HistoryResponse
 from app.services.business_id_service import get_user_by_business_id
 from app.services.admin_service import (
@@ -18,6 +19,7 @@ from app.services.admin_service import (
     update_user_whitelist, reset_user_password, get_stats, allocate_credits, reset_user_credits, get_credit_logs,
     get_analytics_summary, get_analytics_timeseries, get_analytics_breakdown,
 )
+from app.services.feedback_service import get_feedback_detail, list_feedbacks, update_feedback
 from app.services.history_service import get_all_history
 
 router = APIRouter(prefix="/api/admin", tags=["管理员"])
@@ -235,4 +237,50 @@ def admin_history(
         source=source,
         model=model, mode=mode,
         start_date=start_date, end_date=end_date,
+    )
+
+
+@router.get("/feedback", response_model=FeedbackListResponse)
+def admin_feedback_list(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user_id: Optional[str] = Query(None),
+    task_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None, pattern="^(pending|processing|completed)$"),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return list_feedbacks(
+        db,
+        user_id=_resolve_optional_user_id(db, user_id),
+        task_id=task_id,
+        status_filter=status,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/feedback/{feedback_id}", response_model=FeedbackDetail)
+def admin_feedback_detail(
+    feedback_id: str,
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return get_feedback_detail(db, feedback_id)
+
+
+@router.patch("/feedback/{feedback_id}", response_model=FeedbackDetail)
+def admin_feedback_update(
+    feedback_id: str,
+    body: FeedbackUpdateRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return update_feedback(
+        db,
+        feedback_id,
+        admin=admin,
+        status_value=body.status,
+        process_note=body.process_note,
+        result_note=body.result_note,
     )

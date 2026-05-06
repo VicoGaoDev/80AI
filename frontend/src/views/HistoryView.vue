@@ -8,7 +8,9 @@ import {
   CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  EyeOutlined,
   LoadingOutlined,
+  MessageOutlined,
   PictureOutlined,
   ReloadOutlined,
 } from "@ant-design/icons-vue";
@@ -17,6 +19,7 @@ import { getGenerationModels } from "@/api/config";
 import { fetchHistory } from "@/api/history";
 import { deleteImage, getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl, resolveImageUrl } from "@/api/images";
 import { deletePromptHistory } from "@/api/auth";
+import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import type { GenerationModelOption, ImageResult, TaskSource, UserHistoryCard } from "@/types";
 
 const router = useRouter();
@@ -45,6 +48,8 @@ let loadMoreObserver: IntersectionObserver | null = null;
 
 const previewVisible = ref(false);
 const previewSrc = ref("");
+const feedbackDialogOpen = ref(false);
+const feedbackTarget = ref<UserHistoryCard | null>(null);
 
 const modelOptions = computed(() => {
   const options = generationModels.value.map((item) => ({
@@ -330,6 +335,25 @@ function getNestedPreviewSrc(image: Pick<ImageResult, "thumb_url" | "image_url" 
 function openDetail(item: UserHistoryCard) {
   detailItem.value = item;
   detailOpen.value = true;
+}
+
+function openFeedbackDialog(item: UserHistoryCard) {
+  if (!item.task_id) {
+    message.warning("当前记录暂不支持反馈");
+    return;
+  }
+  feedbackTarget.value = item;
+  feedbackDialogOpen.value = true;
+}
+
+function canHistoryViewOriginal(item: UserHistoryCard) {
+  return Boolean(getHistoryCardPreview(item));
+}
+
+function handleViewOriginal(item: UserHistoryCard) {
+  const url = getHistoryCardPreview(item);
+  if (!url) return;
+  openPreview(url);
 }
 
 function isSelected(imageId: number) {
@@ -683,22 +707,23 @@ function handleReedit(item: UserHistoryCard) {
           :style="{ '--history-card-delay': `${Math.min(index, 9) * 45}ms` }"
           @click="openDetail(item)"
         >
-          <div v-if="batchMode" class="result-card-select" @click.stop>
-            <a-checkbox
-              :checked="typeof item.image_id === 'number' ? isSelected(item.image_id) : false"
-              :disabled="typeof item.image_id !== 'number'"
-              @change="typeof item.image_id === 'number' && handleSelectChange(item.image_id, $event)"
-            />
-          </div>
-
-          <div class="result-card-media">
+          <div
+            class="result-card-media"
+            :class="{ 'result-card-media-failed': item.status === 'failed' }"
+          >
+            <div v-if="batchMode" class="result-card-select" @click.stop>
+              <a-checkbox
+                :checked="typeof item.image_id === 'number' ? isSelected(item.image_id) : false"
+                :disabled="typeof item.image_id !== 'number'"
+                @change="typeof item.image_id === 'number' && handleSelectChange(item.image_id, $event)"
+              />
+            </div>
             <img
               v-if="getHistoryCardMedia(item)"
               :src="getHistoryCardMedia(item)"
               :alt="item.mode === 'promptReverse' ? '提示词反推原图' : item.status === 'failed' ? '生成失败' : '历史结果图'"
               :class="{ 'failed-result-image': item.status === 'failed' }"
               loading="lazy"
-              @click.stop="getHistoryCardPreview(item) && openPreview(getHistoryCardPreview(item))"
             />
             <div v-else class="result-card-placeholder">
               <template v-if="item.status === 'pending' || item.status === 'queued' || item.status === 'processing'">
@@ -708,26 +733,35 @@ function handleReedit(item: UserHistoryCard) {
               </template>
               <ClockCircleOutlined v-else />
             </div>
-          </div>
 
-          <div class="result-card-body">
-            <div class="result-card-model">模型：{{ getModelLabel(item.model) }}</div>
-            <div class="result-card-file-meta">
-              <span v-if="item.mode !== 'promptReverse'">格式：{{ item.image_format || "-" }}</span>
-              <span v-if="item.mode !== 'promptReverse'">大小：{{ formatImageSize(item.image_size_bytes) }}</span>
-            </div>
+            <a-tooltip v-if="item.task_id" title="反馈">
+              <a-button
+                shape="circle"
+                type="text"
+                class="history-feedback-btn history-overlay-btn"
+                :class="{ 'history-overlay-btn-failed': item.status === 'failed' }"
+                @click.stop="openFeedbackDialog(item)"
+              >
+                <template #icon><MessageOutlined /></template>
+              </a-button>
+            </a-tooltip>
 
-            <div class="result-card-actions">
+            <div class="history-overlay-actions">
+              <a-tooltip v-if="canHistoryViewOriginal(item)" title="查看原图">
+                <a-button shape="circle" type="text" class="history-overlay-btn" @click.stop="handleViewOriginal(item)">
+                  <template #icon><EyeOutlined /></template>
+                </a-button>
+              </a-tooltip>
               <a-tooltip title="重新编辑">
-                <a-button type="text" size="small" class="ghost-icon-btn" @click.stop="handleReedit(item)">
+                <a-button shape="circle" type="text" class="history-overlay-btn" @click.stop="handleReedit(item)">
                   <template #icon><ReloadOutlined /></template>
                 </a-button>
               </a-tooltip>
-              <a-tooltip title="下载">
+              <a-tooltip v-if="item.status !== 'failed'" title="下载原图">
                 <a-button
+                  shape="circle"
                   type="text"
-                  size="small"
-                  class="ghost-icon-btn"
+                  class="history-overlay-btn"
                   :disabled="!item.image_url || item.mode === 'promptReverse' || typeof item.image_id !== 'number'"
                   @click.stop="typeof item.image_id === 'number' && download(item.image_id, item.image_url)"
                 >
@@ -735,7 +769,7 @@ function handleReedit(item: UserHistoryCard) {
                 </a-button>
               </a-tooltip>
               <a-tooltip title="删除">
-                <a-button type="text" size="small" class="ghost-icon-btn ghost-icon-btn-danger" @click.stop="handleDelete(item)">
+                <a-button shape="circle" type="text" class="history-overlay-btn history-overlay-btn-danger" @click.stop="handleDelete(item)">
                   <template #icon><DeleteOutlined /></template>
                 </a-button>
               </a-tooltip>
@@ -876,6 +910,13 @@ function handleReedit(item: UserHistoryCard) {
         :preview="{ visible: previewVisible, onVisibleChange: (v: boolean) => (previewVisible = v) }"
       />
     </div>
+    <FeedbackDialog
+      v-model:open="feedbackDialogOpen"
+      :task-id="feedbackTarget?.task_id"
+      :model="feedbackTarget?.model"
+      :prompt="feedbackTarget?.prompt"
+      :created-at="feedbackTarget?.created_at"
+    />
   </div>
 </template>
 
@@ -1145,29 +1186,43 @@ function handleReedit(item: UserHistoryCard) {
 .history-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 18px;
+  gap: 16px;
+}
+
+.history-grid .result-card.warm-card {
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .result-card {
   position: relative;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   cursor: pointer;
   will-change: transform;
   transition:
     transform var(--motion-duration-hover) var(--motion-ease-enter),
     box-shadow var(--motion-duration-hover) var(--motion-ease-soft),
-    border-color var(--motion-duration-hover) var(--motion-ease-soft),
     filter var(--motion-duration-hover) var(--motion-ease-soft);
 
   &:hover {
     transform: translateY(-6px);
-    box-shadow: 0 24px 44px rgba(236, 185, 88, 0.18);
-    border-color: rgba(235, 181, 88, 0.9);
+    box-shadow: none;
   }
 
   &:active {
     transform: translateY(-2px) scale(0.992);
+  }
+
+  &:hover .result-card-media:not(.result-card-media-failed) {
+    box-shadow: 0 18px 30px rgba(236, 185, 88, 0.16);
+    border-color: #efc784;
+  }
+
+  &:hover .result-card-media.result-card-media-failed {
+    box-shadow: 0 20px 34px rgba(214, 87, 75, 0.22);
+    border-color: rgba(214, 87, 75, 0.48);
   }
 
   &:hover .result-card-media img {
@@ -1181,11 +1236,11 @@ function handleReedit(item: UserHistoryCard) {
 
 .result-card-select {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 2;
-  padding: 4px 6px;
-  border-radius: 10px;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  padding: 5px 7px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(241, 221, 183, 0.92);
   box-shadow: 0 6px 16px rgba(76, 52, 26, 0.08);
@@ -1193,20 +1248,37 @@ function handleReedit(item: UserHistoryCard) {
 }
 
 .result-card-media {
+  --media-radius: 18px;
   width: 100%;
   aspect-ratio: 1 / 1;
-  border-radius: 28px 28px 0 0;
+  box-sizing: border-box;
+  border-radius: var(--media-radius);
   overflow: hidden;
-  background: #fff8ee;
-  border-bottom: 1px solid #f1ddb7;
+  border: 1px dashed #cfba92;
+  background: #fffaf0;
+  box-shadow: 0 12px 28px rgba(236, 185, 88, 0.08);
   cursor: pointer;
+  position: relative;
+  transition:
+    box-shadow var(--motion-duration-hover) var(--motion-ease-soft),
+    border-color var(--motion-duration-hover) var(--motion-ease-soft),
+    transform var(--motion-duration-emphasis) var(--motion-ease-enter);
 
   img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
+    border-radius: calc(var(--media-radius) - 1px);
     transition: transform var(--motion-duration-emphasis) var(--motion-ease-enter);
+  }
+
+  &.result-card-media-failed {
+    border-style: dashed;
+    border-color: rgba(201, 73, 60, 0.72);
+    border-width: 1px;
+    background: linear-gradient(180deg, #fff0ed, #ffe1db);
+    box-shadow: 0 16px 30px rgba(214, 87, 75, 0.16);
   }
 }
 
@@ -1220,73 +1292,112 @@ function handleReedit(item: UserHistoryCard) {
   color: #9b825f;
   text-align: center;
   font-size: 28px;
-  background: #fff8ee;
+  background: linear-gradient(180deg, #fffaf0, #fffdf9);
+  border-radius: calc(var(--media-radius, 18px) - 1px);
 }
 
 .failed-result-image {
   object-fit: contain !important;
-  background: #fffdfb;
+  padding: 28px;
+  background: linear-gradient(180deg, #fff2ef, #ffdcd5);
+  border-radius: calc(var(--media-radius, 18px) - 2px);
+  opacity: 0.96;
 }
 
-.result-card-body {
-  padding: 12px 14px 14px;
-  transition: transform var(--motion-duration-hover) var(--motion-ease-soft);
-}
-
-.result-card-model {
-  font-size: 13px;
-  font-weight: 700;
-  color: #7b5c2d;
-  transition: color var(--motion-duration-base) var(--motion-ease-soft);
-}
-
-.result-card-file-meta {
+.history-overlay-actions {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-  font-size: 12px;
-  color: #9b825f;
-}
-
-.result-card-actions {
-  display: flex;
-  justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  z-index: 2;
 }
 
-.ghost-icon-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  color: #8f7558 !important;
+.history-feedback-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+}
+
+.history-overlay-btn {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  max-width: 36px !important;
+  min-height: 36px !important;
+  max-height: 36px !important;
+  padding: 0 !important;
+  line-height: 0 !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: none;
+  backdrop-filter: blur(6px);
   transition:
     transform var(--motion-duration-press) var(--motion-ease-soft),
     background var(--motion-duration-fast) var(--motion-ease-soft),
     color var(--motion-duration-fast) var(--motion-ease-soft),
     box-shadow var(--motion-duration-fast) var(--motion-ease-soft);
 
+  :deep(.anticon),
+  :deep(.ant-btn-icon) {
+    line-height: 0;
+  }
+
   &:hover,
   &:focus {
-    color: #c7800c !important;
-    background: #fff4df !important;
+    background: rgba(255, 255, 255, 0.94) !important;
+    border-color: rgba(255, 255, 255, 0.94) !important;
+    color: #684825 !important;
     transform: translateY(-1px);
-    box-shadow: 0 10px 20px rgba(223, 139, 29, 0.14);
+    box-shadow: 0 14px 22px rgba(0, 0, 0, 0.12);
   }
 
   &:active {
-    transform: scale(0.92);
+    transform: scale(0.93);
+  }
+
+  &[disabled] {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    background: transparent !important;
+    color: rgba(255, 255, 255, 0.48) !important;
+    box-shadow: none;
+    opacity: 1;
   }
 }
 
-.ghost-icon-btn-danger {
-  color: #b97d72 !important;
+.history-overlay-btn-danger {
+  border-color: rgba(201, 73, 60, 0.42) !important;
+  background: rgba(201, 73, 60, 0.18) !important;
+  color: #c9493c !important;
 
   &:hover,
   &:focus {
-    color: #d6574b !important;
-    background: #fff1ef !important;
+    background: rgba(201, 73, 60, 0.94) !important;
+    border-color: rgba(201, 73, 60, 0.94) !important;
+    color: #fff7f5 !important;
+    box-shadow: 0 14px 26px rgba(201, 73, 60, 0.3);
+  }
+}
+
+.history-feedback-btn.history-overlay-btn-failed {
+  border-color: rgba(201, 73, 60, 0.42) !important;
+  background: rgba(201, 73, 60, 0.18) !important;
+  color: #c9493c !important;
+  box-shadow: 0 10px 22px rgba(201, 73, 60, 0.2);
+
+  &:hover,
+  &:focus {
+    background: rgba(201, 73, 60, 0.94) !important;
+    border-color: rgba(201, 73, 60, 0.94) !important;
+    color: #fff7f5 !important;
+    box-shadow: 0 14px 26px rgba(201, 73, 60, 0.3);
   }
 }
 

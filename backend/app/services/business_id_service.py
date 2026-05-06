@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.models.feedback import Feedback
 from app.models.task import Task
 from app.models.user import User
 from app.utils.business_id import normalize_business_id
@@ -18,6 +19,12 @@ def task_external_id(task: Task | None) -> str:
     if not task:
         return ""
     return (task.business_id or "").strip() or str(task.id)
+
+
+def feedback_external_id(feedback: Feedback | None) -> str:
+    if not feedback:
+        return ""
+    return (feedback.business_id or "").strip() or str(feedback.id)
 
 
 def get_user_by_business_id(db: Session, business_id: str) -> User | None:
@@ -46,4 +53,18 @@ def require_task_by_business_id(db: Session, business_id: str) -> Task:
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
     return task
+
+
+def get_feedback_by_business_id(db: Session, business_id: str) -> Feedback | None:
+    normalized = normalize_business_id(business_id)
+    if not normalized:
+        return None
+    return db.query(Feedback).filter(Feedback.business_id == normalized).first()
+
+
+def require_feedback_by_business_id(db: Session, business_id: str) -> Feedback:
+    feedback = get_feedback_by_business_id(db, business_id)
+    if not feedback:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="反馈不存在")
+    return feedback
 

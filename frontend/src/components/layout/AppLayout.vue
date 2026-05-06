@@ -32,6 +32,7 @@ import {
   ThunderboltOutlined,
   MenuOutlined,
   MailOutlined,
+  MessageOutlined,
 } from "@ant-design/icons-vue";
 
 const router = useRouter();
@@ -49,12 +50,16 @@ const routeOrder = new Map<string, number>([
   ["/history", 3],
   ["/settings", 4],
   ["/credit-logs", 5],
-  ["/admin/templates", 6],
-  ["/admin/users", 7],
-  ["/admin/dashboard", 8],
-  ["/admin/api-key", 9],
-  ["/admin/cos-config", 10],
-  ["/admin/external-api-configs", 11],
+  ["/feedbacks", 6],
+  ["/feedbacks/:feedbackId", 7],
+  ["/admin/templates", 8],
+  ["/admin/users", 9],
+  ["/admin/dashboard", 10],
+  ["/admin/feedbacks", 11],
+  ["/admin/feedbacks/:feedbackId", 12],
+  ["/admin/api-key", 13],
+  ["/admin/cos-config", 14],
+  ["/admin/external-api-configs", 15],
 ]);
 
 const currentTheme = ref<AppThemeName>(getCurrentTheme());
@@ -78,13 +83,14 @@ const adminMenuItems = computed(() =>
     { key: "/admin/templates", label: "模版管理", icon: PictureOutlined, superAdminOnly: false },
     { key: "/admin/users", label: "用户管理", icon: TeamOutlined, superAdminOnly: false },
     { key: "/admin/dashboard", label: "数据统计", icon: BarChartOutlined, superAdminOnly: false },
-    { key: "/admin/api-key", label: "配置管理", icon: KeyOutlined, superAdminOnly: false },
+    { key: "/admin/feedbacks", label: "用户 Feedback", icon: MessageOutlined, superAdminOnly: false },
     { key: "/admin/cos-config", label: "COS 配置", icon: CloudUploadOutlined, superAdminOnly: true },
     { key: "/admin/external-api-configs", label: "接口管理", icon: KeyOutlined, superAdminOnly: true },
   ].filter((item) => !item.superAdminOnly || isSuperAdmin.value)
 );
 
 const userMenuItems = [
+  { key: "my-feedback", label: "我的反馈", icon: MessageOutlined, danger: false },
   { key: "settings", label: "设置", icon: SettingOutlined, danger: false },
   { key: "avatar", label: "上传头像", icon: UploadOutlined, danger: false },
   { key: "password", label: "修改密码", icon: LockOutlined, danger: false },
@@ -92,26 +98,33 @@ const userMenuItems = [
   { key: "logout", label: "退出登录", icon: LogoutOutlined, danger: true },
 ];
 
+function getRouteRank(path: string) {
+  if (path.startsWith("/feedbacks/")) return routeOrder.get("/feedbacks/:feedbackId") ?? 0;
+  if (path.startsWith("/admin/feedbacks/")) return routeOrder.get("/admin/feedbacks/:feedbackId") ?? 0;
+  return routeOrder.get(path) ?? 0;
+}
+
 const selectedKeys = computed(() => {
   const p = route.path;
   if (p.startsWith("/admin")) return ["admin"];
   if (p === "/") return [];
   if (p === "/templates") return ["templates"];
   if (p === "/history") return ["history"];
-  if (p === "/settings" || p === "/credit-logs") return [];
+  if (p === "/settings" || p === "/credit-logs" || p.startsWith("/feedbacks")) return [];
   return ["generate"];
 });
 
 const adminSelectedKeys = computed(() => {
   if (!route.path.startsWith("/admin")) return [];
+  if (route.path.startsWith("/admin/feedbacks")) return ["/admin/feedbacks"];
   return [route.path];
 });
 
 watch(
   () => route.path,
   (to, from) => {
-    const toRank = routeOrder.get(to) ?? 0;
-    const fromRank = routeOrder.get(from ?? "") ?? 0;
+    const toRank = getRouteRank(to);
+    const fromRank = getRouteRank(from ?? "");
     routeTransitionName.value = toRank < fromRank ? "route-page-back" : "route-page-forward";
   },
   { immediate: true }
@@ -137,7 +150,8 @@ function handleAdminMenu({ key }: { key: string }) {
 
 function handleUserMenu({ key }: { key: string }) {
   mobileDrawerOpen.value = false;
-  if (key === "settings") router.push("/settings");
+  if (key === "my-feedback") router.push("/feedbacks");
+  else if (key === "settings") router.push("/settings");
   else if (key === "avatar") avatarVisible.value = true;
   else if (key === "password") pwdVisible.value = true;
   else if (key === "credits") router.push("/credit-logs");
