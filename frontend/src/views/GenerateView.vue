@@ -1960,12 +1960,12 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                           <template #icon><EditOutlined /></template>
                         </a-button>
                       </a-tooltip>
-                      <a-tooltip title="重新生成">
+                      <a-tooltip title="重新编辑">
                         <a-button
                           shape="circle"
                           class="icon-chip"
                           :disabled="!item.taskId"
-                          @click.stop="handleRegenerate(item.task)"
+                          @click.stop="handleReeditTask(item.task)"
                         >
                           <template #icon><ReloadOutlined /></template>
                         </a-button>
