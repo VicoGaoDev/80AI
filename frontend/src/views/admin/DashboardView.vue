@@ -10,11 +10,13 @@ import {
   getAdminAnalyticsBreakdown,
   getAdminAnalyticsSummary,
   getAdminAnalyticsTimeseries,
+  getAdminHistoryDetail,
   getAdminHistory,
   listUsers,
 } from "@/api/admin";
 import AnalyticsFilterBar from "@/components/admin/AnalyticsFilterBar.vue";
 import BreakdownCharts from "@/components/admin/BreakdownCharts.vue";
+import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import KpiCards from "@/components/admin/KpiCards.vue";
 import TrendCharts from "@/components/admin/TrendCharts.vue";
 import type {
@@ -30,6 +32,7 @@ import type {
   HistoryItem,
   TaskMode,
   TaskSource,
+  UserHistoryCard,
 } from "@/types";
 
 const analyticsLoading = ref(false);
@@ -48,6 +51,10 @@ const page = ref(1);
 const granularity = ref<AdminAnalyticsGranularity>("day");
 const preset = ref("7d");
 const ready = ref(false);
+const detailOpen = ref(false);
+const detailLoading = ref(false);
+const detailItem = ref<UserHistoryCard | null>(null);
+let activeDetailRequestKey = "";
 
 const filters = reactive<{
   status: string | undefined;
@@ -76,6 +83,7 @@ const columns = [
   { title: "状态", dataIndex: "status", width: 90 },
   { title: "图片", key: "imgCount", width: 70 },
   { title: "时间", dataIndex: "created_at", width: 180 },
+  { title: "操作", key: "actions", width: 90, fixed: "right" as const },
 ];
 
 const modelOptions = computed(() => {
@@ -303,6 +311,31 @@ function handlePageChange(nextPage: number) {
   loadHistory();
 }
 
+async function openHistoryDetail(record: HistoryItem) {
+  detailOpen.value = true;
+  detailLoading.value = true;
+  detailItem.value = null;
+  const requestKey = `${record.item_type}:${record.task_id || record.history_id || record.display_id || record.created_at}`;
+  activeDetailRequestKey = requestKey;
+  try {
+    const detail = await getAdminHistoryDetail({
+      item_type: record.item_type,
+      task_id: record.task_id,
+      history_id: record.history_id,
+    });
+    if (activeDetailRequestKey !== requestKey) return;
+    detailItem.value = detail;
+  } catch {
+    if (activeDetailRequestKey !== requestKey) return;
+    detailOpen.value = false;
+    message.error("获取任务详情失败");
+  } finally {
+    if (activeDetailRequestKey === requestKey) {
+      detailLoading.value = false;
+    }
+  }
+}
+
 function handleBucketClick(payload: { start?: string | null; end?: string | null }) {
   if (!payload.start || !payload.end) return;
   filters.dateRange = [dayjs(payload.start), dayjs(payload.end)];
@@ -515,6 +548,11 @@ watch(filterSignature, async () => {
             <template v-else-if="column.dataIndex === 'created_at'">
               {{ fmtTime(record.created_at) }}
             </template>
+            <template v-else-if="column.key === 'actions'">
+              <a-button type="link" size="small" class="table-detail-btn" @click="openHistoryDetail(record)">
+                详情
+              </a-button>
+            </template>
           </template>
         </a-table>
       </div>
@@ -529,6 +567,13 @@ watch(filterSignature, async () => {
         />
       </div>
     </section>
+    <HistoryDetailDialog
+      :open="detailOpen"
+      :item="detailItem"
+      :loading="detailLoading"
+      :model-options="modelOptions"
+      @update:open="detailOpen = $event"
+    />
   </div>
 </template>
 
@@ -707,6 +752,11 @@ watch(filterSignature, async () => {
   background: linear-gradient(180deg, var(--theme-brand-bg-start), var(--theme-brand-bg-end));
   color: var(--theme-accent-contrast);
   font-weight: 700;
+}
+
+.table-detail-btn {
+  padding-inline: 0;
+  font-weight: 600;
 }
 
 :deep(.admin-mobile-table .ant-table-header) {

@@ -12,7 +12,7 @@ from app.schemas.admin import (
     AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut,
 )
 from app.schemas.feedback import FeedbackDetail, FeedbackListResponse, FeedbackUpdateRequest
-from app.schemas.history import HistoryResponse
+from app.schemas.history import HistoryResponse, UserHistoryCardItem
 from app.services.business_id_service import get_user_by_business_id
 from app.services.admin_service import (
     create_user, list_users, update_user_status, update_user_role,
@@ -20,7 +20,7 @@ from app.services.admin_service import (
     get_analytics_summary, get_analytics_timeseries, get_analytics_breakdown,
 )
 from app.services.feedback_service import get_feedback_detail, list_feedbacks, update_feedback
-from app.services.history_service import get_all_history
+from app.services.history_service import get_admin_history_detail, get_all_history
 
 router = APIRouter(prefix="/api/admin", tags=["管理员"])
 
@@ -238,6 +238,27 @@ def admin_history(
         model=model, mode=mode,
         start_date=start_date, end_date=end_date,
     )
+
+
+@router.get("/history/detail", response_model=UserHistoryCardItem)
+def admin_history_detail(
+    item_type: str = Query(..., pattern="^(task|prompt_history)$"),
+    task_id: Optional[str] = Query(None),
+    history_id: Optional[int] = Query(None),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return get_admin_history_detail(
+            db,
+            item_type=item_type,
+            task_id=task_id,
+            history_id=history_id,
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的历史记录标识")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="历史记录不存在")
 
 
 @router.get("/feedback", response_model=FeedbackListResponse)

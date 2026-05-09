@@ -23,6 +23,7 @@ import type {
   FeedbackUpdatePayload,
   HistoryFilter,
   HistoryResponse,
+  UserHistoryCard,
 } from "@/types";
 
 function buildAnalyticsParams(query: AdminAnalyticsQuery): Record<string, unknown> {
@@ -103,6 +104,20 @@ export function getAdminHistory(
   if (filter?.start_date) params.start_date = filter.start_date;
   if (filter?.end_date) params.end_date = filter.end_date;
   return client.get("/admin/history", { params });
+}
+
+export function getAdminHistoryDetail(payload: {
+  item_type: "task" | "prompt_history";
+  task_id?: string | null;
+  history_id?: number | null;
+}): Promise<UserHistoryCard> {
+  return client.get("/admin/history/detail", {
+    params: {
+      item_type: payload.item_type,
+      task_id: payload.task_id || undefined,
+      history_id: typeof payload.history_id === "number" ? payload.history_id : undefined,
+    },
+  });
 }
 
 export function listAdminFeedbacks(

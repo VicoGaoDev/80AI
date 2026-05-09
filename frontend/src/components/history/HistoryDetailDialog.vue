@@ -1,0 +1,551 @@
+<script setup lang="ts">
+import { computed, h, ref } from "vue";
+import { message } from "ant-design-vue";
+import { CopyOutlined, DownloadOutlined, LoadingOutlined, PictureOutlined, ReloadOutlined } from "@ant-design/icons-vue";
+import dayjs from "dayjs";
+import { getDisplayImageUrl, getPreviewImageUrl, resolveImageUrl } from "@/api/images";
+import { withBaseUrl } from "@/lib/assets";
+import type { ImageResult, UserHistoryCard } from "@/types";
+
+const props = withDefaults(defineProps<{
+  open: boolean;
+  item: UserHistoryCard | null;
+  loading?: boolean;
+  showActions?: boolean;
+  modelOptions?: Array<{ label: string; value: string }>;
+  title?: string;
+}>(), {
+  loading: false,
+  showActions: false,
+  modelOptions: () => [],
+  title: "任务详情",
+});
+
+const emit = defineEmits<{
+  "update:open": [value: boolean];
+  reedit: [item: UserHistoryCard];
+  download: [item: UserHistoryCard];
+}>();
+
+const previewVisible = ref(false);
+const previewSrc = ref("");
+const failedResultAsset = withBaseUrl("failed-result.svg");
+const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 960 960">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff8ee"/>
+      <stop offset="100%" stop-color="#ffe6c8"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="960" rx="56" fill="url(#bg)"/>
+  <rect x="74" y="74" width="812" height="812" rx="42" fill="none" stroke="#efc784" stroke-dasharray="18 16" stroke-width="10"/>
+  <g fill="none" stroke="#d08a24" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="282" y="248" width="396" height="286" rx="28" stroke-width="18"/>
+    <path d="M326 490l110-108 92 88 72-66 76 86" stroke-width="18"/>
+    <circle cx="400" cy="330" r="34" fill="#ffd585" stroke-width="12"/>
+  </g>
+  <text x="480" y="654" text-anchor="middle" font-size="54" font-weight="700" fill="#8c5a16">原图已过期</text>
+  <text x="480" y="726" text-anchor="middle" font-size="34" fill="#a9742e">服务器仅保留 15 天原图</text>
+  <text x="480" y="776" text-anchor="middle" font-size="34" fill="#a9742e">请在有效期内查看或下载</text>
+</svg>
+`)}`;
+
+const modelLabelMap = computed(() => new Map(props.modelOptions.map((item) => [item.value, item.label])));
+
+function formatTime(t: string) {
+  return t ? dayjs(t).format("YYYY-MM-DD HH:mm:ss") : "-";
+}
+
+function statusLabel(status: UserHistoryCard["status"]) {
+  const mapping: Record<string, string> = {
+    pending: "等待中",
+    queued: "排队中",
+    processing: "处理中",
+    success: "成功",
+    failed: "失败",
+  };
+  return mapping[status] || status;
+}
+
+function sourceLabel(source: UserHistoryCard["source"]) {
+  return source === "app" ? "App" : "Web";
+}
+
+function modeLabel(mode: UserHistoryCard["mode"]) {
+  if (mode === "inpaint") return "局部重绘";
+  if (mode === "promptReverse") return "提示词反推";
+  return "生图";
+}
+
+function getModelLabel(model?: string) {
+  if (!model) return "-";
+  return modelLabelMap.value.get(model) || model;
+}
+
+function formatImageSize(size?: number) {
+  const bytes = Number(size || 0);
+  if (!bytes) return "-";
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function detailMetaList(item: UserHistoryCard) {
+  return [
+    `状态：${statusLabel(item.status)}`,
+    `来源：${sourceLabel(item.source)}`,
+    `类型：${modeLabel(item.mode)}`,
+    `模型：${getModelLabel(item.model)}`,
+    `比例：${item.size || "-"}`,
+    item.resolution ? `分辨率：${item.resolution}` : "",
+    item.custom_size ? `自定义分辨率：${item.custom_size}` : "",
+    item.image_format ? `格式：${item.image_format}` : "",
+    item.image_size_bytes ? `大小：${formatImageSize(item.image_size_bytes)}` : "",
+    `时间：${formatTime(item.created_at)}`,
+  ].filter(Boolean);
+}
+
+function isHistoryItemExpired(item: Pick<UserHistoryCard, "created_at" | "status">) {
+  if (item.status !== "success") return false;
+  if (!item.created_at) return false;
+  return dayjs().diff(dayjs(item.created_at), "day", true) >= 15;
+}
+
+function getNestedImageSrc(image: Pick<ImageResult, "thumb_url" | "image_url" | "preview_url" | "status">) {
+  const displayUrl = getDisplayImageUrl(image);
+  if (displayUrl) return displayUrl;
+  return image.status === "failed" ? failedResultAsset : "";
+}
+
+function getNestedPreviewSrc(image: Pick<ImageResult, "thumb_url" | "image_url" | "preview_url">) {
+  return getPreviewImageUrl(image);
+}
+
+function getDetailImageSrc(item: UserHistoryCard, image: Pick<ImageResult, "thumb_url" | "image_url" | "preview_url" | "status">) {
+  if (isHistoryItemExpired(item) && image.status === "success") {
+    return expiredResultAsset;
+  }
+  return getNestedImageSrc(image);
+}
+
+function getDetailPreviewSrc(item: UserHistoryCard, image: Pick<ImageResult, "thumb_url" | "image_url" | "preview_url" | "status">) {
+  if (isHistoryItemExpired(item) && image.status === "success") {
+    return "";
+  }
+  return getNestedPreviewSrc(image);
+}
+
+function openPreview(url: string) {
+  if (!url) return;
+  previewSrc.value = url;
+  previewVisible.value = true;
+}
+
+async function copyPrompt(text?: string) {
+  if (!text?.trim()) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    message.success("已复制提示词");
+  } catch {
+    message.error("复制失败，请重试");
+  }
+}
+
+function handleReedit(item: UserHistoryCard) {
+  emit("reedit", item);
+}
+
+function handleDownload(item: UserHistoryCard) {
+  emit("download", item);
+}
+</script>
+
+<template>
+  <a-modal
+    :open="open"
+    :title="title"
+    :footer="null"
+    :width="1040"
+    centered
+    @update:open="emit('update:open', $event)"
+  >
+    <div v-if="loading" class="detail-loading">
+      <a-spin
+        :indicator="h(LoadingOutlined, { style: { fontSize: '28px', color: '#7c8db5' } })"
+      />
+      <span>正在加载任务详情...</span>
+    </div>
+    <template v-else-if="item">
+      <div :key="item.display_id || item.task_id || item.history_id || item.image_id || item.created_at" class="detail-layout">
+        <div class="detail-left">
+          <div class="detail-section">
+            <div v-if="item.mode === 'promptReverse'" class="detail-label">反推原图</div>
+            <div v-if="item.mode === 'promptReverse' && item.source_image" class="detail-thumb-row">
+              <div
+                class="detail-thumb detail-thumb-large"
+                @click="!isHistoryItemExpired(item) && openPreview(resolveImageUrl(item.source_image))"
+              >
+                <img
+                  :src="isHistoryItemExpired(item) ? expiredResultAsset : resolveImageUrl(item.source_image_thumb || item.source_image)"
+                  alt="提示词反推原图"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+            <div v-else class="detail-result-grid">
+              <div
+                v-for="img in item.images"
+                :key="img.id"
+                class="detail-result-card"
+                :class="{
+                  single: item.images.length === 1,
+                  pending: !getDetailImageSrc(item, img) && img.status !== 'failed',
+                  failed: img.status === 'failed',
+                }"
+                @click="getDetailPreviewSrc(item, img) && openPreview(getDetailPreviewSrc(item, img))"
+              >
+                <img
+                  v-if="getDetailImageSrc(item, img) || img.status === 'failed'"
+                  :src="getDetailImageSrc(item, img) || failedResultAsset"
+                  :alt="img.status === 'failed' ? '生成失败' : '结果图'"
+                  :class="{ 'failed-result-image': img.status === 'failed' }"
+                  loading="lazy"
+                />
+                <div v-else class="result-card-placeholder">
+                  <a-spin
+                    :indicator="h(LoadingOutlined, { style: { fontSize: '28px', color: '#7c8db5' } })"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-right">
+          <div class="detail-section">
+            <div class="detail-meta">
+              <span v-for="meta in detailMetaList(item)" :key="meta">{{ meta }}</span>
+            </div>
+          </div>
+
+          <div v-if="item.mode === 'inpaint' && item.source_image" class="detail-section">
+            <div class="detail-label">局部重绘原图</div>
+            <div class="detail-thumb-row">
+              <div class="detail-thumb" @click="!isHistoryItemExpired(item) && openPreview(resolveImageUrl(item.source_image))">
+                <img
+                  :src="isHistoryItemExpired(item) ? expiredResultAsset : resolveImageUrl(item.source_image_thumb || item.source_image)"
+                  alt="局部重绘原图"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div v-if="item.reference_images.length" class="detail-section">
+            <div class="detail-label">
+              <PictureOutlined />
+              <span>参考图</span>
+            </div>
+            <div class="detail-thumb-row">
+              <div
+                v-for="(ref, index) in item.reference_images"
+                :key="index"
+                class="detail-thumb"
+                @click="openPreview(resolveImageUrl(ref))"
+              >
+                <img :src="resolveImageUrl(item.reference_image_thumbs[index] || ref)" alt="参考图" loading="lazy" />
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-label-row">
+              <div class="detail-label">提示词</div>
+              <a-button type="text" class="detail-copy-btn" @click="copyPrompt(item.prompt)">
+                <template #icon><CopyOutlined /></template>
+                复制提示词
+              </a-button>
+            </div>
+            <div class="detail-prompt">{{ item.prompt || "-" }}</div>
+          </div>
+        </div>
+        <div v-if="showActions" class="detail-floating-actions">
+          <a-tooltip title="重新编辑">
+            <a-button type="text" class="ghost-icon-btn detail-action-btn" @click="handleReedit(item)">
+              <template #icon><ReloadOutlined /></template>
+            </a-button>
+          </a-tooltip>
+          <a-tooltip title="下载">
+            <a-button
+              type="text"
+              class="ghost-icon-btn detail-action-btn"
+              :disabled="isHistoryItemExpired(item) || !item.image_url || typeof item.image_id !== 'number'"
+              @click="handleDownload(item)"
+            >
+              <template #icon><DownloadOutlined /></template>
+            </a-button>
+          </a-tooltip>
+        </div>
+      </div>
+    </template>
+
+    <div v-if="previewVisible" style="display: none">
+      <a-image
+        :src="previewSrc"
+        :preview="{ visible: previewVisible, onVisibleChange: (v: boolean) => (previewVisible = v) }"
+      />
+    </div>
+  </a-modal>
+</template>
+
+<style scoped lang="scss">
+.detail-loading {
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-secondary);
+}
+
+@keyframes history-detail-slide-in {
+  from {
+    opacity: 0;
+    transform: translate3d(22px, 0, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.detail-section + .detail-section {
+  margin-top: 18px;
+}
+
+.detail-layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 20px;
+  align-items: start;
+  animation: history-detail-slide-in var(--motion-duration-reveal-slower) var(--motion-ease-enter) both;
+}
+
+.detail-left,
+.detail-right {
+  min-width: 0;
+}
+
+.detail-right {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-action-btn {
+  width: 36px;
+  height: 36px;
+}
+
+.detail-floating-actions {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 6px;
+  padding: 0 2px 2px 0;
+}
+
+.detail-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.detail-section > .detail-label {
+  margin-bottom: 10px;
+}
+
+.detail-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.detail-copy-btn {
+  height: 30px;
+  padding-inline: 10px;
+  border-radius: 10px;
+  color: var(--theme-link) !important;
+}
+
+.detail-prompt {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--theme-panel-bg-soft);
+  border: 1px solid var(--theme-panel-border);
+  color: var(--theme-title);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 210px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.detail-thumb-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.detail-thumb {
+  width: 84px;
+  height: 84px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--theme-panel-border);
+  background: var(--theme-panel-bg-soft);
+  cursor: pointer;
+  transition:
+    transform var(--motion-duration-base) var(--motion-ease-soft),
+    box-shadow var(--motion-duration-base) var(--motion-ease-soft),
+    border-color var(--motion-duration-base) var(--motion-ease-soft);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: var(--theme-border-strong);
+    box-shadow: 0 16px 24px var(--theme-shadow-soft);
+  }
+}
+
+.detail-thumb-large {
+  width: min(100%, 520px);
+  height: auto;
+  aspect-ratio: 1 / 1;
+}
+
+.detail-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.detail-result-card {
+  height: clamp(220px, 36vh, 340px);
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--theme-panel-border);
+  background: var(--theme-panel-bg-soft);
+  cursor: pointer;
+  transition:
+    transform var(--motion-duration-base) var(--motion-ease-soft),
+    box-shadow var(--motion-duration-base) var(--motion-ease-soft),
+    border-color var(--motion-duration-base) var(--motion-ease-soft);
+
+  img,
+  .result-card-placeholder {
+    width: 100%;
+    height: 100%;
+  }
+
+  img {
+    object-fit: contain;
+    display: block;
+    background: var(--theme-panel-bg);
+  }
+
+  &.pending {
+    cursor: default;
+  }
+
+  &:not(.pending):hover {
+    transform: translateY(-3px);
+    border-color: var(--theme-border-strong);
+    box-shadow: 0 16px 28px var(--theme-shadow-medium);
+  }
+
+  &.failed img {
+    object-fit: contain;
+    padding: 18px;
+    background: var(--theme-panel-bg);
+  }
+
+  &.single {
+    height: clamp(440px, 72vh, 680px);
+  }
+}
+
+.result-card-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: 28px;
+  background: linear-gradient(180deg, var(--theme-panel-bg-soft), var(--theme-panel-bg));
+}
+
+.failed-result-image {
+  object-fit: contain !important;
+  padding: 28px;
+  background: linear-gradient(180deg, #fff2ef, #ffdcd5);
+  opacity: 0.96;
+}
+
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--theme-panel-bg-soft);
+  border: 1px solid var(--theme-panel-border);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.8;
+
+  span:not(:last-child)::after {
+    content: "｜";
+    margin: 0 8px;
+    color: #d3b487;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-layout,
+  .detail-thumb,
+  .detail-result-card {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-floating-actions {
+    position: static;
+    justify-content: flex-end;
+    margin-top: 14px;
+    padding: 0;
+  }
+}
+</style>

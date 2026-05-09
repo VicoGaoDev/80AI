@@ -5,14 +5,12 @@ import dayjs from "dayjs";
 import {
   CheckSquareOutlined,
   ClockCircleOutlined,
-  CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
   EyeOutlined,
   LoadingOutlined,
   MessageOutlined,
-  PictureOutlined,
   PushpinOutlined,
   ReloadOutlined,
 } from "@ant-design/icons-vue";
@@ -22,8 +20,9 @@ import { fetchHistory, toggleHistoryPin } from "@/api/history";
 import { deleteImage, getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl, resolveImageUrl } from "@/api/images";
 import { deletePromptHistory } from "@/api/auth";
 import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
+import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import { withBaseUrl } from "@/lib/assets";
-import type { GenerationModelOption, ImageResult, TaskSource, UserHistoryCard } from "@/types";
+import type { GenerationModelOption, TaskSource, UserHistoryCard } from "@/types";
 
 const router = useRouter();
 const items = ref<UserHistoryCard[]>([]);
@@ -257,45 +256,10 @@ function statusLabel(status: UserHistoryCard["status"]) {
   return mapping[status] || status;
 }
 
-function formatTime(t: string) {
-  return t ? dayjs(t).format("YYYY-MM-DD HH:mm:ss") : "-";
-}
-
 function isHistoryItemExpired(item: Pick<UserHistoryCard, "created_at" | "status">) {
   if (item.status !== "success") return false;
   if (!item.created_at) return false;
   return dayjs().diff(dayjs(item.created_at), "day", true) >= 15;
-}
-
-function getModelLabel(model?: string) {
-  if (!model) return "-";
-  return generationModels.value.find((item) => item.model_key === model)?.model_label || model;
-}
-
-function formatImageSize(size?: number) {
-  const bytes = Number(size || 0);
-  if (!bytes) return "-";
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function detailMetaList(item: UserHistoryCard) {
-  return [
-    `状态：${statusLabel(item.status)}`,
-    `来源：${sourceLabel(item.source)}`,
-    `类型：${modeLabel(item.mode)}`,
-    `模型：${getModelLabel(item.model)}`,
-    `比例：${item.size || "-"}`,
-    item.resolution ? `分辨率：${item.resolution}` : "",
-    item.custom_size ? `自定义分辨率：${item.custom_size}` : "",
-    item.image_format ? `格式：${item.image_format}` : "",
-    item.image_size_bytes ? `大小：${formatImageSize(item.image_size_bytes)}` : "",
-    `时间：${formatTime(item.created_at)}`,
-  ].filter(Boolean);
-}
-
-function sourceLabel(source: TaskSource) {
-  return source === "app" ? "App" : "Web";
 }
 
 function resetFilters() {
@@ -359,28 +323,6 @@ function getHistoryCardPreview(item: UserHistoryCard) {
 
 function getHistoryPreviewSrc(image: Pick<UserHistoryCard, "thumb_url" | "image_url" | "preview_url">) {
   return getPreviewImageUrl(image);
-}
-
-function getNestedImageSrc(image: Pick<ImageResult, "thumb_url" | "image_url" | "preview_url" | "status">) {
-  return getHistoryImageSrc(image);
-}
-
-function getNestedPreviewSrc(image: Pick<ImageResult, "thumb_url" | "image_url" | "preview_url">) {
-  return getPreviewImageUrl(image);
-}
-
-function getDetailImageSrc(item: UserHistoryCard, image: Pick<ImageResult, "thumb_url" | "image_url" | "preview_url" | "status">) {
-  if (isHistoryItemExpired(item) && image.status === "success") {
-    return expiredResultAsset;
-  }
-  return getNestedImageSrc(image);
-}
-
-function getDetailPreviewSrc(item: UserHistoryCard, image: Pick<ImageResult, "thumb_url" | "image_url" | "preview_url" | "status">) {
-  if (isHistoryItemExpired(item) && image.status === "success") {
-    return "";
-  }
-  return getNestedPreviewSrc(image);
 }
 
 function openDetail(item: UserHistoryCard) {
@@ -474,21 +416,16 @@ function toggleBatchMode() {
   if (!batchMode.value) clearSelection();
 }
 
-async function copyPrompt(text?: string) {
-  if (!text?.trim()) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    message.success("已复制提示词");
-  } catch {
-    message.error("复制失败，请重试");
-  }
-}
-
 function download(imageId: number, imageUrl: string) {
   const a = document.createElement("a");
   a.href = getDownloadUrl(imageId, imageUrl);
   a.download = `banana_${imageId}.png`;
   a.click();
+}
+
+function handleDetailDownload(item: UserHistoryCard) {
+  if (typeof item.image_id !== "number" || !item.image_url) return;
+  download(item.image_id, item.image_url);
 }
 
 function wait(ms: number) {
@@ -958,127 +895,15 @@ function handleEditImage(item: UserHistoryCard) {
       aria-hidden="true"
     />
 
-    <a-modal
-      v-model:open="detailOpen"
-      title="任务详情"
-      :footer="null"
-      :width="1040"
-      centered
-    >
-      <template v-if="detailItem">
-        <div :key="getHistoryItemKey(detailItem)" class="detail-layout">
-          <div class="detail-left">
-            <div class="detail-section">
-              <div v-if="detailItem.mode === 'promptReverse'" class="detail-label">反推原图</div>
-              <div v-if="detailItem.mode === 'promptReverse' && detailItem.source_image" class="detail-thumb-row">
-                <div
-                  class="detail-thumb detail-thumb-large"
-                  @click="!isHistoryItemExpired(detailItem) && openPreview(resolveImageUrl(detailItem.source_image))"
-                >
-                  <img
-                    :src="isHistoryItemExpired(detailItem) ? expiredResultAsset : resolveImageUrl(detailItem.source_image_thumb || detailItem.source_image)"
-                    alt="提示词反推原图"
-                    loading="lazy"
-                  />
-                </div>
-              </div>
-              <div v-else class="detail-result-grid">
-                <div
-                  v-for="img in detailItem.images"
-                  :key="img.id"
-                  class="detail-result-card"
-                  :class="{
-                    single: detailItem.images.length === 1,
-                    pending: !getDetailImageSrc(detailItem, img) && img.status !== 'failed',
-                    failed: img.status === 'failed',
-                  }"
-                  @click="getDetailPreviewSrc(detailItem, img) && openPreview(getDetailPreviewSrc(detailItem, img))"
-                >
-                  <img
-                    v-if="getDetailImageSrc(detailItem, img) || img.status === 'failed'"
-                    :src="getDetailImageSrc(detailItem, img) || failedResultAsset"
-                    :alt="img.status === 'failed' ? '生成失败' : '结果图'"
-                    :class="{ 'failed-result-image': img.status === 'failed' }"
-                    loading="lazy"
-                  />
-                  <div v-else class="result-card-placeholder">
-                    <a-spin
-                      :indicator="h(LoadingOutlined, { style: { fontSize: '28px', color: '#7c8db5' } })"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="detail-right">
-            <div class="detail-section">
-              <div class="detail-meta">
-                <span v-for="meta in detailMetaList(detailItem)" :key="meta">{{ meta }}</span>
-              </div>
-            </div>
-
-            <div v-if="detailItem.mode === 'inpaint' && detailItem.source_image" class="detail-section">
-              <div class="detail-label">局部重绘原图</div>
-              <div class="detail-thumb-row">
-                <div class="detail-thumb" @click="!isHistoryItemExpired(detailItem) && openPreview(resolveImageUrl(detailItem.source_image))">
-                  <img
-                    :src="isHistoryItemExpired(detailItem) ? expiredResultAsset : resolveImageUrl(detailItem.source_image_thumb || detailItem.source_image)"
-                    alt="局部重绘原图"
-                    loading="lazy"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div v-if="detailItem.reference_images.length" class="detail-section">
-              <div class="detail-label">
-                <PictureOutlined />
-                <span>参考图</span>
-              </div>
-              <div class="detail-thumb-row">
-                <div
-                  v-for="(ref, index) in detailItem.reference_images"
-                  :key="index"
-                  class="detail-thumb"
-                  @click="openPreview(resolveImageUrl(ref))"
-                >
-                  <img :src="resolveImageUrl(detailItem.reference_image_thumbs[index] || ref)" alt="参考图" loading="lazy" />
-                </div>
-              </div>
-            </div>
-
-            <div class="detail-section">
-              <div class="detail-label-row">
-                <div class="detail-label">提示词</div>
-                <a-button type="text" class="detail-copy-btn" @click="copyPrompt(detailItem.prompt)">
-                  <template #icon><CopyOutlined /></template>
-                  复制提示词
-                </a-button>
-              </div>
-              <div class="detail-prompt">{{ detailItem.prompt || "-" }}</div>
-            </div>
-          </div>
-          <div class="detail-floating-actions">
-            <a-tooltip title="重新编辑">
-              <a-button type="text" class="ghost-icon-btn detail-action-btn" @click="handleReedit(detailItem)">
-                <template #icon><ReloadOutlined /></template>
-              </a-button>
-            </a-tooltip>
-            <a-tooltip title="下载">
-              <a-button
-                type="text"
-                class="ghost-icon-btn detail-action-btn"
-                :disabled="isHistoryItemExpired(detailItem) || !detailItem.image_url || typeof detailItem.image_id !== 'number'"
-                @click="typeof detailItem.image_id === 'number' && download(detailItem.image_id, detailItem.image_url)"
-              >
-                <template #icon><DownloadOutlined /></template>
-              </a-button>
-            </a-tooltip>
-          </div>
-        </div>
-      </template>
-    </a-modal>
+    <HistoryDetailDialog
+      :open="detailOpen"
+      :item="detailItem"
+      :model-options="modelOptions"
+      show-actions
+      @update:open="detailOpen = $event"
+      @reedit="handleReedit"
+      @download="handleDetailDownload"
+    />
 
     <div v-if="previewVisible" style="display: none">
       <a-image

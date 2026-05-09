@@ -69,6 +69,98 @@ def _serialize_history_images(
     return result
 
 
+def _serialize_task_history_detail(task: Task, *, cos_config) -> dict:
+    primary_image = next(
+        (img for img in sorted(task.images, key=lambda item: item.id, reverse=True) if not img.is_deleted),
+        None,
+    )
+    primary_image_payload = serialize_image(primary_image, cos_config=cos_config) if primary_image else {
+        "id": None,
+        "image_url": "",
+        "preview_url": "",
+        "thumb_url": "",
+        "status": task.status or "pending",
+        "image_format": "",
+        "image_size_bytes": 0,
+    }
+    source_asset = serialize_asset_urls(task.source_image or "", cos_config=cos_config)
+    mask_asset = serialize_asset_urls(task.mask_image or "", cos_config=cos_config)
+    reference_assets = [serialize_asset_urls(ref, cos_config=cos_config) for ref in _parse_refs(task.reference_images)]
+    visible_images = _serialize_history_images(task.images, cos_config=cos_config)
+    return {
+        "history_id": None,
+        "item_type": "task",
+        "display_id": task_external_id(task),
+        "task_id": task_external_id(task),
+        "image_id": primary_image.id if primary_image else None,
+        "is_pinned": False,
+        "pinned_at": None,
+        "image_url": primary_image_payload["image_url"],
+        "preview_url": primary_image_payload["preview_url"],
+        "thumb_url": primary_image_payload["thumb_url"],
+        "status": _resolve_history_card_status(task.status, primary_image_payload["status"]),
+        "image_format": primary_image_payload["image_format"],
+        "image_size_bytes": primary_image_payload["image_size_bytes"],
+        "is_soft_deleted": False,
+        "model": task.model or "",
+        "source": task.source or "web",
+        "mode": task.mode or "generate",
+        "prompt": task.prompt or "",
+        "reference_images": [asset["image_url"] for asset in reference_assets],
+        "reference_image_thumbs": [asset["thumb_url"] for asset in reference_assets],
+        "source_image": source_asset["image_url"],
+        "source_image_thumb": source_asset["thumb_url"],
+        "mask_image": mask_asset["image_url"],
+        "mask_image_thumb": mask_asset["thumb_url"],
+        "num_images": task.num_images,
+        "size": task.size,
+        "resolution": task.resolution or "",
+        "custom_size": task.custom_size or "",
+        "credit_cost": int(task.credit_cost or 0),
+        "created_at": task.created_at,
+        "error_message": task.error_message or "",
+        "images": visible_images,
+    }
+
+
+def _serialize_prompt_history_detail(row: PromptHistory, *, cos_config) -> dict:
+    source_asset = serialize_asset_urls(row.source_image or "", cos_config=cos_config)
+    return {
+        "history_id": row.id,
+        "item_type": "prompt_history",
+        "display_id": f"PR-{row.id}",
+        "task_id": None,
+        "image_id": -row.id,
+        "is_pinned": False,
+        "pinned_at": None,
+        "image_url": "",
+        "preview_url": "",
+        "thumb_url": "",
+        "status": "success",
+        "image_format": "",
+        "image_size_bytes": 0,
+        "is_soft_deleted": False,
+        "model": PROMPT_REVERSE_MODEL,
+        "source": "web",
+        "mode": PROMPT_REVERSE_MODE,
+        "prompt": row.prompt or "",
+        "reference_images": [],
+        "reference_image_thumbs": [],
+        "source_image": source_asset["image_url"],
+        "source_image_thumb": source_asset["thumb_url"],
+        "mask_image": "",
+        "mask_image_thumb": "",
+        "num_images": 0,
+        "size": "-",
+        "resolution": "",
+        "custom_size": "",
+        "credit_cost": 0,
+        "created_at": row.created_at,
+        "error_message": "",
+        "images": [],
+    }
+
+
 def get_user_history(
     db: Session,
     user_id: int,
@@ -472,3 +564,51 @@ def get_all_history(
     paged_items = items[start_index:start_index + page_size]
 
     return {"total": total, "total_credit_cost": total_credit_cost, "items": paged_items}
+
+
+def get_admin_history_detail(
+    db: Session,
+    *,
+    item_type: str,
+    task_id: str | None = None,
+    history_id: int | None = None,
+):
+    cos_config = get_optional_cos_config(db)
+    if item_type == "task":
+        normalized_task_id = normalize_business_id(task_id)
+        if not normalized_task_id:
+            raise ValueError("invalid_task_id")
+        task = (
+            db.query(Task)
+            .join(User, User.id == Task.user_id)
+            .options(selectinload(Task.images))
+            .filter(
+                Task.business_id == normalized_task_id,
+                User.role != "superadmin",
+                User.is_whitelisted.is_(False),
+            )
+            .first()
+        )
+        if not task:
+            raise LookupError("task_not_found")
+        return _serialize_task_history_detail(task, cos_config=cos_config)
+
+    if item_type == "prompt_history":
+        if not isinstance(history_id, int):
+            raise ValueError("invalid_history_id")
+        row = (
+            db.query(PromptHistory)
+            .join(User, User.id == PromptHistory.user_id)
+            .filter(
+                PromptHistory.id == history_id,
+                PromptHistory.mode == PROMPT_REVERSE_MODE,
+                User.role != "superadmin",
+                User.is_whitelisted.is_(False),
+            )
+            .first()
+        )
+        if not row:
+            raise LookupError("prompt_history_not_found")
+        return _serialize_prompt_history_detail(row, cos_config=cos_config)
+
+    raise ValueError("invalid_item_type")
