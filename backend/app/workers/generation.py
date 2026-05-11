@@ -26,10 +26,12 @@ from app.services.business_id_service import task_external_id, user_external_id
 from app.services.distributed_lock_service import acquire_redis_lock, release_redis_lock
 from app.services.cos_service import build_object_key, load_image_bytes, upload_bytes_to_cos
 from app.services.external_api_config_service import (
+    build_external_request_kwargs,
     build_secret_variables,
     render_config,
     require_scene_config,
     SCENE_INPAINT,
+    should_use_gpt_edit_multipart,
 )
 
 logger = logging.getLogger(__name__)
@@ -221,12 +223,33 @@ def _call_gemini_api(
             "reference_image_count": 0,
         }
         if mode == "inpaint":
-            if not _append_inline_image(parts, source_image):
+            source_payload = _build_reference_image_payload(source_image)
+            if not source_payload:
                 logger.warning("Inpaint source image not found: %s", source_image)
                 return None, "图编辑原图不存在或无法读取"
-            if not _append_inline_image(parts, mask_image):
+            source_inline_part = source_payload.get("inline_part")
+            if not isinstance(source_inline_part, dict):
+                logger.warning("Inpaint source image payload malformed: %s", source_image)
+                return None, "图编辑原图格式无效"
+            parts.append(source_inline_part)
+            render_variables["source_image"] = source_inline_part
+            render_variables["source_image_base64"] = source_payload["base64"]
+            render_variables["source_image_mime_type"] = source_payload["mime_type"]
+            render_variables["source_image_data_url"] = source_payload["data_url"]
+
+            mask_payload = _build_reference_image_payload(mask_image)
+            if not mask_payload:
                 logger.warning("Inpaint mask image not found: %s", mask_image)
                 return None, "图编辑蒙版不存在或无法读取"
+            mask_inline_part = mask_payload.get("inline_part")
+            if not isinstance(mask_inline_part, dict):
+                logger.warning("Inpaint mask image payload malformed: %s", mask_image)
+                return None, "图编辑蒙版格式无效"
+            parts.append(mask_inline_part)
+            render_variables["mask_image"] = mask_inline_part
+            render_variables["mask_image_base64"] = mask_payload["base64"]
+            render_variables["mask_image_mime_type"] = mask_payload["mime_type"]
+            render_variables["mask_image_data_url"] = mask_payload["data_url"]
             parts.append({
                 "text": (
                     "请基于第1张原图进行局部重绘，第2张图是蒙版：白色区域需要重绘，"
@@ -271,7 +294,7 @@ def _call_gemini_api(
 
         auth_value = rendered.headers.get("Authorization", "")
         logger.info(
-            "Calling generation API: config=%s, mode=%s, prompt=%s, ratio=%s, size=%s, custom_size=%s, ref_count=%d, auth_prefix=%s",
+            "Calling generation API: config=%s, mode=%s, prompt=%s, ratio=%s, size=%s, custom_size=%s, ref_count=%d, auth_prefix=%s, request_mode=%s",
             config.name,
             mode,
             prompt[:60],
@@ -280,13 +303,13 @@ def _call_gemini_api(
             custom_size,
             len(reference_images or []),
             (auth_value[:8] + "...") if auth_value else "none",
+            "multipart" if should_use_gpt_edit_multipart(rendered) else "json",
         )
 
-        with httpx.Client(timeout=settings.AI_TIMEOUT) as client:
+        with httpx.Client(timeout=settings.AI_TIMEOUT, trust_env=False) as client:
             resp = client.post(
                 rendered.request_url,
-                json=rendered.payload,
-                headers=rendered.headers,
+                **build_external_request_kwargs(rendered),
             )
 
             if resp.status_code != 200:

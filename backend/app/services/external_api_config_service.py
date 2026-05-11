@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 from typing import Any
@@ -41,6 +42,18 @@ SCENE_TYPE_INPAINT = "inpaint"
 DEFAULT_GENERATION_SCENE = SCENE_BANANA_PRO
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
 _MISSING_PLACEHOLDER = object()
+MULTIPART_EDIT_FILE_FIELD_ALIASES = {
+    "image": "image",
+    "images": "image",
+    "mask": "mask",
+}
+MULTIPART_EDIT_FILE_FIELDS = set(MULTIPART_EDIT_FILE_FIELD_ALIASES)
+IMAGE_MIME_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 DEFAULT_SCENE_DEFINITIONS = [
     {"scene_key": SCENE_BANANA, "scene_type": SCENE_TYPE_GENERATE, "scene_label": "Banana", "scene_description": "推荐模型", "sort_order": 10, "hide_aspect_ratio": False, "hide_resolution": True, "hide_custom_size": True},
     {"scene_key": SCENE_BANANA2, "scene_type": SCENE_TYPE_GENERATE, "scene_label": "Banana 2", "scene_description": "尝鲜版", "sort_order": 20, "hide_aspect_ratio": False, "hide_resolution": False, "hide_custom_size": True},
@@ -687,6 +700,137 @@ def render_config(config: ExternalApiConfig, variables: dict[str, Any]) -> Rende
     )
 
 
+def _detect_image_mime(data: bytes, fallback: str = "image/png") -> str:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data[:6] in {b"GIF87a", b"GIF89a"}:
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return fallback
+
+
+def _decode_data_url(value: str) -> tuple[bytes, str] | None:
+    if not isinstance(value, str) or not value.startswith("data:"):
+        return None
+    header, separator, payload = value.partition(",")
+    if not separator or not payload:
+        return None
+    mime_type = (header[5:].split(";", 1)[0] or "image/png").strip() or "image/png"
+    try:
+        if ";base64" in header:
+            return base64.b64decode(payload), mime_type
+        return payload.encode("utf-8"), mime_type
+    except Exception:
+        return None
+
+
+def _decode_multipart_file_value(value: Any) -> tuple[bytes, str] | None:
+    if isinstance(value, dict):
+        base64_value = value.get("b64_json")
+        if isinstance(base64_value, str) and base64_value.strip():
+            try:
+                raw = base64.b64decode(base64_value)
+            except Exception:
+                return None
+            mime_type = str(value.get("mime_type") or value.get("mimeType") or "").strip() or _detect_image_mime(raw)
+            return raw, mime_type
+
+        data_url_value = value.get("data_url")
+        if isinstance(data_url_value, str):
+            decoded = _decode_data_url(data_url_value)
+            if decoded:
+                return decoded
+
+        inline_data = value.get("inlineData")
+        if isinstance(inline_data, dict):
+            inline_base64 = inline_data.get("data")
+            if isinstance(inline_base64, str) and inline_base64.strip():
+                try:
+                    raw = base64.b64decode(inline_base64)
+                except Exception:
+                    return None
+                mime_type = str(inline_data.get("mimeType") or "").strip() or _detect_image_mime(raw)
+                return raw, mime_type
+
+    if isinstance(value, str):
+        return _decode_data_url(value)
+    return None
+
+
+def _build_multipart_files(field_name: str, value: Any) -> list[tuple[str, tuple[str, bytes, str]]]:
+    raw_items = value if isinstance(value, list) else [value]
+    files: list[tuple[str, tuple[str, bytes, str]]] = []
+    for index, item in enumerate(raw_items, start=1):
+        decoded = _decode_multipart_file_value(item)
+        if not decoded:
+            continue
+        raw, mime_type = decoded
+        ext = IMAGE_MIME_EXTENSIONS.get(mime_type, ".png")
+        filename = ""
+        if isinstance(item, dict):
+            filename = str(item.get("file_name") or item.get("filename") or item.get("name") or "").strip()
+        if not filename:
+            filename = f"{field_name}_{index}{ext}"
+        files.append((field_name, (filename, raw, mime_type)))
+    return files
+
+
+def _stringify_form_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    return json.dumps(value, ensure_ascii=False)
+
+
+def should_use_gpt_edit_multipart(rendered: RenderedExternalApiConfig) -> bool:
+    payload = rendered.payload
+    if not isinstance(payload, dict):
+        return False
+    request_url = (rendered.request_url or "").strip().lower()
+    model_name = str(payload.get("model") or "").strip().lower()
+    has_file_fields = any(field in payload for field in MULTIPART_EDIT_FILE_FIELDS)
+    if not has_file_fields:
+        return False
+    return (
+        "/images/edits" in request_url
+        or "gpt-image" in model_name
+        or "gptimage" in model_name
+    )
+
+
+def build_external_request_kwargs(rendered: RenderedExternalApiConfig) -> dict[str, Any]:
+    if not should_use_gpt_edit_multipart(rendered):
+        return {
+            "headers": rendered.headers,
+            "json": rendered.payload,
+        }
+
+    payload = rendered.payload if isinstance(rendered.payload, dict) else {}
+    headers = {
+        key: value
+        for key, value in rendered.headers.items()
+        if key.lower() != "content-type"
+    }
+    data: dict[str, str] = {}
+    files: list[tuple[str, tuple[str, bytes, str]]] = []
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if key in MULTIPART_EDIT_FILE_FIELDS:
+            files.extend(_build_multipart_files(MULTIPART_EDIT_FILE_FIELD_ALIASES[key], value))
+            continue
+        data[key] = _stringify_form_value(value)
+    return {
+        "headers": headers,
+        "data": data,
+        "files": files,
+    }
+
+
 def build_secret_variables(db: Session) -> dict[str, str]:
     record = db.query(ApiKey).first()
     generation_key = (record.key or "").strip() if record else ""
@@ -736,11 +880,10 @@ def test_external_api_config(db: Session, body: ExternalApiConfigCreate) -> Exte
     rendered = render_config(config, _build_test_variables(db))
 
     try:
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=20, trust_env=False) as client:
             response = client.post(
                 rendered.request_url,
-                json=rendered.payload,
-                headers=rendered.headers,
+                **build_external_request_kwargs(rendered),
             )
         preview = response.text[:1200]
         return ExternalApiConfigTestResult(

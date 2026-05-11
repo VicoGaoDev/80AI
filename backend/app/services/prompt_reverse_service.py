@@ -78,7 +78,7 @@ def reverse_prompt_from_image(db: Session, user_id: int, image_url: str) -> str:
     )
 
     try:
-        with httpx.Client(timeout=settings.AI_TIMEOUT) as client:
+        with httpx.Client(timeout=settings.AI_TIMEOUT, trust_env=False) as client:
             response = client.post(
                 rendered.request_url,
                 json=rendered.payload,
