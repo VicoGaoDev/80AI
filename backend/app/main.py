@@ -92,6 +92,7 @@ def on_startup():
     _ensure_prompt_history_columns()
     _ensure_image_required_columns()
     _ensure_task_credit_cost_column()
+    _ensure_external_api_config_required_columns()
     _ensure_scene_binding_required_columns()
     _ensure_template_required_columns()
     _ensure_feedback_schema()
@@ -210,6 +211,8 @@ def _ensure_schema_compat():
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN sort_order INTEGER DEFAULT 0"))
             if "hide_resolution" not in external_api_columns:
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN hide_resolution BOOLEAN DEFAULT 0"))
+            if "request_format" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN request_format VARCHAR(20) DEFAULT 'json'"))
             if "response_json" not in external_api_columns:
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN response_json TEXT"))
             if "result_base64_field" not in external_api_columns:
@@ -218,6 +221,15 @@ def _ensure_schema_compat():
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN supports_inpaint BOOLEAN DEFAULT 0"))
             if "is_active_inpaint" not in external_api_columns:
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN is_active_inpaint BOOLEAN DEFAULT 0"))
+            conn.execute(
+                text(
+                    """
+                    UPDATE external_api_configs
+                    SET request_format = 'json'
+                    WHERE request_format IS NULL OR request_format = ''
+                    """
+                )
+            )
             conn.execute(
                 text(
                     """
@@ -572,6 +584,26 @@ def _ensure_task_credit_cost_column():
             conn.execute(text("ALTER TABLE tasks ADD COLUMN request_finished_at DATETIME"))
         if "source" not in task_columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN source VARCHAR(20) DEFAULT 'web'"))
+
+
+def _ensure_external_api_config_required_columns():
+    inspector = inspect(engine)
+    if "external_api_configs" not in inspector.get_table_names():
+        return
+
+    external_api_columns = {col["name"] for col in inspector.get_columns("external_api_configs")}
+    with engine.begin() as conn:
+        if "request_format" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN request_format VARCHAR(20) DEFAULT 'json'"))
+        conn.execute(
+            text(
+                """
+                UPDATE external_api_configs
+                SET request_format = 'json'
+                WHERE request_format IS NULL OR request_format = ''
+                """
+            )
+        )
 
 
 def _ensure_scene_binding_required_columns():

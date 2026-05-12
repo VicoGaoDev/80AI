@@ -366,6 +366,7 @@ export interface AnnouncementConfig {
 }
 
 export type ExternalApiConfigStatus = "enabled" | "disabled";
+export type ExternalApiRequestFormat = "json" | "multipart";
 export type ExternalApiSceneType = "generate" | "image_edit" | "prompt_reverse" | "inpaint";
 
 export interface SceneOptionItem {
@@ -379,6 +380,7 @@ export interface ExternalApiConfig {
   description: string;
   group_name: string;
   request_url: string;
+  request_format: ExternalApiRequestFormat;
   headers_json: string;
   payload_json: string;
   response_json: string;
@@ -393,6 +395,7 @@ export interface ExternalApiConfigPayload {
   description: string;
   group_name: string;
   request_url: string;
+  request_format: ExternalApiRequestFormat;
   headers_json: string;
   payload_json: string;
   response_json: string;

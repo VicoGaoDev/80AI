@@ -31,7 +31,7 @@ from app.services.external_api_config_service import (
     render_config,
     require_scene_config,
     SCENE_INPAINT,
-    should_use_gpt_edit_multipart,
+    should_use_multipart_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -303,7 +303,7 @@ def _call_gemini_api(
             custom_size,
             len(reference_images or []),
             (auth_value[:8] + "...") if auth_value else "none",
-            "multipart" if should_use_gpt_edit_multipart(rendered) else "json",
+            "multipart" if should_use_multipart_request(rendered) else "json",
         )
 
         with httpx.Client(timeout=settings.AI_TIMEOUT, trust_env=False) as client:

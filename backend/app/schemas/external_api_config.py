@@ -6,6 +6,7 @@ from pydantic import BaseModel, field_validator
 
 
 StatusType = Literal["enabled", "disabled"]
+RequestFormatType = Literal["json", "multipart"]
 SceneTypeType = Literal["generate", "image_edit", "prompt_reverse", "inpaint"]
 SceneKeyType = str
 
@@ -50,6 +51,7 @@ class ExternalApiConfigBase(BaseModel):
     description: str = ""
     group_name: str = "默认"
     request_url: str
+    request_format: RequestFormatType = "json"
     headers_json: str
     payload_json: str
     response_json: str = "{}"
@@ -70,6 +72,14 @@ class ExternalApiConfigBase(BaseModel):
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("请求地址不能为空")
+        return cleaned
+
+    @field_validator("request_format")
+    @classmethod
+    def validate_request_format(cls, value: str) -> str:
+        cleaned = value.strip().lower()
+        if cleaned not in {"json", "multipart"}:
+            raise ValueError("请求格式只能是 json 或 multipart")
         return cleaned
 
     @field_validator("description")
@@ -134,6 +144,7 @@ class ExternalApiConfigOut(BaseModel):
     description: str
     group_name: str
     request_url: str
+    request_format: RequestFormatType
     headers_json: str
     payload_json: str
     response_json: str
@@ -147,6 +158,7 @@ class ExternalApiConfigOut(BaseModel):
 
 class RenderedExternalApiConfig(BaseModel):
     request_url: str
+    request_format: RequestFormatType = "json"
     headers: dict[str, str]
     payload: Any
 

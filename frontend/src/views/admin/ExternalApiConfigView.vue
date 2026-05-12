@@ -86,6 +86,7 @@ const tongyiKey = ref("");
 const configColumns = [
   { title: "名称", dataIndex: "name", width: 180 },
   { title: "分组", dataIndex: "group_name", width: 140 },
+  { title: "请求格式", dataIndex: "request_format", width: 120 },
   { title: "请求地址", dataIndex: "request_url", ellipsis: true },
   { title: "状态", dataIndex: "status", width: 100 },
   { title: "更新时间", dataIndex: "updated_at", width: 180 },
@@ -106,6 +107,7 @@ const form = reactive<ExternalApiConfigPayload>({
   description: "",
   group_name: "默认",
   request_url: "",
+  request_format: "json",
   headers_json: '{\n  "Content-Type": "application/json"\n}',
   payload_json: "{\n\n}",
   response_json: "{\n\n}",
@@ -185,6 +187,10 @@ function sceneTypeLabel(sceneType: ExternalApiSceneBinding["scene_type"]) {
   return sceneType;
 }
 
+function requestFormatLabel(requestFormat: ExternalApiConfig["request_format"]) {
+  return requestFormat === "multipart" ? "Multipart Form" : "JSON";
+}
+
 function resetForm() {
   editingId.value = null;
   isCopyMode.value = false;
@@ -192,6 +198,7 @@ function resetForm() {
   form.description = "";
   form.group_name = "默认";
   form.request_url = "";
+  form.request_format = "json";
   form.headers_json = '{\n  "Content-Type": "application/json"\n}';
   form.payload_json = "{\n\n}";
   form.response_json = "{\n\n}";
@@ -206,6 +213,7 @@ function fillForm(item: ExternalApiConfig) {
   form.description = item.description || "";
   form.group_name = item.group_name || "默认";
   form.request_url = item.request_url;
+  form.request_format = item.request_format || "json";
   form.headers_json = item.headers_json;
   form.payload_json = item.payload_json;
   form.response_json = item.response_json || "{\n\n}";
@@ -417,6 +425,7 @@ function openCopy(item: ExternalApiConfig) {
   form.description = item.description || "";
   form.group_name = item.group_name || "默认";
   form.request_url = item.request_url;
+  form.request_format = item.request_format || "json";
   form.headers_json = item.headers_json;
   form.payload_json = item.payload_json;
   form.response_json = item.response_json || "{\n\n}";
@@ -460,6 +469,7 @@ function buildPayload(): ExternalApiConfigPayload {
     description: form.description.trim(),
     group_name: form.group_name.trim() || "默认",
     request_url: form.request_url.trim(),
+    request_format: form.request_format,
     headers_json: form.headers_json,
     payload_json: form.payload_json,
     response_json: form.response_json,
@@ -835,11 +845,16 @@ function copySecret(value: string, label: string) {
           :data-source="filteredConfigs"
           :loading="loading"
           :pagination="{ pageSize: 10, class: 'warm-pagination' }"
-          :scroll="{ x: 980 }"
+          :scroll="{ x: 1100 }"
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.dataIndex === 'group_name'">
               <a-tag class="api-tag api-tag-group">{{ record.group_name || "未分组" }}</a-tag>
+            </template>
+            <template v-else-if="column.dataIndex === 'request_format'">
+              <a-tag class="api-tag" :class="record.request_format === 'multipart' ? 'api-tag-group' : 'api-tag-muted'">
+                {{ requestFormatLabel(record.request_format) }}
+              </a-tag>
             </template>
             <template v-else-if="column.dataIndex === 'status'">
               <a-tag class="api-tag" :class="record.status === 'enabled' ? 'api-tag-enabled' : 'api-tag-muted'">
@@ -1355,6 +1370,16 @@ function copySecret(value: string, label: string) {
 
         <a-form-item label="请求地址" required>
           <a-input v-model:value="form.request_url" class="warm-input" placeholder="https://example.com/api" />
+        </a-form-item>
+
+        <a-form-item label="请求格式" required>
+          <a-radio-group v-model:value="form.request_format" class="warm-radio-group" button-style="solid">
+            <a-radio-button value="json">JSON</a-radio-button>
+            <a-radio-button value="multipart">Multipart Form</a-radio-button>
+          </a-radio-group>
+          <div class="scene-desc" style="margin-top: 6px">
+            选择 multipart 时会按表单方式发送，并自动忽略 Header JSON 中手写的 Content-Type。
+          </div>
         </a-form-item>
 
         <a-form-item label="Header JSON" required>

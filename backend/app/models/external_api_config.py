@@ -16,6 +16,7 @@ class ExternalApiConfig(Base):
     sort_order = Column(Integer, nullable=False, default=0)
     hide_resolution = Column(Boolean, nullable=False, default=False)
     request_url = Column(String(500), nullable=False, default="")
+    request_format = Column(String(20), nullable=False, default="json")
     headers_json = Column(Text, nullable=False, default="{}")
     payload_json = Column(Text, nullable=False, default="{}")
     response_json = Column(Text, nullable=False, default="{}")

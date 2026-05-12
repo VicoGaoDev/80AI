@@ -130,6 +130,7 @@
 - `sort_order`: 配置排序。
 - `hide_resolution`: 是否在前端隐藏分辨率参数。
 - `request_url`: 实际调用地址。
+- `request_format`: 请求发送格式，当前支持 `json` 与 `multipart`；图编辑等文件上传型接口建议显式配置。
 - `headers_json`: 请求头模板。
 - `payload_json`: 请求体模板。
 - `response_json`: 响应示例或结构模板。
@@ -142,12 +143,14 @@
 ### `external_api_scene_bindings`
 
 - `scene_key`: 场景唯一键，例如不同生图、编辑或反推场景。
+- `is_deleted`: 是否逻辑删除；后台通常只展示未删除记录。
 - `scene_type`: 场景类型。
 - `scene_label` / `scene_description`: 场景文案。
 - `sort_order`: 场景排序。
 - `api_config_id`: 绑定的接口配置。
 - `display_name` / `subtitle`: 前端展示名称与副标题。
 - `credit_cost`: 该场景的积分成本。
+- `max_reference_images`: 该场景允许上传的最大参考图数量；图编辑模型常依赖这个值控制前端上传上限。
 - `hide_aspect_ratio` / `hide_resolution` / `hide_custom_size`: 前端是否隐藏相关参数。
 - `aspect_ratio_options_json` / `image_size_options_json` / `custom_size_options_json`: 可选参数列表。
 - `status`: 场景状态，常见为 `enabled`。
@@ -294,6 +297,7 @@ CREATE TABLE external_api_configs (
   sort_order INT NOT NULL DEFAULT 0,
   hide_resolution TINYINT(1) NOT NULL DEFAULT 0,
   request_url VARCHAR(500) NOT NULL DEFAULT '',
+  request_format VARCHAR(20) NOT NULL DEFAULT 'json',
   headers_json TEXT NOT NULL,
   payload_json TEXT NOT NULL,
   response_json TEXT NOT NULL,
@@ -356,6 +360,7 @@ CREATE TABLE users (
 CREATE TABLE external_api_scene_bindings (
   id INT NOT NULL AUTO_INCREMENT,
   scene_key VARCHAR(50) NOT NULL,
+  is_deleted TINYINT(1) NOT NULL DEFAULT 0,
   scene_type VARCHAR(30) NOT NULL DEFAULT 'generate',
   scene_label VARCHAR(100) NOT NULL DEFAULT '',
   scene_description VARCHAR(255) NOT NULL DEFAULT '',
@@ -368,6 +373,7 @@ CREATE TABLE external_api_scene_bindings (
   display_name VARCHAR(100) NOT NULL DEFAULT '',
   subtitle VARCHAR(255) NOT NULL DEFAULT '',
   credit_cost INT NOT NULL DEFAULT 0,
+  max_reference_images INT NOT NULL DEFAULT 0,
   aspect_ratio_options_json TEXT NOT NULL,
   image_size_options_json TEXT NOT NULL,
   custom_size_options_json TEXT NOT NULL,
@@ -515,4 +521,17 @@ INSERT INTO users (
 ) VALUES
 ('11111111111111111111111111111111', 'administrator', NULL, 0, '$2b$12$CR1qnIGjLbi46hgFXXrxQOoPge5g0aWWuLga1fWGDC5GOBiIFY0vK', '', 'superadmin', 'active', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('22222222222222222222222222222222', 'admin', NULL, 0, '$2b$12$gGceM8aYPCpT9Kz0GJQvje0cvIS5y6HEFrXTGyeu4AzNbD7ANX..C', '', 'admin', 'active', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+```
+
+## 生产环境增量 SQL
+
+若生产库是旧版本、只需要补 `external_api_configs.request_format`，可执行：
+
+```sql
+ALTER TABLE external_api_configs
+  ADD COLUMN request_format VARCHAR(20) NOT NULL DEFAULT 'json' AFTER request_url;
+
+UPDATE external_api_configs
+SET request_format = 'json'
+WHERE request_format IS NULL OR request_format = '';
 ```

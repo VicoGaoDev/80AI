@@ -8,6 +8,7 @@ from app.models.prompt_history import PromptHistory
 from app.models.user import User
 from app.services.cos_service import load_image_as_data_url
 from app.services.external_api_config_service import (
+    build_external_request_kwargs,
     build_secret_variables,
     get_scene_credit_cost,
     render_config,
@@ -81,8 +82,7 @@ def reverse_prompt_from_image(db: Session, user_id: int, image_url: str) -> str:
         with httpx.Client(timeout=settings.AI_TIMEOUT, trust_env=False) as client:
             response = client.post(
                 rendered.request_url,
-                json=rendered.payload,
-                headers=rendered.headers,
+                **build_external_request_kwargs(rendered),
             )
         if response.status_code != 200:
             try:

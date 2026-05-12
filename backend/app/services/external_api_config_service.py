@@ -695,6 +695,7 @@ def render_config(config: ExternalApiConfig, variables: dict[str, Any]) -> Rende
 
     return RenderedExternalApiConfig(
         request_url=config.request_url.strip(),
+        request_format=(config.request_format or "json").strip().lower() or "json",
         headers=_normalize_headers(rendered_headers),
         payload=rendered_payload,
     )
@@ -786,30 +787,21 @@ def _stringify_form_value(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def should_use_gpt_edit_multipart(rendered: RenderedExternalApiConfig) -> bool:
-    payload = rendered.payload
-    if not isinstance(payload, dict):
-        return False
-    request_url = (rendered.request_url or "").strip().lower()
-    model_name = str(payload.get("model") or "").strip().lower()
-    has_file_fields = any(field in payload for field in MULTIPART_EDIT_FILE_FIELDS)
-    if not has_file_fields:
-        return False
-    return (
-        "/images/edits" in request_url
-        or "gpt-image" in model_name
-        or "gptimage" in model_name
-    )
+def should_use_multipart_request(rendered: RenderedExternalApiConfig) -> bool:
+    return rendered.request_format == "multipart"
 
 
 def build_external_request_kwargs(rendered: RenderedExternalApiConfig) -> dict[str, Any]:
-    if not should_use_gpt_edit_multipart(rendered):
+    if not should_use_multipart_request(rendered):
         return {
             "headers": rendered.headers,
             "json": rendered.payload,
         }
 
-    payload = rendered.payload if isinstance(rendered.payload, dict) else {}
+    if not isinstance(rendered.payload, dict):
+        raise ValueError("multipart 请求要求 payload_json 渲染结果为 JSON 对象")
+
+    payload = rendered.payload
     headers = {
         key: value
         for key, value in rendered.headers.items()
