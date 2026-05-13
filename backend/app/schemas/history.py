@@ -35,6 +35,7 @@ class HistoryItem(BaseModel):
     credit_cost: int = 0
     status: str
     error_message: str = ""
+    task_is_deleted: bool = False
     is_soft_deleted: bool = False
     soft_deleted_count: int = 0
     created_at: datetime | None = None
@@ -61,6 +62,7 @@ class UserHistoryCardItem(BaseModel):
     status: str
     image_format: str = ""
     image_size_bytes: int = 0
+    task_is_deleted: bool = False
     is_soft_deleted: bool = False
     model: str = ""
     source: str = "web"

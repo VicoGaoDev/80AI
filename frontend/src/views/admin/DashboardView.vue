@@ -401,6 +401,23 @@ function statusColor(value: string) {
   return "default";
 }
 
+function historyStatusSummary(record: HistoryItem) {
+  const tags = [
+    { key: "status", text: statusLabel(record.status), color: statusColor(record.status) },
+  ];
+  if (record.task_is_deleted) {
+    tags.push({ key: "taskDeleted", text: "任务已软删", color: "red" });
+  }
+  if (record.is_soft_deleted) {
+    tags.push({
+      key: "imageDeleted",
+      text: `图片软删 ${record.soft_deleted_count || 0}`,
+      color: "orange",
+    });
+  }
+  return tags;
+}
+
 onMounted(async () => {
   preset.value = defaultPresetByGranularity(granularity.value);
   applyPresetRange(preset.value);
@@ -546,10 +563,23 @@ watch(filterSignature, async () => {
               {{ modelLabel(record.model) }}
             </template>
             <template v-else-if="column.dataIndex === 'status'">
-              <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+              <div class="history-status-tags">
+                <a-tag
+                  v-for="tag in historyStatusSummary(record)"
+                  :key="tag.key"
+                  :color="tag.color"
+                >
+                  {{ tag.text }}
+                </a-tag>
+              </div>
             </template>
             <template v-else-if="column.key === 'imgCount'">
-              {{ record.images.length }}
+              <div class="history-image-count">
+                <span>{{ record.images.length }}</span>
+                <span v-if="record.is_soft_deleted" class="history-image-count-note">
+                  含 {{ record.soft_deleted_count || 0 }} 张已删
+                </span>
+              </div>
             </template>
             <template v-else-if="column.dataIndex === 'created_at'">
               {{ fmtTime(record.created_at) }}
@@ -691,6 +721,24 @@ watch(filterSignature, async () => {
   flex-wrap: wrap;
   font-size: 13px;
   color: #8c7458;
+}
+
+.history-status-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.history-image-count {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-image-count-note {
+  font-size: 12px;
+  color: #a68457;
+  line-height: 1.4;
 }
 
 .section-filter-chips {

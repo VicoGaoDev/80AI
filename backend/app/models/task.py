@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.utils.business_id import generate_business_id
@@ -25,6 +25,7 @@ class Task(Base):
     credit_cost = Column(Integer, nullable=False, default=0, server_default="0")
     status = Column(String(20), default="pending")
     error_message = Column(Text, default="")
+    is_deleted = Column(Boolean, default=False, nullable=False, server_default="0")
     created_at = Column(DateTime, server_default=func.now())
     enqueued_at = Column(DateTime, nullable=True)
     request_started_at = Column(DateTime, nullable=True)

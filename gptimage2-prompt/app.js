@@ -31,6 +31,7 @@ const state = {
 const elements = {
   heroStats: document.querySelector("#hero-stats"),
   mainLayout: document.querySelector("#main-layout"),
+  contentPanel: document.querySelector(".content-panel"),
   mobileFloatingActions: document.querySelector(".mobile-floating-actions"),
   searchInput: document.querySelector("#search-input"),
   resetFilters: document.querySelector("#reset-filters"),
@@ -188,21 +189,34 @@ function bindEvents() {
     });
   });
 
-  document.addEventListener("click", (event) => {
-    if (!isDrawerViewport() || !state.mobileSearchOpen) {
-      return;
-    }
+  /* Capture phase: close mobile search without letting the click reach cards/links below */
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!isDrawerViewport() || !state.mobileSearchOpen) {
+        return;
+      }
 
-    const clickedSearchPanel = event.target.closest(".search-row");
-    const clickedSearchButton = event.target.closest("#mobile-search-button");
+      const t = event.target;
+      if (!(t instanceof Element)) {
+        return;
+      }
 
-    if (clickedSearchPanel || clickedSearchButton) {
-      return;
-    }
+      if (
+        t.closest(".search-row") ||
+        t.closest(".mobile-floating-actions") ||
+        t.closest("#floating-expand-button")
+      ) {
+        return;
+      }
 
-    state.mobileSearchOpen = false;
-    applySidebarState();
-  });
+      event.preventDefault();
+      event.stopPropagation();
+      state.mobileSearchOpen = false;
+      applySidebarState();
+    },
+    true
+  );
 
   elements.resultsGrid.addEventListener("click", async (event) => {
     const copyButton = event.target.closest("[data-copy-case-id]");
@@ -481,6 +495,11 @@ function applySidebarState() {
   elements.sidebar.classList.toggle("is-mobile-drawer", isDrawer);
   elements.sidebar.classList.toggle("is-mobile-open", drawerVisible);
   elements.controlPanel.classList.toggle("is-mobile-search-open", searchVisible);
+  elements.contentPanel?.classList.toggle(
+    "is-mobile-search-overlay",
+    Boolean(isDrawer && searchVisible)
+  );
+
   elements.mobileFloatingActions.classList.toggle("is-hidden", drawerVisible);
   elements.sidebarDrawerBackdrop.classList.toggle("is-visible", hasMobileOverlay);
   elements.sidebarDrawerBackdrop.classList.toggle("is-search-only", searchVisible && !drawerVisible);

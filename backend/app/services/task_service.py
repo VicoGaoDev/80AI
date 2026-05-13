@@ -67,6 +67,7 @@ def _expire_stale_processing_tasks(
     cutoff = datetime.utcnow() - timedelta(seconds=timeout_seconds)
     query = db.query(Task).filter(
         Task.status == "processing",
+        Task.is_deleted.is_(False),
         Task.updated_at.is_not(None),
         Task.updated_at <= cutoff,
     )
@@ -297,6 +298,7 @@ def ensure_task_submission_capacity(db: Session, user_id: int, new_task_count: i
             .filter(
                 Task.user_id == user_id,
                 Task.status.in_(ACTIVE_TASK_STATUSES),
+                Task.is_deleted.is_(False),
             )
             .count()
         )
@@ -321,7 +323,7 @@ def ensure_task_submission_capacity(db: Session, user_id: int, new_task_count: i
     if global_limit:
         current_global_active_count = (
             db.query(Task)
-            .filter(Task.status.in_(ACTIVE_TASK_STATUSES))
+            .filter(Task.status.in_(ACTIVE_TASK_STATUSES), Task.is_deleted.is_(False))
             .count()
         )
         if current_global_active_count + normalized_new_task_count > global_limit:
@@ -449,7 +451,7 @@ def get_task_detail(db: Session, task_id: str, user_id: int | None = None) -> Ta
         _expire_stale_processing_tasks(db, user_id=user_id, business_ids=[normalized_task_id])
     query = db.query(Task).filter(Task.business_id == normalized_task_id)
     if user_id is not None:
-        query = query.filter(Task.user_id == user_id)
+        query = query.filter(Task.user_id == user_id, Task.is_deleted.is_(False))
     task = query.first()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
@@ -478,7 +480,7 @@ def get_task_details(db: Session, task_ids: list[str], user_id: int | None = Non
 
     query = db.query(Task).filter(Task.business_id.in_(normalized_ids))
     if user_id is not None:
-        query = query.filter(Task.user_id == user_id)
+        query = query.filter(Task.user_id == user_id, Task.is_deleted.is_(False))
 
     task_map = {task.business_id: task for task in query.all()}
     return [task_map[task_id] for task_id in normalized_ids if task_id in task_map]

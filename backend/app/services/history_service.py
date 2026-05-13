@@ -6,7 +6,6 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, selectinload
 from app.models.task import Task
 from app.models.image import Image
-from app.models.regenerate_log import RegenerateLog
 from app.models.credit_log import CreditLog
 from app.models.prompt_history import PromptHistory
 from app.models.history_pin import HistoryPin
@@ -101,6 +100,7 @@ def _serialize_task_history_detail(task: Task, *, cos_config) -> dict:
         "status": _resolve_history_card_status(task.status, primary_image_payload["status"]),
         "image_format": primary_image_payload["image_format"],
         "image_size_bytes": primary_image_payload["image_size_bytes"],
+        "task_is_deleted": bool(task.is_deleted),
         "is_soft_deleted": False,
         "model": task.model or "",
         "source": task.source or "web",
@@ -139,6 +139,7 @@ def _serialize_prompt_history_detail(row: PromptHistory, *, cos_config) -> dict:
         "status": "success",
         "image_format": "",
         "image_size_bytes": 0,
+        "task_is_deleted": False,
         "is_soft_deleted": False,
         "model": PROMPT_REVERSE_MODEL,
         "source": "web",
@@ -190,6 +191,7 @@ def get_user_history(
         .join(Task, Image.task_id == Task.id)
         .options(selectinload(Image.task).selectinload(Task.images))
         .filter(Task.user_id == user_id)
+        .filter(Task.is_deleted.is_(False))
         .filter(Image.is_deleted.is_(False))
     )
     prompt_reverse_query = (
@@ -260,6 +262,7 @@ def get_user_history(
             "status": _resolve_history_card_status(task.status, image.status),
             "image_format": image_payload["image_format"],
             "image_size_bytes": image_payload["image_size_bytes"],
+            "task_is_deleted": False,
             "is_soft_deleted": False,
             "model": task.model or "",
             "source": task.source or "web",
@@ -298,6 +301,7 @@ def get_user_history(
             "status": "success",
             "image_format": "",
             "image_size_bytes": 0,
+            "task_is_deleted": False,
             "is_soft_deleted": False,
             "model": PROMPT_REVERSE_MODEL,
             "source": "web",
@@ -337,21 +341,19 @@ def get_user_history(
 
 def delete_user_history_task(db: Session, user_id: int, task_id: str):
     normalized_task_id = normalize_business_id(task_id)
-    task = db.query(Task).filter(Task.business_id == normalized_task_id, Task.user_id == user_id).first()
+    task = (
+        db.query(Task)
+        .filter(
+            Task.business_id == normalized_task_id,
+            Task.user_id == user_id,
+            Task.is_deleted.is_(False),
+        )
+        .first()
+    )
     if not task:
         return False
 
-    image_ids = [img.id for img in task.images]
-    if image_ids:
-        db.query(RegenerateLog).filter(RegenerateLog.image_id.in_(image_ids)).delete(synchronize_session=False)
-        for image in list(task.images):
-            db.delete(image)
-
-    db.query(CreditLog).filter(CreditLog.task_id == task.id).update(
-        {"task_id": None},
-        synchronize_session=False,
-    )
-    db.delete(task)
+    task.is_deleted = True
     db.commit()
     return True
 
@@ -376,6 +378,7 @@ def toggle_history_pin(
                 Image.id == image_id,
                 Image.is_deleted.is_(False),
                 Task.user_id == user_id,
+                Task.is_deleted.is_(False),
             )
             .first()
         )
@@ -516,6 +519,7 @@ def get_all_history(
             "credit_cost": int(task.credit_cost or 0),
             "status": task.status,
             "error_message": task.error_message or "",
+            "task_is_deleted": bool(task.is_deleted),
             "is_soft_deleted": soft_deleted_count > 0,
             "soft_deleted_count": soft_deleted_count,
             "created_at": task.created_at,
@@ -553,6 +557,7 @@ def get_all_history(
             "credit_cost": max(0, int(-(log.amount or 0))),
             "status": "success",
             "error_message": "",
+            "task_is_deleted": False,
             "is_soft_deleted": False,
             "soft_deleted_count": 0,
             "created_at": log.created_at,

@@ -141,6 +141,8 @@ def _ensure_schema_compat():
             conn.execute(text("ALTER TABLE tasks ADD COLUMN credit_cost INTEGER DEFAULT 0"))
         if "error_message" not in task_columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN error_message TEXT"))
+        if "is_deleted" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
         if "enqueued_at" not in task_columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN enqueued_at DATETIME"))
         if "request_started_at" not in task_columns:

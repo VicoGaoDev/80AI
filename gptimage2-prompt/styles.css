@@ -1430,11 +1430,17 @@ a {
   }
 
   .sidebar-stats {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .content-panel {
     gap: 18px;
+  }
+
+  /* Stack main column above drawer backdrop while mobile search strip is open (tap hits 筛选 / 重置) */
+  .content-panel.is-mobile-search-overlay {
+    position: relative;
+    z-index: 80;
   }
 
   .control-panel {

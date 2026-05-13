@@ -25,3 +25,7 @@ export function fetchHistory(
 export function toggleHistoryPin(payload: HistoryPinTogglePayload): Promise<HistoryPinToggleResponse> {
   return client.post("/history/pins/toggle", payload);
 }
+
+export function deleteHistoryTask(taskId: string): Promise<void> {
+  return client.delete(`/history/tasks/${taskId}`);
+}

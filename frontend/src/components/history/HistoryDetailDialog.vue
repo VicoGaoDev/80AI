@@ -93,6 +93,8 @@ function formatImageSize(size?: number) {
 function detailMetaList(item: UserHistoryCard) {
   return [
     `状态：${statusLabel(item.status)}`,
+    item.task_is_deleted ? "任务状态：已软删除" : "",
+    item.is_soft_deleted ? `图片软删除：${item.images.filter((img) => img.is_deleted).length} 张` : "",
     `来源：${sourceLabel(item.source)}`,
     `类型：${modeLabel(item.mode)}`,
     `模型：${getModelLabel(item.model)}`,
@@ -222,6 +224,17 @@ function handleDownload(item: UserHistoryCard) {
         </div>
 
         <div class="detail-right">
+          <div v-if="item.task_is_deleted || item.is_soft_deleted" class="detail-section">
+            <div class="detail-alert-list">
+              <div v-if="item.task_is_deleted" class="detail-alert detail-alert-danger">
+                该任务已被用户软删除，仅在后台历史记录中保留展示。
+              </div>
+              <div v-if="item.is_soft_deleted" class="detail-alert detail-alert-warning">
+                该任务存在已软删图片，当前详情默认仅展示未删除图片。
+              </div>
+            </div>
+          </div>
+
           <div class="detail-section">
             <div class="detail-meta">
               <span v-for="meta in detailMetaList(item)" :key="meta">{{ meta }}</span>
@@ -341,6 +354,32 @@ function handleDownload(item: UserHistoryCard) {
 .detail-right {
   display: flex;
   flex-direction: column;
+}
+
+.detail-alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-alert {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.detail-alert-danger {
+  border-color: rgba(214, 87, 75, 0.22);
+  background: rgba(255, 240, 237, 0.96);
+  color: #bf5548;
+}
+
+.detail-alert-warning {
+  border-color: rgba(255, 171, 37, 0.22);
+  background: rgba(255, 248, 232, 0.96);
+  color: #9b6a1f;
 }
 
 .detail-action-btn {

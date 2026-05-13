@@ -49,6 +49,7 @@
 - `credit_cost`: 单任务积分消耗。
 - `status`: 任务状态，常见值为 `pending`、`queued`、`processing`、`success`、`failed`。
 - `error_message`: 失败原因或最近一次错误信息。
+- `is_deleted`: 是否逻辑删除；用户删除历史任务时会置为 `1`，但后台统计口径通常仍保留这类任务。
 - `created_at`: 任务记录写入数据库时间。
 - `enqueued_at`: 任务成功进入分发/入队流程时间。
 - `request_started_at`: 任务首次真实发起第三方接口请求时间。
@@ -414,6 +415,7 @@ CREATE TABLE tasks (
   credit_cost INT NOT NULL DEFAULT 0,
   status VARCHAR(20) DEFAULT 'pending',
   error_message TEXT,
+  is_deleted TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   enqueued_at DATETIME DEFAULT NULL,
   request_started_at DATETIME DEFAULT NULL,
@@ -525,7 +527,18 @@ INSERT INTO users (
 
 ## 生产环境增量 SQL
 
-若生产库是旧版本、只需要补 `external_api_configs.request_format`，可执行：
+若生产库是旧版本，需要手动补 `tasks.is_deleted`，建议执行以下 SQL：
+
+```sql
+ALTER TABLE tasks
+  ADD COLUMN is_deleted TINYINT(1) NOT NULL DEFAULT 0 AFTER error_message;
+
+UPDATE tasks
+SET is_deleted = 0
+WHERE is_deleted IS NULL;
+```
+
+如果正式环境还缺历史版本字段 `external_api_configs.request_format`，可继续执行：
 
 ```sql
 ALTER TABLE external_api_configs

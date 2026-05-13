@@ -74,6 +74,7 @@ export interface HistoryItem {
   credit_cost: number;
   status: string;
   error_message?: string;
+  task_is_deleted?: boolean;
   is_soft_deleted?: boolean;
   soft_deleted_count?: number;
   created_at: string;
@@ -112,6 +113,7 @@ export interface UserHistoryCard {
   status: "pending" | "queued" | "processing" | "success" | "failed";
   image_format?: string;
   image_size_bytes?: number;
+  task_is_deleted?: boolean;
   is_soft_deleted?: boolean;
   model: string;
   source: TaskSource;

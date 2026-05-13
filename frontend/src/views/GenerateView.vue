@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, h, inject, onActivated, onBeforeUnmount, onMounted, watch, type Ref } from "vue";
-import { message } from "ant-design-vue";
+import { message, Modal } from "ant-design-vue";
 import {
   FontSizeOutlined,
   CloseOutlined,
@@ -26,9 +26,9 @@ import {
   MessageOutlined,
 } from "@ant-design/icons-vue";
 import { getTaskScenes } from "@/api/config";
-import { fetchHistory } from "@/api/history";
+import { deleteHistoryTask, fetchHistory } from "@/api/history";
 import { createTask, getTasks } from "@/api/tasks";
-import { getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl, resolveImageUrl } from "@/api/images";
+import { deleteImage, getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl, resolveImageUrl } from "@/api/images";
 import { reversePrompt } from "@/api/promptReverse";
 import { uploadReferenceImage } from "@/api/upload";
 import { getMe, getPromptHistory, deletePromptHistory } from "@/api/auth";
@@ -1172,6 +1172,45 @@ async function removeHistoryItem(id: number) {
   }
 }
 
+async function removeGeneratedTask(task: GeneratedTaskItem) {
+  if (!task.taskId) {
+    generatedTasks.value = generatedTasks.value.filter((item) => item.localId !== task.localId);
+    stopAllTaskPolling();
+    if (activePollingTaskIds.value.length) startTaskPolling();
+    message.success("已移除当前任务卡片");
+    return;
+  }
+
+  try {
+    await deleteHistoryTask(task.taskId);
+    generatedTasks.value = generatedTasks.value.filter((item) => item.taskId !== task.taskId);
+    stopAllTaskPolling();
+    if (activePollingTaskIds.value.length) startTaskPolling();
+    await loadRecentGeneratedTasks();
+    message.success("删除成功");
+  } catch {
+    message.error("删除失败");
+  }
+}
+
+function confirmRemoveGeneratedTask(task: GeneratedTaskItem) {
+  const isLocalOnly = !task.taskId;
+  const isGenerating = task.status === "submitting" || task.status === "pending" || task.status === "queued" || task.status === "processing";
+
+  Modal.confirm({
+    title: isLocalOnly ? "确认移除这张任务卡片？" : "确认删除这个任务？",
+    content: isLocalOnly
+      ? "这会从当前页面移除该本地任务卡片，不影响服务器中的其他记录。"
+      : isGenerating
+        ? "删除后会移除该任务及其当前结果，历史记录中的对应任务也会一并删除。"
+        : "删除后会移除该任务及其结果图，历史记录中的对应任务也会一并删除。",
+    centered: true,
+    async onOk() {
+      await removeGeneratedTask(task);
+    },
+  });
+}
+
 function useHistoryPrompt(text: string) {
   prompt.value = text;
   generateMode.value = "textGenerate";
@@ -2003,19 +2042,32 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   :style="{
                     '--generate-result-delay': `${Math.min(columnIndex + index, 9) * 45}ms`,
                     '--result-aspect-ratio': getTaskAspectRatio(item.task),
+                    '--result-pending-bg-image': `url('${generateEmptyStateAsset}')`,
                   }"
                   :class="{ pending: item.image.status === 'pending' }"
                 >
-                  <a-tooltip v-if="item.taskId" title="反馈">
-                    <button
-                      type="button"
-                      class="result-more-trigger icon-chip"
-                      :class="{ 'result-more-trigger-failed': item.image.status === 'failed' }"
-                      @click.stop="openFeedbackDialogForGeneratedTask(item.task)"
-                    >
-                      <MessageOutlined class="result-more-icon" />
-                    </button>
-                  </a-tooltip>
+                  <div class="result-top-actions">
+                    <a-tooltip v-if="item.taskId" title="反馈">
+                      <button
+                        type="button"
+                        class="result-more-trigger icon-chip"
+                        :class="{ 'result-more-trigger-failed': item.image.status === 'failed' }"
+                        @click.stop="openFeedbackDialogForGeneratedTask(item.task)"
+                      >
+                        <MessageOutlined class="result-more-icon" />
+                      </button>
+                    </a-tooltip>
+                    <a-tooltip title="删除">
+                      <a-button
+                        shape="circle"
+                        class="icon-chip result-delete-trigger"
+                        danger
+                        @click.stop="confirmRemoveGeneratedTask(item.task)"
+                      >
+                        <template #icon><DeleteOutlined /></template>
+                      </a-button>
+                    </a-tooltip>
+                  </div>
                   <div
                     class="result-frame"
                     :class="{
@@ -2072,6 +2124,13 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                           :indicator="h(LoadingOutlined, { style: neutralIndicatorStyle })"
                         />
                         <span>正在生成图片...</span>
+                      </div>
+                      <div class="result-actions result-actions-pending">
+                        <a-tooltip title="重新生成">
+                          <a-button shape="circle" class="icon-chip" @click.stop="handleReeditTask(item.task)">
+                            <template #icon><ReloadOutlined /></template>
+                          </a-button>
+                        </a-tooltip>
                       </div>
                     </template>
                   </div>
@@ -3546,7 +3605,10 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   }
 
   &.pending {
-    background: linear-gradient(180deg, var(--theme-panel-bg-soft), var(--theme-panel-bg));
+    background:
+      linear-gradient(180deg, rgba(255, 252, 246, 0.24), rgba(255, 248, 238, 0.34)),
+      var(--result-pending-bg-image) center / cover no-repeat,
+      linear-gradient(180deg, var(--theme-panel-bg-soft), var(--theme-panel-bg));
   }
 
   &.failed {
@@ -3609,6 +3671,15 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   }
 }
 
+.result-top-actions {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+}
+
 .frame-state {
   position: absolute;
   inset: 0;
@@ -3619,7 +3690,8 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   gap: 10px;
   color: #8d7758;
   font-size: 14px;
-  background: rgba(255, 250, 240, 0.74);
+  background: linear-gradient(180deg, rgba(255, 250, 240, 0.1), rgba(255, 250, 240, 0.16));
+  backdrop-filter: blur(0.25px);
 
   &.error {
     background: linear-gradient(
@@ -3632,10 +3704,6 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
 }
 
 .result-more-trigger.icon-chip {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 3;
   opacity: 0;
   transform: translateY(-6px);
   pointer-events: none;
@@ -3658,6 +3726,24 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
     border-color: rgba(255, 240, 214, 0.26) !important;
     color: #fffdfa !important;
     box-shadow: 0 14px 26px rgba(34, 22, 10, 0.28);
+  }
+}
+
+.result-delete-trigger.icon-chip {
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  border-color: rgba(255, 214, 209, 0.18) !important;
+  background: rgba(180, 58, 43, 0.88) !important;
+  color: #fff5f2 !important;
+  box-shadow: 0 10px 22px rgba(140, 40, 28, 0.24);
+
+  &:hover,
+  &:focus {
+    background: rgba(201, 73, 60, 0.98) !important;
+    border-color: rgba(255, 224, 220, 0.24) !important;
+    color: #fff7f5 !important;
+    box-shadow: 0 14px 26px rgba(140, 40, 28, 0.34);
   }
 }
 
@@ -3688,7 +3774,9 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
 }
 
 .result-card:hover .result-more-trigger.icon-chip,
-.result-card:focus-within .result-more-trigger.icon-chip {
+.result-card:focus-within .result-more-trigger.icon-chip,
+.result-card:hover .result-delete-trigger.icon-chip,
+.result-card:focus-within .result-delete-trigger.icon-chip {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
@@ -3740,6 +3828,22 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .icon-chip 
 
   &.danger {
     color: #de8f84 !important;
+  }
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-delete-trigger.icon-chip,
+html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-more-trigger-failed.icon-chip {
+  border-color: rgba(222, 143, 132, 0.24) !important;
+  background: rgba(185, 56, 42, 0.82) !important;
+  color: #fff5f2 !important;
+  box-shadow: 0 12px 24px rgba(140, 40, 28, 0.3);
+
+  &:hover,
+  &:focus {
+    background: rgba(185, 56, 42, 0.92) !important;
+    border-color: rgba(240, 176, 166, 0.3) !important;
+    color: #fff7f5 !important;
+    box-shadow: 0 16px 28px rgba(140, 40, 28, 0.38);
   }
 }
 
