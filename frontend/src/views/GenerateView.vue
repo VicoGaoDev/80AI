@@ -684,45 +684,71 @@ function updateReferenceItem(id: string, patch: Partial<UploadPreviewItem>) {
 
 async function handleFileChange(e: Event) {
   const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (!file) return;
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
 
-  if (referenceItems.value.length >= maxReferenceImages.value) {
+  const remainingSlots = Math.max(0, maxReferenceImages.value - referenceItems.value.length);
+  if (!remainingSlots) {
     message.warning(`当前模型最多上传 ${maxReferenceImages.value} 张参考图`);
     input.value = "";
     return;
   }
 
-  if (file.size > 10 * 1024 * 1024) {
-    message.warning("图片大小不能超过 10MB");
-    input.value = "";
-    return;
+  const acceptedFiles = files.slice(0, remainingSlots);
+  const skippedDueToLimit = files.length - acceptedFiles.length;
+
+  if (skippedDueToLimit > 0) {
+    message.warning(`当前模型最多支持 ${maxReferenceImages.value} 张参考图，本次仅上传前 ${acceptedFiles.length} 张`);
   }
 
-  const objectUrl = URL.createObjectURL(file);
-  const item: UploadPreviewItem = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    localUrl: objectUrl,
-    remoteUrl: "",
-    status: "uploading",
-    objectUrl,
-  };
-  referenceItems.value.push(item);
+  let uploadedCount = 0;
+  let failedCount = 0;
+  let oversizedCount = 0;
+
   try {
-    const res = await uploadReferenceImage(file, "ref");
-    revokeObjectUrl(objectUrl);
-    updateReferenceItem(item.id, {
-      objectUrl: undefined,
-      localUrl: res.url,
-      remoteUrl: res.url,
-      status: "success",
-    });
-    message.success("参考图上传成功");
-  } catch {
-    updateReferenceItem(item.id, { status: "failed" });
-    message.error("上传失败，请重试");
+    for (const file of acceptedFiles) {
+      if (file.size > 10 * 1024 * 1024) {
+        oversizedCount += 1;
+        continue;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      const item: UploadPreviewItem = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        localUrl: objectUrl,
+        remoteUrl: "",
+        status: "uploading",
+        objectUrl,
+      };
+      referenceItems.value.push(item);
+
+      try {
+        const res = await uploadReferenceImage(file, "ref");
+        revokeObjectUrl(objectUrl);
+        updateReferenceItem(item.id, {
+          objectUrl: undefined,
+          localUrl: res.url,
+          remoteUrl: res.url,
+          status: "success",
+        });
+        uploadedCount += 1;
+      } catch {
+        updateReferenceItem(item.id, { status: "failed" });
+        failedCount += 1;
+      }
+    }
   } finally {
     input.value = "";
+  }
+
+  if (uploadedCount > 0) {
+    message.success(`成功上传 ${uploadedCount} 张参考图`);
+  }
+  if (oversizedCount > 0) {
+    message.warning(`${oversizedCount} 张图片超过 10MB，已跳过`);
+  }
+  if (failedCount > 0) {
+    message.error(`${failedCount} 张参考图上传失败，请重试`);
   }
 }
 
@@ -1645,12 +1671,18 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   ref="fileInput"
                   type="file"
                   accept="image/*"
+                  multiple
                   hidden
                   @change="handleFileChange"
                 />
 
                 <div class="upload-grid">
-                  <div v-for="(item, idx) in referenceItems" :key="item.id" class="upload-thumb">
+                  <div
+                    v-for="(item, idx) in referenceItems"
+                    :key="item.id"
+                    class="upload-thumb"
+                    @click="handlePreview(getReferencePreviewUrl(item))"
+                  >
                     <img :src="getReferencePreviewUrl(item)" alt="参考图" />
                     <div v-if="item.status !== 'success'" class="upload-thumb-mask" :class="{ error: item.status === 'failed' }">
                       <a-spin
@@ -1659,14 +1691,14 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                       />
                       <span v-else>上传失败</span>
                     </div>
-                    <a-button
-                      type="text"
-                      shape="circle"
-                      class="icon-chip danger thumb-remove"
-                      @click="removeReference(idx)"
+                    <button
+                      type="button"
+                      class="thumb-remove"
+                      aria-label="删除参考图"
+                      @click.stop="removeReference(idx)"
                     >
-                      <template #icon><DeleteOutlined /></template>
-                    </a-button>
+                      <CloseOutlined />
+                    </button>
                   </div>
 
                   <div
@@ -1803,8 +1835,8 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   </template>
                 </div>
 
-                <div v-else class="reverse-preview-shell">
-                  <button type="button" class="canvas-remove-btn" @click="removeReverseImage">
+                <div v-else class="reverse-preview-shell" @click="handlePreview(reverseImageUrl)">
+                  <button type="button" class="canvas-remove-btn" @click.stop="removeReverseImage">
                     <CloseOutlined />
                   </button>
                   <img :src="reverseImageUrl" alt="提示词反推图片" class="reverse-preview-image" />
@@ -1904,7 +1936,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   </div>
 
                   <div class="repaint-canvas-shell">
-                    <button type="button" class="canvas-remove-btn" @click="removeSourceImage">
+                    <button type="button" class="canvas-remove-btn" @click.stop="removeSourceImage">
                       <CloseOutlined />
                     </button>
                     <RepaintCanvas
@@ -2824,6 +2856,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   border: 1px solid var(--theme-panel-border);
   background: linear-gradient(180deg, var(--theme-panel-bg), var(--theme-panel-bg-soft));
   flex-shrink: 0;
+  cursor: zoom-in;
   box-shadow: 0 8px 18px var(--theme-shadow-soft);
   transition:
     transform var(--motion-duration-swift) var(--motion-ease-soft),
@@ -2870,11 +2903,39 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
 
 .thumb-remove {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 22px !important;
-  height: 22px !important;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
   font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+  transform: scale(0.92);
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-soft),
+    transform var(--motion-duration-fast) var(--motion-ease-soft),
+    background var(--motion-duration-fast) var(--motion-ease-soft);
+}
+
+.generate-config-panel .upload-thumb:hover .thumb-remove,
+.generate-config-panel .upload-thumb:focus-within .thumb-remove {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.thumb-remove:hover,
+.thumb-remove:focus-visible {
+  background: rgba(0, 0, 0, 0.92);
 }
 
 .generate-config-panel .upload-add {
@@ -3142,6 +3203,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   overflow: hidden;
   border: 1px solid var(--theme-panel-border);
   background: var(--theme-panel-bg-soft);
+  cursor: zoom-in;
   transition: transform var(--motion-duration-base) var(--motion-ease-soft), box-shadow var(--motion-duration-base) var(--motion-ease-soft);
 }
 
@@ -3299,7 +3361,10 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   cursor: pointer;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(8px);
+  opacity: 0;
+  transform: scale(0.92);
   transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-soft),
     background var(--motion-duration-fast) var(--motion-ease-soft),
     transform var(--motion-duration-fast) var(--motion-ease-soft),
     border-color var(--motion-duration-fast) var(--motion-ease-soft);
@@ -3313,6 +3378,14 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   &:active {
     transform: scale(0.94);
   }
+}
+
+.reverse-preview-shell:hover .canvas-remove-btn,
+.reverse-preview-shell:focus-within .canvas-remove-btn,
+.repaint-canvas-shell:hover .canvas-remove-btn,
+.repaint-canvas-shell:focus-within .canvas-remove-btn {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .repaint-toolbar {

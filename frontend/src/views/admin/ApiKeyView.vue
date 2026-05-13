@@ -23,9 +23,9 @@ const qrInput = ref<HTMLInputElement | null>(null);
 const currentTheme = ref<AppThemeName>(getCurrentTheme());
 
 const themeOptions = [
-  { label: appThemes.midnight.label, value: appThemes.midnight.key, desc: "VSCode 风格的真暗色，背景 #181818、按钮 #1f1f1f" },
-  { label: appThemes.dark.label, value: appThemes.dark.key, desc: "选中菜单、主操作和整体背景走黑灰风格" },
-  { label: appThemes.warm.label, value: appThemes.warm.key, desc: "恢复当前暖色橙金风格" },
+  { label: appThemes.midnight.label, value: appThemes.midnight.key },
+  { label: appThemes.dark.label, value: appThemes.dark.key },
+  { label: appThemes.warm.label, value: appThemes.warm.key },
 ] as const;
 
 const hasConfig = computed(() => (
@@ -165,18 +165,6 @@ async function handleQrUpload(event: Event) {
             {{ option.label }}
           </a-radio-button>
         </a-radio-group>
-
-        <div class="theme-option-list">
-          <div
-            v-for="option in themeOptions"
-            :key="option.value"
-            class="theme-option-card"
-            :class="{ active: currentTheme === option.value }"
-          >
-            <div class="theme-option-title">{{ option.label }}</div>
-            <div class="theme-option-desc">{{ option.desc }}</div>
-          </div>
-        </div>
 
         <div class="theme-actions">
           <a-button type="primary" class="warm-primary-btn" @click="applyThemeSelection">
@@ -403,49 +391,8 @@ async function handleQrUpload(event: Event) {
   width: fit-content;
 }
 
-.theme-option-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.theme-option-card {
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid var(--theme-panel-border);
-  background: var(--theme-panel-bg-muted);
-  transition:
-    border-color var(--motion-duration-base) var(--motion-ease-soft),
-    background var(--motion-duration-base) var(--motion-ease-soft),
-    box-shadow var(--motion-duration-base) var(--motion-ease-soft);
-}
-
-.theme-option-card.active {
-  border-color: var(--theme-border-strong);
-  background: var(--theme-control-hover-bg);
-  box-shadow: 0 12px 24px var(--theme-card-shadow);
-}
-
-.theme-option-title {
-  color: var(--theme-title);
-  font-weight: 700;
-}
-
-.theme-option-desc {
-  margin-top: 6px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  font-size: 13px;
-}
-
 .theme-actions {
   display: flex;
   justify-content: flex-end;
-}
-
-@media (max-width: 720px) {
-  .theme-option-list {
-    grid-template-columns: 1fr;
-  }
 }
 </style>
