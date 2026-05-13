@@ -15,6 +15,12 @@ from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_MODE,
     PROMPT_REVERSE_MODEL,
 )
+from app.services.user_credit_service import (
+    change_user_credit_balance,
+    create_default_credit_account,
+    get_user_credit_balance,
+    get_user_credits_map,
+)
 from app.utils.security import hash_password
 
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
@@ -41,6 +47,7 @@ class AnalyticsRecord:
 
 
 def _serialize_user(user: User) -> dict:
+    db = user._sa_instance_state.session
     return {
         "id": user_external_id(user),
         "username": user.username,
@@ -49,7 +56,7 @@ def _serialize_user(user: User) -> dict:
         "role": user.role,
         "status": user.status,
         "is_whitelisted": bool(user.is_whitelisted),
-        "credits": int(user.credits or 0),
+        "credits": get_user_credit_balance(db, user.id) if db else 0,
         "created_at": user.created_at,
     }
 
@@ -69,6 +76,8 @@ def create_user(db: Session, username: str, password: str, role: str = "user", o
 
     user = User(username=username, password_hash=hash_password(password), role=role)
     db.add(user)
+    db.flush()
+    create_default_credit_account(db, user)
     db.commit()
     db.refresh(user)
     return _serialize_user(user)
@@ -81,7 +90,22 @@ def list_users(db: Session) -> list[dict]:
         .order_by(User.created_at.desc())
         .all()
     )
-    return [_serialize_user(user) for user in users]
+    credit_map = get_user_credits_map(db, [user.id for user in users])
+    return [_serialize_user_with_balance(user, credit_map.get(user.id, 0)) for user in users]
+
+
+def _serialize_user_with_balance(user: User, balance: int) -> dict:
+    return {
+        "id": user_external_id(user),
+        "username": user.username,
+        "email": user.email,
+        "avatar_url": user.avatar_url or "",
+        "role": user.role,
+        "status": user.status,
+        "is_whitelisted": bool(user.is_whitelisted),
+        "credits": int(balance or 0),
+        "created_at": user.created_at,
+    }
 
 
 def update_user_status(db: Session, user_id: str, new_status: str) -> dict:
@@ -155,18 +179,14 @@ def allocate_credits(db: Session, user_id: str, amount: int, description: str, o
     user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    if user.credits + amount < 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="扣减后积分不能为负数")
-
-    user.credits += amount
-    log = CreditLog(
-        user_id=user.id,
-        amount=amount,
-        type="allocate",
+    change_user_credit_balance(
+        db,
+        user.id,
+        delta=amount,
+        log_type="allocate",
         description=description or ("管理员充值" if amount > 0 else "管理员扣减"),
         operator_id=operator_id,
     )
-    db.add(log)
     db.commit()
     db.refresh(user)
     return _serialize_user(user)
@@ -176,19 +196,19 @@ def reset_user_credits(db: Session, user_id: str, description: str, operator_id:
     user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    if user.credits <= 0:
+    current_balance = get_user_credit_balance(db, user.id)
+    if current_balance <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前积分已为 0，无需清零")
 
-    deducted_amount = int(user.credits or 0)
-    user.credits = 0
-    log = CreditLog(
-        user_id=user.id,
-        amount=-deducted_amount,
-        type="allocate",
+    deducted_amount = int(current_balance or 0)
+    change_user_credit_balance(
+        db,
+        user.id,
+        delta=-deducted_amount,
+        log_type="allocate",
         description=description or f"管理员积分清零（原余额 {deducted_amount}）",
         operator_id=operator_id,
     )
-    db.add(log)
     db.commit()
     db.refresh(user)
     return _serialize_user(user)

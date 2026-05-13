@@ -6,6 +6,7 @@ from app.config import settings
 from app.models.credit_log import CreditLog
 from app.models.prompt_history import PromptHistory
 from app.models.user import User
+from app.services.user_credit_service import change_user_credit_balance, get_user_credit_balance
 from app.services.cos_service import load_image_as_data_url
 from app.services.external_api_config_service import (
     build_external_request_kwargs,
@@ -62,10 +63,11 @@ def reverse_prompt_from_image(db: Session, user_id: int, image_url: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户不存在",
         )
-    if not _is_credit_exempt_user(user) and user.credits < credit_cost:
+    current_balance = get_user_credit_balance(db, user.id)
+    if not _is_credit_exempt_user(user) and current_balance < credit_cost:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"积分不足，需要 {credit_cost} 积分，当前余额 {user.credits if user else 0}",
+            detail=f"积分不足，需要 {credit_cost} 积分，当前余额 {current_balance}",
         )
 
     image_data_url = load_image_as_data_url(image_url)
@@ -102,13 +104,13 @@ def reverse_prompt_from_image(db: Session, user_id: int, image_url: str) -> str:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="提示词反推服务异常，请稍后重试")
 
     if not _is_credit_exempt_user(user):
-        user.credits -= credit_cost
-        db.add(CreditLog(
-            user_id=user_id,
-            amount=-credit_cost,
-            type="consume",
+        change_user_credit_balance(
+            db,
+            user_id,
+            delta=-credit_cost,
+            log_type="consume",
             description=PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION,
-        ))
+        )
     db.add(PromptHistory(
         user_id=user_id,
         prompt=prompt,

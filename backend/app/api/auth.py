@@ -15,6 +15,7 @@ from app.services.business_id_service import get_user_by_business_id, user_exter
 from app.services.auth_service import authenticate_user, change_password, register_user, update_username
 from app.models.prompt_history import PromptHistory
 from app.services.admin_service import get_credit_logs
+from app.services.user_credit_service import get_user_credit_balance
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 audit_logger = logging.getLogger("app.audit")
@@ -22,10 +23,10 @@ ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 AVATAR_MAX_SIZE = 1 * 1024 * 1024  # 1 MB
 
 
-def _user_brief(user: User) -> UserBrief:
+def _user_brief(db: Session, user: User) -> UserBrief:
     return UserBrief(
         id=user_external_id(user), business_id=user.business_id, username=user.username, email=user.email, role=user.role,
-        avatar_url=user.avatar_url or "", credits=user.credits,
+        avatar_url=user.avatar_url or "", credits=get_user_credit_balance(db, user.id),
     )
 
 
@@ -43,7 +44,7 @@ def register(body: RegisterRequest, request: Request, db: Session = Depends(get_
             "user_id": user_external_id(user),
         },
     )
-    return LoginResponse(token=token, user=_user_brief(user))
+    return LoginResponse(token=token, user=_user_brief(db, user))
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -73,7 +74,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
             "user_id": user_external_id(user),
         },
     )
-    return LoginResponse(token=token, user=_user_brief(user))
+    return LoginResponse(token=token, user=_user_brief(db, user))
 
 
 @router.post("/change-password")
@@ -97,8 +98,8 @@ def change_pwd(
 
 
 @router.get("/me", response_model=UserBrief)
-def get_me(user: User = Depends(get_current_user)):
-    return _user_brief(user)
+def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _user_brief(db, user)
 
 
 @router.put("/profile", response_model=UserBrief)
@@ -118,7 +119,7 @@ def update_profile(
             "user_id": user_external_id(user),
         },
     )
-    return _user_brief(user)
+    return _user_brief(db, user)
 
 
 @router.get("/credit-logs")
@@ -207,4 +208,4 @@ async def upload_avatar(
     db.add(user)
     db.commit()
     db.refresh(user)
-    return _user_brief(user)
+    return _user_brief(db, user)

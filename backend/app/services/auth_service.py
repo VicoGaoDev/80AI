@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.services.business_id_service import user_external_id
+from app.services.user_credit_service import create_default_credit_account
 from app.utils.security import create_access_token, hash_password, verify_password
 
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -49,6 +50,8 @@ def register_user(db: Session, username: str, email: str, password: str) -> tupl
         status="active",
     )
     db.add(user)
+    db.flush()
+    create_default_credit_account(db, user)
     db.commit()
     db.refresh(user)
     token = create_access_token(user_external_id(user), user.role)

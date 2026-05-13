@@ -12,6 +12,7 @@ from app.models.prompt_history import PromptHistory
 from app.services.business_id_service import task_external_id, user_external_id
 from app.services.distributed_lock_service import acquire_redis_lock, release_redis_lock
 from app.services.external_api_config_service import SCENE_INPAINT, get_scene_credit_cost
+from app.services.user_credit_service import apply_user_credit_delta, get_user_credit_account
 from app.utils.business_id import normalize_business_id
 
 ACTIVE_TASK_STATUSES = ("pending", "queued", "processing")
@@ -177,6 +178,8 @@ def create_tasks(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="用户不存在",
             )
+        credit_account = get_user_credit_account(db, user.id, for_update=True)
+        current_balance = int(credit_account.balance or 0) if credit_account else 0
         scene_key = SCENE_INPAINT if mode == "inpaint" else model.strip()
         task_logger.info(
             "task submission accepted",
@@ -195,16 +198,17 @@ def create_tasks(
         total_cost = task_count * unit_cost
         per_task_credit_cost = 0 if _is_credit_exempt_user(user) else unit_cost
         actual_total_cost = 0 if _is_credit_exempt_user(user) else total_cost
-        if actual_total_cost and user.credits < total_cost:
+        if actual_total_cost and current_balance < total_cost:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"积分不足，需要 {total_cost} 积分，当前余额 {user.credits if user else 0}",
+                detail=f"积分不足，需要 {total_cost} 积分，当前余额 {current_balance}",
             )
 
         ref_json = json.dumps(reference_images or [])
 
         if actual_total_cost:
-            user.credits -= total_cost
+            credit_account.balance = current_balance - total_cost
+            db.add(credit_account)
 
         normalized_prompt = prompt.strip()
         normalized_model = model.strip()
@@ -239,14 +243,13 @@ def create_tasks(
             db.add(image)
 
             if per_task_credit_cost:
-                credit_log = CreditLog(
+                db.add(CreditLog(
                     user_id=user_id,
                     amount=-per_task_credit_cost,
                     type="consume",
                     description=credit_log_description,
                     task_id=task.id,
-                )
-                db.add(credit_log)
+                ))
 
             tasks.append(task)
 
@@ -432,7 +435,11 @@ def mark_tasks_enqueue_failed(
             ))
 
     if user and refund_total:
-        user.credits += refund_total
+        apply_user_credit_delta(
+            db,
+            user.id,
+            delta=refund_total,
+        )
 
     db.commit()
     task_logger.error(

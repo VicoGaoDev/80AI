@@ -6,6 +6,7 @@
 - `external_api_scene_bindings` 中三个 `TEXT` 字段在 MySQL 中不设默认值（`TEXT`/`BLOB` 在多数配置下不能带 `DEFAULT`），由应用层写入；与 ORM 的 Python 侧默认值 `[]` 行为一致。
 - 若已由应用 `DB_AUTO_CREATE_TABLES` 建表，请勿重复执行建表；仅需按需插入 `users` 或改用 `DB_RUN_SEED`。
 - 首次登录后请立即修改默认密码。
+- 当前版本的“剩余积分余额”不再存储在 `users` 表，而是存储在 `user_credits` 表，默认积分类型为 `type = 0`。
 - `tasks.created_at` 表示任务记录创建时间。
 - `tasks.enqueued_at` 表示任务成功进入分发/入队流程的时间，可用于计算排队耗时。
 - `tasks.request_started_at` 表示任务首次真实发起第三方接口请求的时间。
@@ -26,8 +27,16 @@
 - `role`: 角色，常见值为 `user`、`admin`、`superadmin`。
 - `status`: 账号状态，常见值为 `active`、`disabled`。
 - `is_whitelisted`: 是否白名单用户。
-- `credits`: 当前积分余额。
 - `created_at` / `updated_at`: 用户创建时间、最后更新时间。
+
+### `user_credits`
+
+- `id`: 积分账户主键。
+- `user_id`: 归属用户。
+- `type`: 积分类型；当前默认使用 `0`，便于后续扩展其他余额类型。
+- `balance`: 当前积分余额快照。
+- `created_at` / `updated_at`: 账户创建时间、最后更新时间。
+- 使用联合唯一约束 `(user_id, type)` 保证同一用户同一积分类型只有一条余额记录。
 
 ### `tasks`
 
@@ -351,11 +360,24 @@ CREATE TABLE users (
   `role` VARCHAR(20) DEFAULT 'user',
   status VARCHAR(10) DEFAULT 'active',
   is_whitelisted TINYINT(1) NOT NULL DEFAULT 0,
-  credits INT NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_users_business_id (business_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE user_credits (
+  id INT NOT NULL AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  type INT NOT NULL DEFAULT 0,
+  balance INT NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_user_credits_user_id_type (user_id, type),
+  KEY ix_user_credits_user_id (user_id),
+  KEY ix_user_credits_type (type),
+  CONSTRAINT fk_user_credits_user FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE external_api_scene_bindings (
@@ -519,15 +541,99 @@ CREATE INDEX ix_users_username ON users (username);
 
 INSERT INTO users (
   business_id, username, email, email_verified, password_hash, avatar_url,
-  `role`, status, is_whitelisted, credits, created_at, updated_at
+  `role`, status, is_whitelisted, created_at, updated_at
 ) VALUES
-('11111111111111111111111111111111', 'administrator', NULL, 0, '$2b$12$CR1qnIGjLbi46hgFXXrxQOoPge5g0aWWuLga1fWGDC5GOBiIFY0vK', '', 'superadmin', 'active', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('22222222222222222222222222222222', 'admin', NULL, 0, '$2b$12$gGceM8aYPCpT9Kz0GJQvje0cvIS5y6HEFrXTGyeu4AzNbD7ANX..C', '', 'admin', 'active', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+('11111111111111111111111111111111', 'administrator', NULL, 0, '$2b$12$CR1qnIGjLbi46hgFXXrxQOoPge5g0aWWuLga1fWGDC5GOBiIFY0vK', '', 'superadmin', 'active', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('22222222222222222222222222222222', 'admin', NULL, 0, '$2b$12$gGceM8aYPCpT9Kz0GJQvje0cvIS5y6HEFrXTGyeu4AzNbD7ANX..C', '', 'admin', 'active', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+INSERT INTO user_credits (user_id, type, balance, created_at, updated_at)
+SELECT id, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM users
+WHERE business_id IN (
+  '11111111111111111111111111111111',
+  '22222222222222222222222222222222'
+);
 ```
 
 ## 生产环境增量 SQL
 
-若生产库是旧版本，需要手动补 `tasks.is_deleted`，建议执行以下 SQL：
+如果生产环境还是旧结构，且 `users.credits` 仍然存在，需要先执行“积分余额拆表”迁移。
+
+### 1. 执行前建议
+
+- 先备份生产数据库。
+- 先停止后端应用实例，避免在迁移期间继续写入积分。
+- 确认当前库里还存在 `users.credits`，避免重复执行删列步骤。
+
+可先执行以下检查 SQL：
+
+```sql
+SELECT COLUMN_NAME
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'users'
+  AND COLUMN_NAME = 'credits';
+
+SHOW TABLES LIKE 'user_credits';
+```
+
+### 2. 积分余额拆表 SQL
+
+按下面顺序执行：
+
+```sql
+CREATE TABLE IF NOT EXISTS user_credits (
+  id INT NOT NULL AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  type INT NOT NULL DEFAULT 0,
+  balance INT NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_user_credits_user_id_type (user_id, type),
+  KEY ix_user_credits_user_id (user_id),
+  KEY ix_user_credits_type (type),
+  CONSTRAINT fk_user_credits_user FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO user_credits (user_id, type, balance, created_at, updated_at)
+SELECT u.id, 0, COALESCE(u.credits, 0), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM users u
+LEFT JOIN user_credits uc
+  ON uc.user_id = u.id
+ AND uc.type = 0
+WHERE uc.id IS NULL;
+
+ALTER TABLE users DROP COLUMN credits;
+```
+
+### 3. 执行后校验
+
+```sql
+SELECT COUNT(*) AS user_count FROM users;
+
+SELECT COUNT(*) AS credit_account_count
+FROM user_credits
+WHERE type = 0;
+
+SELECT
+  u.id,
+  u.username,
+  uc.type,
+  uc.balance
+FROM users u
+LEFT JOIN user_credits uc
+  ON uc.user_id = u.id
+ AND uc.type = 0
+ORDER BY u.id ASC
+LIMIT 20;
+```
+
+正常情况下，`credit_account_count` 应与需要保留余额账户的用户数量一致，且每个用户都应能查到一条 `type = 0` 的记录。
+
+### 4. 其它历史增量字段
+
+若生产库还缺旧版本字段 `tasks.is_deleted`，可继续执行：
 
 ```sql
 ALTER TABLE tasks

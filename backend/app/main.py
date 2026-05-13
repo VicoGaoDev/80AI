@@ -86,6 +86,8 @@ def on_startup():
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     if settings.DB_AUTO_CREATE_TABLES:
         Base.metadata.create_all(bind=engine)
+    _ensure_user_credit_schema()
+    _drop_legacy_user_credits_column()
     _ensure_user_whitelist_column()
     _ensure_user_identity_schema()
     _ensure_business_id_schema()
@@ -114,7 +116,6 @@ def _ensure_schema_compat():
             conn.execute(text("ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) DEFAULT ''"))
         if "is_whitelisted" not in user_columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN is_whitelisted BOOLEAN DEFAULT 0"))
-
     task_columns = {col["name"] for col in inspector.get_columns("tasks")}
     with engine.begin() as conn:
         if "model" not in task_columns:
@@ -421,6 +422,81 @@ def _ensure_user_whitelist_column():
 
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE users ADD COLUMN is_whitelisted BOOLEAN DEFAULT 0"))
+
+
+def _ensure_user_credit_schema():
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "users" not in table_names:
+        return
+
+    if "user_credits" not in table_names:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE user_credits (
+                        id INTEGER NOT NULL AUTO_INCREMENT,
+                        user_id INTEGER NOT NULL,
+                        type INTEGER NOT NULL DEFAULT 0,
+                        balance INTEGER NOT NULL DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        CONSTRAINT uq_user_credits_user_id_type UNIQUE (user_id, type),
+                        INDEX ix_user_credits_user_id (user_id),
+                        INDEX ix_user_credits_type (type),
+                        CONSTRAINT fk_user_credits_user_id FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                    """
+                )
+            )
+        inspector = inspect(engine)
+
+    user_columns = {col["name"] for col in inspector.get_columns("users")}
+    with engine.begin() as conn:
+        if "credits" in user_columns:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO user_credits (user_id, type, balance, created_at, updated_at)
+                    SELECT users.id, 0, COALESCE(users.credits, 0), NOW(), NOW()
+                    FROM users
+                    LEFT JOIN user_credits
+                      ON user_credits.user_id = users.id
+                     AND user_credits.type = 0
+                    WHERE user_credits.id IS NULL
+                    """
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO user_credits (user_id, type, balance, created_at, updated_at)
+                    SELECT users.id, 0, 0, NOW(), NOW()
+                    FROM users
+                    LEFT JOIN user_credits
+                      ON user_credits.user_id = users.id
+                     AND user_credits.type = 0
+                    WHERE user_credits.id IS NULL
+                    """
+                )
+            )
+
+
+def _drop_legacy_user_credits_column():
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    user_columns = {col["name"] for col in inspector.get_columns("users")}
+    if "credits" not in user_columns:
+        return
+    if "user_credits" not in inspector.get_table_names():
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users DROP COLUMN credits"))
 
 
 def _ensure_user_identity_schema():
@@ -837,6 +913,7 @@ def _initialize_template_sort_orders():
 def _seed_default_data():
     """Create default superadmin/admin users and seed runtime configs."""
     from app.database import SessionLocal
+    from app.services.user_credit_service import create_default_credit_account
     from app.services.external_api_config_service import seed_legacy_configs
     from app.models.user import User
     from app.utils.security import hash_password
@@ -844,15 +921,21 @@ def _seed_default_data():
     db = SessionLocal()
     try:
         if not db.query(User).filter(User.role == "superadmin").first():
-            db.add(User(
+            user = User(
                 username="administrator",
                 password_hash=hash_password("administrator123"),
                 role="superadmin",
-            ))
+            )
+            db.add(user)
+            db.flush()
+            create_default_credit_account(db, user)
             db.commit()
 
         if not db.query(User).filter(User.role.in_(["admin", "user"])).first():
-            db.add(User(username="admin", password_hash=hash_password("admin123"), role="admin"))
+            user = User(username="admin", password_hash=hash_password("admin123"), role="admin")
+            db.add(user)
+            db.flush()
+            create_default_credit_account(db, user)
             db.commit()
 
         seed_legacy_configs(
