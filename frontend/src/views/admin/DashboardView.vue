@@ -49,12 +49,14 @@ const historyTotal = ref(0);
 const historyCreditTotal = ref(0);
 const page = ref(1);
 const granularity = ref<AdminAnalyticsGranularity>("day");
-const preset = ref("7d");
+const preset = ref("today");
 const ready = ref(false);
 const detailOpen = ref(false);
 const detailLoading = ref(false);
 const detailItem = ref<UserHistoryCard | null>(null);
 let activeDetailRequestKey = "";
+const HISTORY_PAGE_SIZE = 20;
+const HISTORY_TABLE_SCROLL_X = 1400;
 
 const filters = reactive<{
   status: string | undefined;
@@ -73,16 +75,16 @@ const filters = reactive<{
 });
 
 const columns = [
-  { title: "用户", dataIndex: "username", width: 132 },
-  { title: "来源", dataIndex: "source", width: 76 },
-  { title: "类型", dataIndex: "mode", width: 88 },
-  { title: "模型", dataIndex: "model", width: 108 },
-  { title: "消耗积分", dataIndex: "credit_cost", width: 94 },
-  { title: "提示词", dataIndex: "prompt", width: 190, ellipsis: true },
-  { title: "状态", dataIndex: "status", width: 82 },
-  { title: "图片", key: "imgCount", width: 58 },
-  { title: "时间", dataIndex: "created_at", width: 156 },
-  { title: "操作", key: "actions", width: 72 },
+  { title: "用户", dataIndex: "username", width: 120 },
+  { title: "模型", dataIndex: "model", width: 110 },
+  { title: "提示词", dataIndex: "prompt", width: 240, ellipsis: true },
+  { title: "状态", dataIndex: "status", width: 128 },
+  { title: "来源", dataIndex: "source", width: 68 },
+  { title: "类型", dataIndex: "mode", width: 80 },
+  { title: "消耗积分", dataIndex: "credit_cost", width: 84 },
+  { title: "图片", key: "imgCount", width: 52 },
+  { title: "时间", dataIndex: "created_at", width: 148 },
+  { title: "操作", key: "actions", width: 72, fixed: "right" as const },
 ];
 
 const modelOptions = computed(() => {
@@ -163,7 +165,7 @@ const filterSignature = computed(() => JSON.stringify({
 function defaultPresetByGranularity(value: AdminAnalyticsGranularity) {
   if (value === "week") return "8w";
   if (value === "month") return "6m";
-  return "7d";
+  return "today";
 }
 
 function applyPresetRange(value: string) {
@@ -281,7 +283,7 @@ async function loadStatsData() {
 async function loadHistory() {
   historyLoading.value = true;
   try {
-    const res = await getAdminHistory(page.value, 10, buildHistoryFilter());
+    const res = await getAdminHistory(page.value, HISTORY_PAGE_SIZE, buildHistoryFilter());
     history.value = res.items;
     historyTotal.value = res.total;
     historyCreditTotal.value = res.total_credit_cost;
@@ -539,6 +541,7 @@ watch(filterSignature, async () => {
           :loading="historyLoading"
           :row-key="(record: HistoryItem) => record.display_id || record.task_id"
           :pagination="false"
+          :scroll="{ x: HISTORY_TABLE_SCROLL_X }"
           class="admin-mobile-table"
         >
           <template #bodyCell="{ column, record }">
@@ -557,10 +560,18 @@ watch(filterSignature, async () => {
               {{ sourceLabel(record.source) }}
             </template>
             <template v-else-if="column.dataIndex === 'prompt'">
-              {{ record.prompt || "-" }}
+              <a-tooltip v-if="record.prompt" placement="topLeft">
+                <template #title>
+                  <div class="prompt-tooltip-content">{{ record.prompt }}</div>
+                </template>
+                <div class="prompt-cell-text">{{ record.prompt }}</div>
+              </a-tooltip>
+              <span v-else>-</span>
             </template>
             <template v-else-if="column.dataIndex === 'model'">
-              {{ modelLabel(record.model) }}
+              <span class="table-single-line" :title="modelLabel(record.model)">
+                {{ modelLabel(record.model) }}
+              </span>
             </template>
             <template v-else-if="column.dataIndex === 'status'">
               <div class="history-status-tags">
@@ -593,11 +604,11 @@ watch(filterSignature, async () => {
         </a-table>
       </div>
 
-      <div v-if="historyTotal > 10" class="warm-pagination">
+      <div v-if="historyTotal > HISTORY_PAGE_SIZE" class="warm-pagination">
         <a-pagination
           :current="page"
           :total="historyTotal"
-          :page-size="10"
+          :page-size="HISTORY_PAGE_SIZE"
           show-less-items
           @change="handlePageChange"
         />
@@ -726,7 +737,7 @@ watch(filterSignature, async () => {
 .history-status-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .history-image-count {
@@ -736,7 +747,7 @@ watch(filterSignature, async () => {
 }
 
 .history-image-count-note {
-  font-size: 12px;
+  font-size: 11px;
   color: #a68457;
   line-height: 1.4;
 }
@@ -797,10 +808,11 @@ watch(filterSignature, async () => {
 .table-user-cell {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--theme-title);
   font-weight: 700;
   min-width: 0;
+  font-size: 13px;
 }
 
 .table-user-avatar {
@@ -810,13 +822,42 @@ watch(filterSignature, async () => {
 }
 
 :deep(.admin-mobile-table .ant-table-tbody > tr > td) {
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .table-detail-btn {
   padding-inline: 0;
   font-weight: 600;
+  font-size: 12px;
+}
+
+.prompt-cell-text {
+  display: block;
+  overflow: hidden;
+  color: var(--theme-text);
   font-size: 13px;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+
+.table-single-line {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.4;
+  vertical-align: bottom;
+}
+
+.prompt-tooltip-content {
+  max-width: min(560px, 70vw);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
 }
 
 :deep(.admin-mobile-table .ant-table-header) {
@@ -830,12 +871,29 @@ watch(filterSignature, async () => {
   color: var(--theme-title);
   font-weight: 700;
   border-bottom: 1px solid var(--theme-border);
-  padding: 11px 12px;
+  padding: 9px 10px;
+  font-size: 13px;
   white-space: nowrap;
+}
+
+:deep(.admin-mobile-table .ant-tag) {
+  margin-inline-end: 0;
+  padding-inline: 6px;
+  font-size: 11px;
+  line-height: 18px;
+  border-radius: 999px;
 }
 
 :deep(.admin-mobile-table .ant-table-body) {
   scrollbar-width: thin;
+}
+
+:deep(.admin-mobile-table .ant-table-content) {
+  overflow-x: auto !important;
+}
+
+:deep(.admin-mobile-table .ant-table-cell-fix-right) {
+  background: #fffdf8;
 }
 
 @media (max-width: 768px) {
