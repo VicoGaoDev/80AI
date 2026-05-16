@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
 import { BarChartOutlined } from "@ant-design/icons-vue";
 import { useRouter } from "vue-router";
-import { getGenerationModels } from "@/api/config";
+import { getGenerationModels, getTaskScenes } from "@/api/config";
 import {
   getAdminUnresolvedFeedbackCount,
   getStats,
@@ -33,6 +33,7 @@ import type {
   GenerationModelOption,
   HistoryFilter,
   HistoryItem,
+  TaskSceneConfig,
   TaskMode,
   TaskSource,
   UserHistoryCard,
@@ -48,6 +49,7 @@ const timeseries = ref<AdminAnalyticsTimeseries | null>(null);
 const breakdown = ref<AdminAnalyticsBreakdown | null>(null);
 const users = ref<AdminUser[]>([]);
 const generationModels = ref<GenerationModelOption[]>([]);
+const taskScenes = ref<TaskSceneConfig[]>([]);
 const history = ref<HistoryItem[]>([]);
 const historyTotal = ref(0);
 const historyCreditTotal = ref(0);
@@ -93,13 +95,18 @@ const columns = [
 ];
 
 const modelOptions = computed(() => {
-  const options = generationModels.value.map((item) => ({
-    label: item.model_label,
-    value: item.model_key,
-  }));
-  options.push({ label: "局部重绘", value: "inpaint" });
-  options.push({ label: "提示词反推", value: "提示词反推" });
-  return options;
+  const optionMap = new Map<string, string>();
+  generationModels.value.forEach((item) => {
+    optionMap.set(item.model_key, item.model_label);
+  });
+  taskScenes.value
+    .filter((item) => item.scene_type === "image_edit")
+    .forEach((item) => {
+      optionMap.set(item.scene_key, item.display_name || item.scene_label);
+    });
+  optionMap.set("inpaint", "局部重绘");
+  optionMap.set("提示词反推", "提示词反推");
+  return Array.from(optionMap.entries()).map(([value, label]) => ({ value, label }));
 });
 
 const activeFilterSummary = computed(() => {
@@ -249,9 +256,12 @@ async function loadUsers() {
 
 async function loadModels() {
   try {
-    generationModels.value = await getGenerationModels();
+    const [models, scenes] = await Promise.all([getGenerationModels(), getTaskScenes()]);
+    generationModels.value = models;
+    taskScenes.value = scenes;
   } catch {
     generationModels.value = [];
+    taskScenes.value = [];
   }
 }
 

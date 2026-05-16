@@ -15,14 +15,14 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons-vue";
 import { useRouter } from "vue-router";
-import { getGenerationModels } from "@/api/config";
+import { getGenerationModels, getTaskScenes } from "@/api/config";
 import { fetchHistory, toggleHistoryPin } from "@/api/history";
 import { deleteImage, getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl, resolveImageUrl } from "@/api/images";
 import { deletePromptHistory } from "@/api/auth";
 import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import { withBaseUrl } from "@/lib/assets";
-import type { GenerationModelOption, TaskSource, UserHistoryCard } from "@/types";
+import type { GenerationModelOption, TaskSceneConfig, TaskSource, UserHistoryCard } from "@/types";
 
 const router = useRouter();
 const items = ref<UserHistoryCard[]>([]);
@@ -38,6 +38,7 @@ const statusFilter = ref<"pending" | "processing" | "success" | "failed" | undef
 const promptFilter = ref("");
 const dateRangeFilter = ref<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 const generationModels = ref<GenerationModelOption[]>([]);
+const taskScenes = ref<TaskSceneConfig[]>([]);
 const detailOpen = ref(false);
 const failedResultAsset = withBaseUrl("failed-result.svg");
 const generateEmptyStateAsset = withBaseUrl("generate-empty-state.svg");
@@ -77,13 +78,18 @@ const feedbackTarget = ref<UserHistoryCard | null>(null);
 const pinningKeys = ref<string[]>([]);
 
 const modelOptions = computed(() => {
-  const options = generationModels.value.map((item) => ({
-    label: item.model_label,
-    value: item.model_key,
-  }));
-  options.push({ label: "局部重绘", value: "inpaint" });
-  options.push({ label: "提示词反推", value: "提示词反推" });
-  return options;
+  const optionMap = new Map<string, string>();
+  generationModels.value.forEach((item) => {
+    optionMap.set(item.model_key, item.model_label);
+  });
+  taskScenes.value
+    .filter((item) => item.scene_type === "image_edit")
+    .forEach((item) => {
+      optionMap.set(item.scene_key, item.display_name || item.scene_label);
+    });
+  optionMap.set("inpaint", "局部重绘");
+  optionMap.set("提示词反推", "提示词反推");
+  return Array.from(optionMap.entries()).map(([value, label]) => ({ value, label }));
 });
 
 const activeFilterCount = computed(() => {
@@ -218,9 +224,12 @@ function setupLoadMoreObserver(target: HTMLElement | null) {
 
 async function loadModels() {
   try {
-    generationModels.value = await getGenerationModels();
+    const [models, scenes] = await Promise.all([getGenerationModels(), getTaskScenes()]);
+    generationModels.value = models;
+    taskScenes.value = scenes;
   } catch {
     generationModels.value = [];
+    taskScenes.value = [];
   }
 }
 
