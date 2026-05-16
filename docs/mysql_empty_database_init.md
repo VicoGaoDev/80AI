@@ -197,6 +197,7 @@
 - `task_id`: 关联任务。
 - `content`: 用户反馈内容。
 - `status`: 处理状态，当前默认 `pending`。
+- `is_read`: 用户侧是否已读；`0` 表示未读，`1` 表示已读，默认 `0`。
 - `process_note`: 处理过程备注。
 - `result_note`: 处理结果备注。
 - `handled_by`: 处理人。
@@ -549,6 +550,7 @@ CREATE TABLE feedback (
   task_id INT NOT NULL,
   content TEXT NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  is_read TINYINT(1) NOT NULL DEFAULT 0,
   process_note VARCHAR(5000) NOT NULL DEFAULT '',
   result_note VARCHAR(5000) NOT NULL DEFAULT '',
   handled_by INT DEFAULT NULL,
@@ -560,6 +562,7 @@ CREATE TABLE feedback (
   KEY ix_feedback_user_id (user_id),
   KEY ix_feedback_task_id (task_id),
   KEY ix_feedback_status (status),
+  KEY ix_feedback_is_read (is_read),
   KEY ix_feedback_handled_by (handled_by),
   CONSTRAINT fk_feedback_user FOREIGN KEY (user_id) REFERENCES users (id),
   CONSTRAINT fk_feedback_task FOREIGN KEY (task_id) REFERENCES tasks (id),
@@ -928,4 +931,79 @@ SELECT
 FROM user_credits
 ORDER BY id ASC
 LIMIT 20;
+```
+
+## feedback 已读列线上升级 SQL
+
+如果当前生产环境的 `feedback` 表还没有用户侧“是否已读”能力，需要补这两项：
+
+- 新增 `is_read`
+- 新增 `ix_feedback_is_read`
+
+可直接执行以下 SQL：
+
+```sql
+SET @has_feedback := (
+  SELECT COUNT(*)
+  FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'feedback'
+);
+
+SET @has_is_read := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'feedback'
+    AND COLUMN_NAME = 'is_read'
+);
+
+SET @has_ix_feedback_is_read := (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'feedback'
+    AND INDEX_NAME = 'ix_feedback_is_read'
+);
+
+SET @add_is_read_sql := IF(
+  @has_feedback = 0,
+  'SELECT ''feedback table not found'' AS info',
+  IF(
+    @has_is_read = 0,
+    'ALTER TABLE feedback ADD COLUMN is_read TINYINT(1) NOT NULL DEFAULT 0 AFTER status',
+    'SELECT ''skip add is_read'' AS info'
+  )
+);
+
+PREPARE stmt_add_is_read FROM @add_is_read_sql;
+EXECUTE stmt_add_is_read;
+DEALLOCATE PREPARE stmt_add_is_read;
+
+UPDATE feedback
+SET is_read = 0
+WHERE is_read IS NULL;
+
+SET @add_feedback_is_read_index_sql := IF(
+  @has_feedback = 0,
+  'SELECT ''feedback table not found'' AS info',
+  IF(
+    @has_ix_feedback_is_read = 0,
+    'CREATE INDEX ix_feedback_is_read ON feedback (is_read)',
+    'SELECT ''skip create ix_feedback_is_read'' AS info'
+  )
+);
+
+PREPARE stmt_add_feedback_is_read_index FROM @add_feedback_is_read_index_sql;
+EXECUTE stmt_add_feedback_is_read_index;
+DEALLOCATE PREPARE stmt_add_feedback_is_read_index;
+
+SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'feedback'
+  AND COLUMN_NAME IN ('status', 'is_read')
+ORDER BY ORDINAL_POSITION;
+
+SHOW INDEX FROM feedback WHERE Key_name = 'ix_feedback_is_read';
 ```

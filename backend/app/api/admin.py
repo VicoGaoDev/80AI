@@ -12,7 +12,12 @@ from app.schemas.admin import (
     CreateRedeemKeysBatchRequest, RedeemKeyBatchOut, RedeemKeyOut, UpdateRedeemKeyStatusRequest,
     AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut,
 )
-from app.schemas.feedback import FeedbackDetail, FeedbackListResponse, FeedbackUpdateRequest
+from app.schemas.feedback import (
+    FeedbackDetail,
+    FeedbackListResponse,
+    FeedbackUnresolvedCountResponse,
+    FeedbackUpdateRequest,
+)
 from app.schemas.history import HistoryResponse, UserHistoryCardItem
 from app.services.business_id_service import get_user_by_business_id
 from app.services.admin_service import (
@@ -21,7 +26,12 @@ from app.services.admin_service import (
     get_analytics_summary, get_analytics_timeseries, get_analytics_breakdown,
 )
 from app.services.credit_redeem_service import create_redeem_key_batch, list_redeem_keys, update_redeem_key_status
-from app.services.feedback_service import get_feedback_detail, list_feedbacks, update_feedback
+from app.services.feedback_service import (
+    count_unresolved_feedbacks,
+    get_feedback_detail,
+    list_feedbacks,
+    update_feedback,
+)
 from app.services.history_service import get_admin_history_detail, get_all_history
 
 router = APIRouter(prefix="/api/admin", tags=["管理员"])
@@ -328,6 +338,14 @@ def admin_feedback_list(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/feedback/unresolved-count", response_model=FeedbackUnresolvedCountResponse)
+def admin_feedback_unresolved_count(
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return {"count": count_unresolved_feedbacks(db)}
 
 
 @router.get("/feedback/{feedback_id}", response_model=FeedbackDetail)

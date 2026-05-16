@@ -21,6 +21,7 @@ class FeedbackListItem(BaseModel):
     username: str = ""
     task_id: str
     status: str
+    is_read: bool = False
     content: str
     process_note: str = ""
     result_note: str = ""
@@ -39,6 +40,14 @@ class FeedbackDetail(FeedbackListItem):
 class FeedbackListResponse(BaseModel):
     total: int
     items: list[FeedbackListItem]
+
+
+class FeedbackUnresolvedCountResponse(BaseModel):
+    count: int
+
+
+class FeedbackReadCountResponse(BaseModel):
+    count: int
 
 
 class FeedbackCreateRequest(BaseModel):

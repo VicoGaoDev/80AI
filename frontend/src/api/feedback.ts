@@ -1,5 +1,10 @@
 import client from "./client";
-import type { FeedbackDetail, FeedbackListQuery, FeedbackListResponse } from "@/types";
+import type {
+  FeedbackDetail,
+  FeedbackListQuery,
+  FeedbackListResponse,
+  FeedbackReadCountResponse,
+} from "@/types";
 
 export function createFeedback(taskId: string, content: string): Promise<FeedbackDetail> {
   return client.post("/feedback", {
@@ -24,4 +29,16 @@ export function listMyFeedbacks(
 
 export function getMyFeedbackDetail(feedbackId: string): Promise<FeedbackDetail> {
   return client.get(`/feedback/${feedbackId}`);
+}
+
+export function getMyCompletedUnreadFeedbackCount(): Promise<FeedbackReadCountResponse> {
+  return client.get("/feedback/completed-unread-count");
+}
+
+export function markMyFeedbackAsRead(feedbackId: string): Promise<FeedbackDetail> {
+  return client.patch(`/feedback/${feedbackId}/read`);
+}
+
+export function markAllMyFeedbackAsRead(): Promise<FeedbackReadCountResponse> {
+  return client.post("/feedback/read-all");
 }

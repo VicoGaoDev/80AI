@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { message } from "ant-design-vue";
+import { message, notification } from "ant-design-vue";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
 import { BarChartOutlined } from "@ant-design/icons-vue";
+import { useRouter } from "vue-router";
 import { getGenerationModels } from "@/api/config";
 import {
+  getAdminUnresolvedFeedbackCount,
   getStats,
   getAdminAnalyticsBreakdown,
   getAdminAnalyticsSummary,
@@ -14,6 +16,7 @@ import {
   getAdminHistory,
   listUsers,
 } from "@/api/admin";
+import { setStoredAdminUnresolvedFeedbackCount } from "@/lib/adminFeedbackNotice";
 import AnalyticsFilterBar from "@/components/admin/AnalyticsFilterBar.vue";
 import BreakdownCharts from "@/components/admin/BreakdownCharts.vue";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
@@ -35,6 +38,7 @@ import type {
   UserHistoryCard,
 } from "@/types";
 
+const router = useRouter();
 const analyticsLoading = ref(false);
 const statsLoading = ref(false);
 const historyLoading = ref(false);
@@ -57,6 +61,7 @@ const detailItem = ref<UserHistoryCard | null>(null);
 let activeDetailRequestKey = "";
 const HISTORY_PAGE_SIZE = 20;
 const HISTORY_TABLE_SCROLL_X = 1400;
+const UNRESOLVED_FEEDBACK_NOTIFICATION_KEY = "admin-unresolved-feedback";
 
 const filters = reactive<{
   status: string | undefined;
@@ -280,6 +285,31 @@ async function loadStatsData() {
   }
 }
 
+async function checkUnresolvedFeedbacks() {
+  try {
+    const { count } = await getAdminUnresolvedFeedbackCount();
+    const normalizedCount = setStoredAdminUnresolvedFeedbackCount(count);
+    if (normalizedCount > 0) {
+      notification.warning({
+        key: UNRESOLVED_FEEDBACK_NOTIFICATION_KEY,
+        message: "有用户反馈未处理",
+        description: `当前有 ${normalizedCount} 条未完成的用户反馈，点击前往处理。`,
+        placement: "topRight",
+        duration: 5,
+        style: { cursor: "pointer" },
+        onClick: () => {
+          notification.close(UNRESOLVED_FEEDBACK_NOTIFICATION_KEY);
+          router.push("/admin/feedbacks");
+        },
+      });
+      return;
+    }
+    notification.close(UNRESOLVED_FEEDBACK_NOTIFICATION_KEY);
+  } catch {
+    // Do not block dashboard rendering if the reminder check fails.
+  }
+}
+
 async function loadHistory() {
   historyLoading.value = true;
   try {
@@ -424,7 +454,7 @@ onMounted(async () => {
   preset.value = defaultPresetByGranularity(granularity.value);
   applyPresetRange(preset.value);
   await Promise.all([loadUsers(), loadModels()]);
-  await Promise.all([loadPageData(), loadStatsData()]);
+  await Promise.all([loadPageData(), loadStatsData(), checkUnresolvedFeedbacks()]);
   ready.value = true;
 });
 

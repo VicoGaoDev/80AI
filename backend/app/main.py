@@ -923,6 +923,8 @@ def _ensure_feedback_schema():
             conn.execute(text("ALTER TABLE feedback ADD COLUMN content TEXT"))
         if "status" not in feedback_columns:
             conn.execute(text("ALTER TABLE feedback ADD COLUMN status VARCHAR(20) DEFAULT 'pending'"))
+        if "is_read" not in feedback_columns:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN is_read TINYINT(1) DEFAULT 0"))
         if "process_note" not in feedback_columns:
             conn.execute(text("ALTER TABLE feedback ADD COLUMN process_note VARCHAR(5000) DEFAULT ''"))
         if "result_note" not in feedback_columns:
@@ -939,6 +941,7 @@ def _ensure_feedback_schema():
         conn.execute(text("UPDATE feedback SET process_note = '' WHERE process_note IS NULL"))
         conn.execute(text("UPDATE feedback SET result_note = '' WHERE result_note IS NULL"))
         conn.execute(text("UPDATE feedback SET status = 'pending' WHERE status IS NULL OR status = ''"))
+        conn.execute(text("UPDATE feedback SET is_read = 0 WHERE is_read IS NULL"))
 
         if "ix_feedback_user_id" not in feedback_indexes:
             conn.execute(text("CREATE INDEX ix_feedback_user_id ON feedback (user_id)"))
@@ -946,6 +949,8 @@ def _ensure_feedback_schema():
             conn.execute(text("CREATE INDEX ix_feedback_task_id ON feedback (task_id)"))
         if "ix_feedback_status" not in feedback_indexes:
             conn.execute(text("CREATE INDEX ix_feedback_status ON feedback (status)"))
+        if "ix_feedback_is_read" not in feedback_indexes:
+            conn.execute(text("CREATE INDEX ix_feedback_is_read ON feedback (is_read)"))
         if "ix_feedback_handled_by" not in feedback_indexes:
             conn.execute(text("CREATE INDEX ix_feedback_handled_by ON feedback (handled_by)"))
 

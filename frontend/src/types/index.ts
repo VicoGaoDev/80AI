@@ -170,6 +170,7 @@ export interface FeedbackItem {
   username: string;
   task_id: string;
   status: FeedbackStatus;
+  is_read: boolean;
   content: string;
   process_note: string;
   result_note: string;
@@ -188,6 +189,14 @@ export interface FeedbackDetail extends FeedbackItem {
 export interface FeedbackListResponse {
   total: number;
   items: FeedbackItem[];
+}
+
+export interface FeedbackUnresolvedCountResponse {
+  count: number;
+}
+
+export interface FeedbackReadCountResponse {
+  count: number;
 }
 
 export interface FeedbackListQuery {

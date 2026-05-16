@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func, text
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, func, text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -14,6 +14,7 @@ class Feedback(Base):
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False, index=True)
     content = Column(Text, nullable=False)
     status = Column(String(20), nullable=False, default="pending", server_default="pending", index=True)
+    is_read = Column(Boolean, nullable=False, default=False, server_default=text("0"), index=True)
     process_note = Column(String(5000), nullable=False, default="", server_default="")
     result_note = Column(String(5000), nullable=False, default="", server_default="")
     handled_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)

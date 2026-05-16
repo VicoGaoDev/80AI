@@ -6,7 +6,8 @@ import { message } from "ant-design-vue";
 import dayjs from "dayjs";
 import { getDisplayImageUrl, getPreviewImageUrl } from "@/api/images";
 import { getGenerationModels } from "@/api/config";
-import { getAdminFeedbackDetail, updateAdminFeedback } from "@/api/admin";
+import { getAdminFeedbackDetail, getAdminUnresolvedFeedbackCount, updateAdminFeedback } from "@/api/admin";
+import { setStoredAdminUnresolvedFeedbackCount } from "@/lib/adminFeedbackNotice";
 import type { FeedbackDetail, FeedbackStatus, GenerationModelOption, ImageResult } from "@/types";
 
 const route = useRoute();
@@ -95,11 +96,14 @@ async function handleSave() {
   if (!feedbackId.value) return;
   saving.value = true;
   try {
-    detail.value = await updateAdminFeedback(feedbackId.value, {
+    const updatedDetail = await updateAdminFeedback(feedbackId.value, {
       status: form.status,
       process_note: form.process_note,
       result_note: form.result_note,
     });
+    detail.value = updatedDetail;
+    const { count } = await getAdminUnresolvedFeedbackCount();
+    setStoredAdminUnresolvedFeedbackCount(count);
     syncForm();
     message.success("反馈处理信息已更新");
   } catch (err: any) {

@@ -3,7 +3,8 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { CopyOutlined, MessageOutlined, UndoOutlined } from "@ant-design/icons-vue";
 import { message } from "ant-design-vue";
 import dayjs from "dayjs";
-import { listMyFeedbacks } from "@/api/feedback";
+import { listMyFeedbacks, markAllMyFeedbackAsRead, markMyFeedbackAsRead } from "@/api/feedback";
+import { setStoredUserCompletedUnreadFeedbackCount } from "@/lib/userFeedbackNotice";
 import type { FeedbackItem, FeedbackStatus } from "@/types";
 
 const loading = ref(false);
@@ -11,6 +12,8 @@ const items = ref<FeedbackItem[]>([]);
 const total = ref(0);
 const page = ref(1);
 const pageSize = ref(20);
+const readSubmitting = ref<string | null>(null);
+const readAllLoading = ref(false);
 
 const filters = reactive<{
   status: FeedbackStatus | undefined;
@@ -24,7 +27,9 @@ const columns = [
   { title: "处理进度", dataIndex: "process_note", width: 260, ellipsis: true },
   { title: "处理结果", dataIndex: "result_note", width: 260, ellipsis: true },
   { title: "状态", dataIndex: "status", width: 120 },
+  { title: "阅读状态", dataIndex: "is_read", width: 110 },
   { title: "更新时间", dataIndex: "updated_at", width: 180 },
+  { title: "操作", key: "actions", width: 100, fixed: "right" as const },
 ];
 
 const activeFilterSummary = computed(() => {
@@ -77,6 +82,37 @@ async function load() {
   }
 }
 
+async function handleMarkRead(record: FeedbackItem) {
+  if (record.is_read) return;
+  readSubmitting.value = record.feedback_id;
+  try {
+    const updated = await markMyFeedbackAsRead(record.feedback_id);
+    items.value = items.value.map((item) => (item.feedback_id === updated.feedback_id ? updated : item));
+    setStoredUserCompletedUnreadFeedbackCount(
+      Math.max(0, items.value.filter((item) => item.status === "completed" && !item.is_read).length),
+    );
+    message.success("已标记为已读");
+  } catch {
+    message.error("更新已读状态失败");
+  } finally {
+    readSubmitting.value = null;
+  }
+}
+
+async function handleMarkAllRead() {
+  readAllLoading.value = true;
+  try {
+    const res = await markAllMyFeedbackAsRead();
+    items.value = items.value.map((item) => ({ ...item, is_read: true }));
+    setStoredUserCompletedUnreadFeedbackCount(0);
+    message.success(res.count > 0 ? `已将 ${res.count} 条反馈标记为已读` : "没有未读反馈");
+  } catch {
+    message.error("一键已读失败");
+  } finally {
+    readAllLoading.value = false;
+  }
+}
+
 function handleSearch() {
   page.value = 1;
   void load();
@@ -119,6 +155,7 @@ onMounted(load);
         <a-select-option value="completed">已完成</a-select-option>
       </a-select>
       <a-button type="primary" class="warm-primary-btn" @click="handleSearch">查询</a-button>
+      <a-button class="filter-secondary-btn" :loading="readAllLoading" @click="handleMarkAllRead">一键已读</a-button>
       <a-button class="filter-reset-btn" @click="handleReset">
         <template #icon><UndoOutlined /></template>
         重置
@@ -174,8 +211,25 @@ onMounted(load);
           <template v-else-if="column.dataIndex === 'status'">
             <a-tag class="warm-tag" :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
           </template>
+          <template v-else-if="column.dataIndex === 'is_read'">
+            <a-tag class="warm-tag" :color="record.is_read ? 'green' : 'orange'">
+              {{ record.is_read ? "已读" : "未读" }}
+            </a-tag>
+          </template>
           <template v-else-if="column.dataIndex === 'updated_at'">
             {{ formatTime(record.updated_at) }}
+          </template>
+          <template v-else-if="column.key === 'actions'">
+            <a-button
+              v-if="!record.is_read"
+              type="link"
+              class="mark-read-btn"
+              :loading="readSubmitting === record.feedback_id"
+              @click="handleMarkRead(record)"
+            >
+              已读
+            </a-button>
+            <span v-else class="action-placeholder">-</span>
           </template>
         </template>
       </a-table>
@@ -209,6 +263,11 @@ onMounted(load);
   border: 1px solid var(--theme-panel-border-strong) !important;
   background: var(--theme-panel-bg-strong) !important;
   color: var(--theme-accent-text) !important;
+}
+
+.filter-secondary-btn {
+  height: 36px;
+  border-radius: 12px;
 }
 
 .filter-summary {
@@ -263,6 +322,15 @@ onMounted(load);
 .warm-tag {
   border-radius: 999px;
   font-weight: 600;
+}
+
+.mark-read-btn {
+  padding-inline: 0;
+  font-weight: 600;
+}
+
+.action-placeholder {
+  color: var(--theme-text-secondary);
 }
 
 @media (max-width: 768px) {

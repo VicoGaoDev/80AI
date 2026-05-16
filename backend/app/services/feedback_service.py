@@ -78,6 +78,7 @@ def _serialize_feedback(item: Feedback, *, db: Session, include_task_images: boo
         "username": item.user.username if item.user else "",
         "task_id": task_external_id(task),
         "status": item.status or "pending",
+        "is_read": bool(item.is_read),
         "content": item.content or "",
         "process_note": item.process_note or "",
         "result_note": item.result_note or "",
@@ -159,6 +160,29 @@ def list_feedbacks(
     return {"total": total, "items": [_serialize_feedback(item, db=db) for item in rows]}
 
 
+def count_unresolved_feedbacks(
+    db: Session,
+    *,
+    user_id: int | None = None,
+) -> int:
+    query = db.query(Feedback).filter(Feedback.status != "completed")
+    if user_id is not None:
+        query = query.filter(Feedback.user_id == user_id)
+    return query.count()
+
+
+def count_user_completed_unread_feedbacks(db: Session, *, user_id: int) -> int:
+    return (
+        db.query(Feedback)
+        .filter(
+            Feedback.user_id == user_id,
+            Feedback.status == "completed",
+            Feedback.is_read.is_(False),
+        )
+        .count()
+    )
+
+
 def get_feedback_detail(
     db: Session,
     feedback_id: str,
@@ -220,3 +244,47 @@ def update_feedback(
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="反馈不存在")
     return _serialize_feedback(detail, db=db, include_task_images=True)
+
+
+def mark_feedback_as_read(
+    db: Session,
+    feedback_id: str,
+    *,
+    user_id: int,
+) -> dict:
+    item = get_feedback_by_business_id(db, feedback_id)
+    if not item or item.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="反馈不存在")
+
+    item.is_read = True
+    db.add(item)
+    db.commit()
+
+    detail = _feedback_base_query(db).filter(Feedback.id == item.id).first()
+    if not detail:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="反馈不存在")
+    return _serialize_feedback(detail, db=db, include_task_images=True)
+
+
+def mark_all_feedbacks_as_read(
+    db: Session,
+    *,
+    user_id: int,
+) -> int:
+    unread_items = (
+        db.query(Feedback)
+        .filter(
+            Feedback.user_id == user_id,
+            Feedback.is_read.is_(False),
+        )
+        .all()
+    )
+    if not unread_items:
+        return 0
+
+    for item in unread_items:
+        item.is_read = True
+        db.add(item)
+
+    db.commit()
+    return len(unread_items)

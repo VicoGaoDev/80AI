@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, h, provide, nextTick, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
-import { message } from "ant-design-vue";
+import { message, notification } from "ant-design-vue";
 import {
   login as apiLogin,
   register as apiRegister,
@@ -11,8 +11,20 @@ import {
   getAnnouncementConfig,
   redeemCreditKey,
 } from "@/api/auth";
+import { getMyCompletedUnreadFeedbackCount } from "@/api/feedback";
+import { getAdminUnresolvedFeedbackCount } from "@/api/admin";
 import { registerCloudbaseAccount, sendRegisterEmailCode } from "@/lib/cloudbase";
 import { withBaseUrl } from "@/lib/assets";
+import {
+  getStoredAdminUnresolvedFeedbackCount,
+  setStoredAdminUnresolvedFeedbackCount,
+  subscribeAdminUnresolvedFeedbackCount,
+} from "@/lib/adminFeedbackNotice";
+import {
+  getStoredUserCompletedUnreadFeedbackCount,
+  setStoredUserCompletedUnreadFeedbackCount,
+  subscribeUserCompletedUnreadFeedbackCount,
+} from "@/lib/userFeedbackNotice";
 import { APP_THEME_ATTRIBUTE, type AppThemeName } from "@/config/theme";
 import { getCurrentTheme } from "@/lib/theme";
 import type { AnnouncementConfig } from "@/types";
@@ -66,6 +78,11 @@ const routeOrder = new Map<string, number>([
 
 const currentTheme = ref<AppThemeName>(getCurrentTheme());
 let themeObserver: MutationObserver | null = null;
+const adminUnresolvedFeedbackCount = ref(getStoredAdminUnresolvedFeedbackCount());
+let unsubscribeAdminFeedbackCount: (() => void) | null = null;
+const userCompletedUnreadFeedbackCount = ref(getStoredUserCompletedUnreadFeedbackCount());
+let unsubscribeUserFeedbackCount: (() => void) | null = null;
+const UNRESOLVED_FEEDBACK_NOTIFICATION_KEY = "global-admin-unresolved-feedback";
 
 const primaryMenuItems = [
   { key: "templates", label: "创意模版", iconSrc: withBaseUrl("nav-templates.svg"), darkIconSrc: withBaseUrl("nav-templates-mono.svg") },
@@ -86,11 +103,14 @@ const adminMenuItems = computed(() =>
     { key: "/admin/users", label: "用户管理", icon: TeamOutlined, superAdminOnly: false },
     { key: "/admin/redeem-keys", label: "兑换码管理", icon: GiftOutlined, superAdminOnly: false },
     { key: "/admin/dashboard", label: "数据统计", icon: BarChartOutlined, superAdminOnly: false },
-    { key: "/admin/feedbacks", label: "用户 Feedback", icon: MessageOutlined, superAdminOnly: false },
+    { key: "/admin/feedbacks", label: "用户反馈", icon: MessageOutlined, superAdminOnly: false },
     { key: "/admin/cos-config", label: "COS 配置", icon: CloudUploadOutlined, superAdminOnly: true },
     { key: "/admin/external-api-configs", label: "接口管理", icon: KeyOutlined, superAdminOnly: true },
   ].filter((item) => !item.superAdminOnly || isSuperAdmin.value)
 );
+
+const hasAdminUnresolvedFeedback = computed(() => adminUnresolvedFeedbackCount.value > 0);
+const hasUserUnreadFeedback = computed(() => userCompletedUnreadFeedbackCount.value > 0);
 
 const userMenuItems = [
   { key: "profile", label: "个人主页", icon: UserOutlined, danger: false },
@@ -132,6 +152,15 @@ watch(
   { immediate: true }
 );
 
+watch(
+  () => route.path,
+  (path) => {
+    if (path === "/") {
+      void syncAdminUnresolvedFeedbackCount({ showToast: true });
+    }
+  }
+);
+
 function handleMenuClick({ key }: { key: string }) {
   mobileDrawerOpen.value = false;
   if (key === "templates") router.push("/templates");
@@ -159,6 +188,42 @@ function handleUserMenu({ key }: { key: string }) {
   else if (key === "logout") {
     auth.logout();
     router.push("/");
+  }
+}
+
+async function syncAdminUnresolvedFeedbackCount(options?: { showToast?: boolean }) {
+  if (!auth.isLoggedIn || !auth.isAdmin) return;
+  try {
+    const { count } = await getAdminUnresolvedFeedbackCount();
+    adminUnresolvedFeedbackCount.value = setStoredAdminUnresolvedFeedbackCount(count);
+    if (options?.showToast && count > 0) {
+      notification.warning({
+        key: UNRESOLVED_FEEDBACK_NOTIFICATION_KEY,
+        message: "有用户反馈未处理",
+        description: `当前有 ${count} 条未完成的用户反馈，点击前往处理。`,
+        placement: "topRight",
+        duration: 5,
+        style: { cursor: "pointer" },
+        onClick: () => {
+          notification.close(UNRESOLVED_FEEDBACK_NOTIFICATION_KEY);
+          router.push("/admin/feedbacks");
+        },
+      });
+      return;
+    }
+    notification.close(UNRESOLVED_FEEDBACK_NOTIFICATION_KEY);
+  } catch {
+    // ignore unresolved feedback count failures
+  }
+}
+
+async function syncUserCompletedUnreadFeedbackCount() {
+  if (!auth.isLoggedIn) return;
+  try {
+    const { count } = await getMyCompletedUnreadFeedbackCount();
+    userCompletedUnreadFeedbackCount.value = setStoredUserCompletedUnreadFeedbackCount(count);
+  } catch {
+    // ignore user unread feedback count failures
   }
 }
 
@@ -366,6 +431,13 @@ async function checkAnnouncement() {
 }
 
 onMounted(async () => {
+  unsubscribeAdminFeedbackCount = subscribeAdminUnresolvedFeedbackCount((count) => {
+    adminUnresolvedFeedbackCount.value = count;
+  });
+  unsubscribeUserFeedbackCount = subscribeUserCompletedUnreadFeedbackCount((count) => {
+    userCompletedUnreadFeedbackCount.value = count;
+  });
+
   if (typeof document !== "undefined") {
     themeObserver = new MutationObserver(() => {
       currentTheme.value = getCurrentTheme();
@@ -390,9 +462,15 @@ onMounted(async () => {
   } catch {
     // ignore sync failures for stale sessions
   }
+  await syncAdminUnresolvedFeedbackCount();
+  await syncUserCompletedUnreadFeedbackCount();
 });
 
 onBeforeUnmount(() => {
+  unsubscribeAdminFeedbackCount?.();
+  unsubscribeAdminFeedbackCount = null;
+  unsubscribeUserFeedbackCount?.();
+  unsubscribeUserFeedbackCount = null;
   themeObserver?.disconnect();
   themeObserver = null;
 });
@@ -479,16 +557,30 @@ watch(
           </a-button>
           <template v-if="auth.isLoggedIn">
             <a-dropdown v-if="isAdmin" :trigger="['hover']" overlay-class-name="warm-dropdown">
-              <a-button class="admin-btn" type="text">
-                <SettingOutlined />
-                管理后台
-                <DownOutlined style="font-size: 10px; margin-left: 4px" />
-              </a-button>
+              <a-badge :count="adminUnresolvedFeedbackCount" :offset="[-2, 2]" :show-zero="false">
+                <a-button class="admin-btn" type="text">
+                  <SettingOutlined />
+                  管理后台
+                  <DownOutlined style="font-size: 10px; margin-left: 4px" />
+                </a-button>
+              </a-badge>
               <template #overlay>
                 <a-menu :selected-keys="adminSelectedKeys" @click="handleAdminMenu">
-                  <a-menu-item v-for="item in adminMenuItems" :key="item.key">
+                  <a-menu-item
+                    v-for="item in adminMenuItems"
+                    :key="item.key"
+                    :class="{ 'admin-feedback-dropdown-item': item.key === '/admin/feedbacks' }"
+                  >
                     <component :is="item.icon" />
-                    <span style="margin-left: 8px">{{ item.label }}</span>
+                    <span v-if="item.key === '/admin/feedbacks'" class="admin-menu-feedback-label">
+                      <span>{{ item.label }}</span>
+                      <a-badge
+                        v-if="hasAdminUnresolvedFeedback"
+                        :count="adminUnresolvedFeedbackCount"
+                        :number-style="{ backgroundColor: '#ff4d4f', color: '#fff' }"
+                      />
+                    </span>
+                    <span v-else style="margin-left: 8px">{{ item.label }}</span>
                   </a-menu-item>
                 </a-menu>
               </template>
@@ -500,20 +592,37 @@ watch(
             </div>
 
             <a-dropdown :trigger="['hover']" overlay-class-name="warm-dropdown">
-              <div class="user-trigger">
-                <a-avatar :size="34" class="user-avatar" :src="avatarUrl || undefined">
-                  {{ avatarFallback }}
-                </a-avatar>
-                <span class="user-name">{{ auth.user?.username }}</span>
-              </div>
+              <a-badge
+                dot
+                :offset="[-2, 6]"
+                :show-zero="false"
+                :count="hasUserUnreadFeedback ? 1 : 0"
+                :dot-style="{ width: '12px', height: '12px', minWidth: '12px', boxShadow: '0 0 0 2px #fffdf8' }"
+              >
+                <div class="user-trigger">
+                  <a-avatar :size="34" class="user-avatar" :src="avatarUrl || undefined">
+                    {{ avatarFallback }}
+                  </a-avatar>
+                  <span class="user-name">{{ auth.user?.username }}</span>
+                </div>
+              </a-badge>
               <template #overlay>
                 <a-menu @click="handleUserMenu">
                   <a-menu-item
                     v-for="item in userMenuItems.filter((entry) => !entry.danger)"
                     :key="item.key"
+                    :class="{ 'user-feedback-dropdown-item': item.key === 'my-feedback' }"
                   >
                     <component :is="item.icon" />
-                    <span style="margin-left: 8px">{{ item.label }}</span>
+                    <span v-if="item.key === 'my-feedback'" class="user-menu-feedback-label">
+                      <span>{{ item.label }}</span>
+                      <a-badge
+                        v-if="hasUserUnreadFeedback"
+                        dot
+                        :dot-style="{ width: '10px', height: '10px', minWidth: '10px' }"
+                      />
+                    </span>
+                    <span v-else style="margin-left: 8px">{{ item.label }}</span>
                   </a-menu-item>
                   <a-menu-divider />
                   <a-menu-item
@@ -608,7 +717,14 @@ watch(
         </div>
 
         <div v-if="auth.isLoggedIn && isAdmin" class="mobile-drawer-section">
-          <div class="mobile-drawer-section-title">管理后台</div>
+          <div class="mobile-drawer-section-title">
+            <span>管理后台</span>
+            <a-badge
+              v-if="hasAdminUnresolvedFeedback"
+              :count="adminUnresolvedFeedbackCount"
+              :number-style="{ backgroundColor: '#ff4d4f', color: '#fff' }"
+            />
+          </div>
           <a-menu
             mode="inline"
             :selected-keys="adminSelectedKeys"
@@ -617,7 +733,15 @@ watch(
           >
             <a-menu-item v-for="item in adminMenuItems" :key="item.key">
               <component :is="item.icon" />
-              <span>{{ item.label }}</span>
+              <span v-if="item.key === '/admin/feedbacks'" class="admin-menu-feedback-label">
+                <span>{{ item.label }}</span>
+                <a-badge
+                  v-if="hasAdminUnresolvedFeedback"
+                  :count="adminUnresolvedFeedbackCount"
+                  :number-style="{ backgroundColor: '#ff4d4f', color: '#fff' }"
+                />
+              </span>
+              <span v-else>{{ item.label }}</span>
             </a-menu-item>
           </a-menu>
         </div>
@@ -1164,6 +1288,9 @@ watch(
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--theme-subtitle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .mobile-drawer-menu {
@@ -1267,6 +1394,31 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
   }
 }
 
+.admin-menu-feedback-label {
+  margin-left: 8px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.admin-menu-feedback-label > span:first-child {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+:deep(.admin-menu-feedback-label .ant-badge) {
+  flex: 0 0 auto;
+}
+
+:deep(.admin-menu-feedback-label .ant-badge-count) {
+  color: #fff !important;
+}
+
 .user-trigger {
   display: flex;
   align-items: center;
@@ -1281,6 +1433,23 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
     background: var(--theme-panel-bg-muted);
     border-color: var(--theme-panel-border);
   }
+}
+
+.user-menu-feedback-label {
+  margin-left: 8px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.user-menu-feedback-label > span:first-child {
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .user-avatar {
@@ -1706,6 +1875,36 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
 .warm-dropdown .ant-dropdown-menu-item .anticon {
   font-size: 16px;
   color: currentColor;
+}
+
+.warm-dropdown .ant-dropdown-menu-item.admin-feedback-dropdown-item,
+.warm-dropdown .ant-dropdown-menu-item.admin-feedback-dropdown-item .ant-dropdown-menu-title-content {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.warm-dropdown .ant-dropdown-menu-item.admin-feedback-dropdown-item .ant-dropdown-menu-title-content {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.warm-dropdown .ant-dropdown-menu-item.admin-feedback-dropdown-item .admin-menu-feedback-label {
+  margin-left: 8px;
+}
+
+.warm-dropdown .ant-dropdown-menu-item.user-feedback-dropdown-item,
+.warm-dropdown .ant-dropdown-menu-item.user-feedback-dropdown-item .ant-dropdown-menu-title-content {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.warm-dropdown .ant-dropdown-menu-item.user-feedback-dropdown-item .ant-dropdown-menu-title-content {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .warm-dropdown .ant-dropdown-menu-item-danger {

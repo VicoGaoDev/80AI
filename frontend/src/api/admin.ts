@@ -22,6 +22,7 @@ import type {
   ExternalApiConfigTestResult,
   FeedbackDetail,
   FeedbackListResponse,
+  FeedbackUnresolvedCountResponse,
   AdminFeedbackQuery,
   FeedbackUpdatePayload,
   HistoryFilter,
@@ -162,6 +163,10 @@ export function listAdminFeedbacks(
   if (query?.task_id) params.task_id = query.task_id;
   if (query?.status) params.status = query.status;
   return client.get("/admin/feedback", { params });
+}
+
+export function getAdminUnresolvedFeedbackCount(): Promise<FeedbackUnresolvedCountResponse> {
+  return client.get("/admin/feedback/unresolved-count");
 }
 
 export function getAdminFeedbackDetail(feedbackId: string): Promise<FeedbackDetail> {

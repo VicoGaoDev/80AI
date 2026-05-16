@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, h, inject, onActivated, onBeforeUnmount, onMounted, watch, type Ref } from "vue";
-import { message, Modal } from "ant-design-vue";
+import { message, Modal, notification } from "ant-design-vue";
+import { useRouter } from "vue-router";
 import {
   FontSizeOutlined,
   CloseOutlined,
@@ -32,16 +33,20 @@ import { deleteImage, getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl, re
 import { reversePrompt } from "@/api/promptReverse";
 import { uploadReferenceImage } from "@/api/upload";
 import { getMe, getPromptHistory, deletePromptHistory } from "@/api/auth";
+import { getMyCompletedUnreadFeedbackCount } from "@/api/feedback";
 import { useAuthStore } from "@/stores/auth";
 import RepaintCanvas from "@/components/generate/RepaintCanvas.vue";
 import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import { withBaseUrl } from "@/lib/assets";
 import { formatGenerationErrorMessage, getPreferredGenerationErrorMessage } from "@/lib/generationErrors";
+import { setStoredUserCompletedUnreadFeedbackCount } from "@/lib/userFeedbackNotice";
 import type { GenerationModelOption, ImageResult, PromptHistoryItem, SceneOptionItem, TaskResult, TaskSceneConfig, UserHistoryCard } from "@/types";
 
 const auth = useAuthStore();
+const router = useRouter();
 const loginModalVisible = inject<Ref<boolean>>("loginModalVisible")!;
 const openCreditsContact = inject<() => void>("openCreditsContact");
+const COMPLETED_UNREAD_FEEDBACK_NOTIFICATION_KEY = "user-completed-unread-feedback";
 
 function isInsufficientCreditsError(err: any) {
   const detail = String(err?.response?.data?.detail || err?.message || "");
@@ -1337,7 +1342,7 @@ function applyDraft(raw: string | null, successText: string, storageKey: string)
       prompt.value = draft.prompt || "";
       selectedModel.value = draft.model || selectedModel.value;
       syncReferenceItems(Array.isArray(draft.reference_images) ? draft.reference_images.slice(0, maxReferenceImages.value) : []);
-      numImages.value = Math.min(4, Math.max(1, Number(draft.num_images || 1)));
+      numImages.value = Math.min(5, Math.max(1, Number(draft.num_images || 1)));
       repaintPrompt.value = "";
       revokeObjectUrl(sourcePreviewUrl.value);
       sourcePreviewUrl.value = "";
@@ -1367,12 +1372,44 @@ async function loadTaskSceneConfigs() {
   }
 }
 
+async function notifyCompletedUnreadFeedbacks() {
+  if (!auth.isLoggedIn) return;
+  try {
+    const { count } = await getMyCompletedUnreadFeedbackCount();
+    setStoredUserCompletedUnreadFeedbackCount(count);
+    if (count > 1) {
+      notification.info({
+        key: COMPLETED_UNREAD_FEEDBACK_NOTIFICATION_KEY,
+        message: "您的反馈有新进展，点击前往查看！",
+        placement: "topRight",
+        duration: 5,
+        style: {
+          cursor: "pointer",
+          borderRadius: "18px",
+          background: "linear-gradient(180deg, rgba(255, 250, 240, 0.98), rgba(255, 245, 225, 0.98))",
+          border: "1px solid rgba(240, 210, 150, 0.95)",
+          boxShadow: "0 16px 28px rgba(228, 174, 74, 0.18)",
+        },
+        onClick: () => {
+          notification.close(COMPLETED_UNREAD_FEEDBACK_NOTIFICATION_KEY);
+          router.push("/feedbacks");
+        },
+      });
+      return;
+    }
+    notification.close(COMPLETED_UNREAD_FEEDBACK_NOTIFICATION_KEY);
+  } catch {
+    // ignore unread feedback reminder failures
+  }
+}
+
 onMounted(async () => {
   syncViewportWidth();
   window.addEventListener("resize", syncViewportWidth);
   await Promise.all([
     loadTaskSceneConfigs(),
     loadRecentGeneratedTasks(),
+    notifyCompletedUnreadFeedbacks(),
   ]);
   applyDraft(
     localStorage.getItem(HISTORY_DRAFT_KEY),
@@ -1388,6 +1425,7 @@ onMounted(async () => {
 
 onActivated(() => {
   void loadRecentGeneratedTasks();
+  void notifyCompletedUnreadFeedbacks();
 });
 
 onBeforeUnmount(() => {
@@ -1601,7 +1639,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   />
                 </div>
                 <div v-if="!hideCustomSize" class="setting-item setting-item-inline">
-                  <label>自定义分辨率</label>
+                  <label>分辨率</label>
                   <a-select
                     v-model:value="customSize"
                     :bordered="false"
@@ -1618,8 +1656,8 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   <a-slider
                     v-model:value="numImages"
                     :min="1"
-                    :max="4"
-                    :marks="{ 1: '1', 2: '2', 3: '3', 4: '4' }"
+                    :max="5"
+                    :marks="{ 1: '1', 2: '2', 3: '3', 4: '4', 5: '5' }"
                     class="num-slider"
                   />
                 </div>
@@ -1705,7 +1743,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
               <div class="field-block ref-upload-block config-section">
                 <div class="panel-head">
                   <h3>参考图</h3>
-                  <span class="panel-hint">(可选，最多 {{ maxReferenceImages }} 张)</span>
+                  <span class="panel-hint">(最多 {{ maxReferenceImages }} 张)</span>
                 </div>
 
                 <input
@@ -1798,7 +1836,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   />
                 </div>
                 <div v-if="!hideCustomSize" class="setting-item setting-item-inline">
-                  <label>自定义分辨率</label>
+                  <label>分辨率</label>
                   <a-select
                     v-model:value="customSize"
                     :bordered="false"
@@ -1815,8 +1853,8 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   <a-slider
                     v-model:value="numImages"
                     :min="1"
-                    :max="4"
-                    :marks="{ 1: '1', 2: '2', 3: '3', 4: '4' }"
+                    :max="5"
+                    :marks="{ 1: '1', 2: '2', 3: '3', 4: '4', 5: '5' }"
                     class="num-slider"
                   />
                 </div>
@@ -2108,8 +2146,8 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
             </div>
             <div class="result-tips">
               <div class="result-tip-line">
-                生图任务结果可在
-                <router-link to="/history" class="result-tip-link">历史记录</router-link>
+                所有任务可在
+                <router-link to="/history" class="result-tip-link">历史图片</router-link>
                 中查看
               </div>
             </div>
@@ -2238,7 +2276,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
 
             <div class="result-list-footnote">
               当前仅展示最近 10 次生图任务结果。若需查看更早记录、完整参数或全部结果，请前往
-              <router-link to="/history" class="result-tip-link">历史记录</router-link>
+              <router-link to="/history" class="result-tip-link">历史图片</router-link>
               查看。
             </div>
           </template>
@@ -2331,7 +2369,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   --config-title-size: 14px;
   --config-title-gap: 8px;
   --config-title-color: #5e4524;
-  --config-section-gap: 12px;
+  --config-section-gap: 17px;
   animation: generate-page-enter var(--motion-duration-reveal-soft) ease both;
 }
 
@@ -2727,24 +2765,32 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
 }
 
 .generate-config-panel .prompt-input {
-  border-radius: 14px !important;
-  border-color: var(--theme-control-border) !important;
-  background: var(--theme-control-bg) !important;
-  padding: 12px 15px;
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
   font-size: 14px;
   resize: none;
-  box-shadow: inset 0 1px 0 var(--theme-panel-inset);
+  box-shadow: none !important;
 
-  &:focus,
-  &:hover {
-    border-color: var(--theme-border-accent) !important;
-    box-shadow: 0 0 0 3px var(--theme-focus-ring);
+  &:focus {
+    box-shadow: none !important;
   }
 
   :deep(textarea) {
     min-height: 144px;
     line-height: 1.7;
     color: var(--theme-title);
+    border-radius: 14px !important;
+    border-color: var(--theme-control-border) !important;
+    background: var(--theme-control-bg) !important;
+    padding: 12px 15px !important;
+    box-shadow: inset 0 1px 0 var(--theme-panel-inset);
+  }
+
+  :deep(textarea:hover),
+  :deep(textarea:focus) {
+    border-color: var(--theme-border-accent) !important;
+    box-shadow: 0 0 0 3px var(--theme-focus-ring);
   }
 
   :deep(.ant-input-data-count) {
@@ -3161,11 +3207,12 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   :deep(.ant-slider-handle) {
     width: 22px;
     height: 22px;
-      margin-top: -7px;
+    margin-top: -6px;
     border: none;
     background: transparent;
     box-shadow: none;
     outline: none !important;
+    transform: translateX(-50%);
 
     &::after {
       width: 22px;
@@ -3190,7 +3237,8 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
     height: 10px;
     border: 2px solid var(--theme-control-border-strong);
     background: var(--theme-control-bg);
-    top: -2px;
+    top: -1px;
+    transform: translateX(-50%);
   }
 
   :deep(.ant-slider-dot-active) {
@@ -3201,6 +3249,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 600;
+    margin-top: 5px;
   }
 
   :deep(.ant-slider-mark-text-active) {
@@ -4550,14 +4599,13 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .history-bt
 }
 
 html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .generate-config-panel .prompt-input {
-  border-color: var(--theme-control-border) !important;
-  background: var(--theme-control-bg) !important;
-  box-shadow: none;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
 
   &:focus,
   &:hover {
-    border-color: var(--theme-border-accent) !important;
-    box-shadow: 0 0 0 3px var(--theme-focus-ring);
+    box-shadow: none !important;
   }
 
   :deep(.ant-input-data-count) {
@@ -4567,6 +4615,15 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .generate-c
   :deep(textarea) {
     color: var(--theme-title) !important;
     caret-color: var(--theme-title);
+    border-color: var(--theme-control-border) !important;
+    background: var(--theme-control-bg) !important;
+    box-shadow: none;
+  }
+
+  :deep(textarea:hover),
+  :deep(textarea:focus) {
+    border-color: var(--theme-border-accent) !important;
+    box-shadow: 0 0 0 3px var(--theme-focus-ring);
   }
 
   :deep(textarea::placeholder) {

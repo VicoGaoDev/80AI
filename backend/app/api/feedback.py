@@ -8,8 +8,16 @@ from app.schemas.feedback import (
     FeedbackCreateRequest,
     FeedbackDetail,
     FeedbackListResponse,
+    FeedbackReadCountResponse,
 )
-from app.services.feedback_service import create_feedback, get_feedback_detail, list_feedbacks
+from app.services.feedback_service import (
+    count_user_completed_unread_feedbacks,
+    create_feedback,
+    get_feedback_detail,
+    list_feedbacks,
+    mark_all_feedbacks_as_read,
+    mark_feedback_as_read,
+)
 
 router = APIRouter(prefix="/api/feedback", tags=["反馈"])
 
@@ -40,6 +48,31 @@ def list_my_feedback(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/completed-unread-count", response_model=FeedbackReadCountResponse)
+def get_my_completed_unread_feedback_count(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return {"count": count_user_completed_unread_feedbacks(db, user_id=user.id)}
+
+
+@router.patch("/{feedback_id}/read", response_model=FeedbackDetail)
+def mark_my_feedback_read(
+    feedback_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return mark_feedback_as_read(db, feedback_id, user_id=user.id)
+
+
+@router.post("/read-all", response_model=FeedbackReadCountResponse)
+def mark_my_feedbacks_read_all(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return {"count": mark_all_feedbacks_as_read(db, user_id=user.id)}
 
 
 @router.get("/{feedback_id}", response_model=FeedbackDetail)
