@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, h, inject, onActivated, onBeforeUnmount, onMounted, watch, type Ref } from "vue";
 import { message, Modal, notification } from "ant-design-vue";
+import dayjs from "dayjs";
 import { useRouter } from "vue-router";
 import {
   FontSizeOutlined,
@@ -61,7 +62,7 @@ function showInsufficientCreditsContact(detail?: string) {
 }
 
 type GenerateMode = "textGenerate" | "imageEdit" | "inpaint" | "promptReverse";
-const MAX_RECENT_GENERATED_TASKS = 10;
+const MAX_RECENT_GENERATED_TASKS = 20;
 const DEFAULT_SCENE_COSTS: Record<string, number> = {
   banana: 4,
   banana2: 4,
@@ -78,6 +79,26 @@ const DEFAULT_SCENE_COSTS: Record<string, number> = {
 const generateMode = ref<GenerateMode>("textGenerate");
 const failedResultAsset = withBaseUrl("failed-result.svg");
 const generateEmptyStateAsset = withBaseUrl("generate-empty-state.svg");
+const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 960 960">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff8ee"/>
+      <stop offset="100%" stop-color="#ffe6c8"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="960" rx="56" fill="url(#bg)"/>
+  <rect x="74" y="74" width="812" height="812" rx="42" fill="none" stroke="#efc784" stroke-dasharray="18 16" stroke-width="10"/>
+  <g fill="none" stroke="#d08a24" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="282" y="248" width="396" height="286" rx="28" stroke-width="18"/>
+    <path d="M326 490l110-108 92 88 72-66 76 86" stroke-width="18"/>
+    <circle cx="400" cy="330" r="34" fill="#ffd585" stroke-width="12"/>
+  </g>
+  <text x="480" y="654" text-anchor="middle" font-size="54" font-weight="700" fill="#8c5a16">原图已过期</text>
+  <text x="480" y="726" text-anchor="middle" font-size="34" fill="#a9742e">服务器仅保留 15 天原图</text>
+  <text x="480" y="776" text-anchor="middle" font-size="34" fill="#a9742e">请在有效期内查看或下载</text>
+</svg>
+`)}`;
 const prompt = ref("");
 const repaintPrompt = ref("");
 const selectedModel = ref("");
@@ -214,7 +235,7 @@ const resultEmptyTitle = computed(() => (
 const resultEmptyDesc = computed(() => (
   generateMode.value === "promptReverse"
     ? "上传图片后点击「开始反推」，即可得到适合 AI 绘画的中文提示词"
-    : "在左侧设置提示词和参数后发起任务，右侧会展示最近 10 次生图任务结果"
+    : "在左侧设置提示词和参数后发起任务，右侧会展示最近 20 个生图任务结果"
 ));
 const referenceUrls = computed(() => (
   referenceItems.value
@@ -389,6 +410,12 @@ function limitGeneratedTasks(tasks: GeneratedTaskItem[]) {
   return tasks.slice(0, MAX_RECENT_GENERATED_TASKS);
 }
 
+function isGeneratedTaskExpired(task: Pick<GeneratedTaskItem, "createdAt" | "status">) {
+  if (task.status !== "success") return false;
+  if (!task.createdAt) return false;
+  return dayjs().diff(dayjs(task.createdAt), "day", true) >= 15;
+}
+
 const resultItems = computed(() => (
   generatedTasks.value.flatMap((task) => task.images.map((img, index) => ({
     taskLocalId: task.localId,
@@ -542,10 +569,25 @@ async function loadRecentGeneratedTasks() {
   }
 
   try {
-    const res = await fetchHistory(1, MAX_RECENT_GENERATED_TASKS, { respect_pins: false });
     const seenTaskIds = new Set<string>();
-    const recentTasks = res.items
-      .filter((item) => item.mode !== "promptReverse" && !!item.task_id && !seenTaskIds.has(item.task_id) && seenTaskIds.add(item.task_id))
+    const recentHistoryItems: UserHistoryCard[] = [];
+    let page = 1;
+    let total = Infinity;
+
+    while (recentHistoryItems.length < total && seenTaskIds.size < MAX_RECENT_GENERATED_TASKS) {
+      const res = await fetchHistory(page, MAX_RECENT_GENERATED_TASKS, { respect_pins: false });
+      total = res.total;
+      if (!res.items.length) break;
+
+      res.items.forEach((item) => {
+        if (item.mode === "promptReverse" || !item.task_id || seenTaskIds.has(item.task_id)) return;
+        seenTaskIds.add(item.task_id);
+        recentHistoryItems.push(item);
+      });
+      page += 1;
+    }
+
+    const recentTasks = recentHistoryItems
       .slice(0, MAX_RECENT_GENERATED_TASKS)
       .map(convertHistoryCardToGeneratedTask);
 
@@ -1201,6 +1243,22 @@ function getResultDisplayUrl(img: ImageResult) {
 
 function getResultPreviewUrl(img: ImageResult) {
   return getPreviewImageUrl(img);
+}
+
+function getGeneratedResultDisplayUrl(task: GeneratedTaskItem, img: ImageResult) {
+  if (img.status !== "success") return getResultDisplayUrl(img);
+  if (isGeneratedTaskExpired(task)) return expiredResultAsset;
+  return getResultDisplayUrl(img);
+}
+
+function getGeneratedResultPreviewUrl(task: GeneratedTaskItem, img: ImageResult) {
+  if (img.status !== "success") return getResultPreviewUrl(img);
+  if (isGeneratedTaskExpired(task)) return "";
+  return getResultPreviewUrl(img);
+}
+
+function canEditGeneratedImage(task: GeneratedTaskItem, img: ImageResult) {
+  return img.status === "success" && !isGeneratedTaskExpired(task) && !!(img.image_url || img.preview_url);
 }
 
 function handleDownload(imageId: number, imageUrl: string, previewUrl?: string) {
@@ -2209,19 +2267,19 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                     :class="{
                       pending: item.image.status === 'pending',
                       failed: item.image.status === 'failed',
-                      clickable: !!getResultDisplayUrl(item.image),
+                      clickable: !!getGeneratedResultPreviewUrl(item.task, item.image),
                     }"
-                    @click="getResultPreviewUrl(item.image) && handlePreview(getResultPreviewUrl(item.image))"
+                    @click="getGeneratedResultPreviewUrl(item.task, item.image) && handlePreview(getGeneratedResultPreviewUrl(item.task, item.image))"
                   >
-                    <template v-if="item.image.status === 'success' && getResultDisplayUrl(item.image)">
-                      <img :src="getResultDisplayUrl(item.image)" alt="生成结果" loading="lazy" />
+                    <template v-if="item.image.status === 'success' && getGeneratedResultDisplayUrl(item.task, item.image)">
+                      <img :src="getGeneratedResultDisplayUrl(item.task, item.image)" alt="生成结果" loading="lazy" />
                       <div class="result-actions">
-                        <a-tooltip title="查看原图">
-                          <a-button shape="circle" class="icon-chip" @click.stop="handlePreview(getResultPreviewUrl(item.image))">
+                        <a-tooltip v-if="getGeneratedResultPreviewUrl(item.task, item.image)" title="查看原图">
+                          <a-button shape="circle" class="icon-chip" @click.stop="handlePreview(getGeneratedResultPreviewUrl(item.task, item.image))">
                             <template #icon><EyeOutlined /></template>
                           </a-button>
                         </a-tooltip>
-                        <a-tooltip title="结果图编辑">
+                        <a-tooltip v-if="canEditGeneratedImage(item.task, item.image)" title="结果图编辑">
                           <a-button shape="circle" class="icon-chip" @click.stop="handleEditImageTask(item.task, item.image)">
                             <template #icon><EditOutlined /></template>
                           </a-button>
@@ -2237,7 +2295,12 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                           </a-button>
                         </a-tooltip>
                         <a-tooltip title="下载原图">
-                          <a-button shape="circle" class="icon-chip" @click.stop="handleDownload(item.image.id, item.image.image_url, item.image.preview_url)">
+                          <a-button
+                            shape="circle"
+                            class="icon-chip"
+                            :disabled="isGeneratedTaskExpired(item.task)"
+                            @click.stop="handleDownload(item.image.id, item.image.image_url, item.image.preview_url)"
+                          >
                             <template #icon><DownloadOutlined /></template>
                           </a-button>
                         </a-tooltip>
@@ -2275,7 +2338,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
             </div>
 
             <div class="result-list-footnote">
-              当前仅展示最近 10 次生图任务结果。若需查看更早记录、完整参数或全部结果，请前往
+              当前仅展示最近 20 个生图任务。若需查看更早记录、完整参数或全部结果，请前往
               <router-link to="/history" class="result-tip-link">历史图片</router-link>
               查看。
             </div>

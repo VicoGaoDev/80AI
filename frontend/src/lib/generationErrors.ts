@@ -1,6 +1,6 @@
 import type { ImageResult } from "@/types";
 
-export const IMAGE_SAFETY_ERROR_MESSAGE = "生成的图像存在安全风险，请尝试修改提示词或参考图。";
+export const IMAGE_SAFETY_ERROR_MESSAGE = "生成的图片存在安全风险，请尝试修改提示词或参考图！";
 
 const IMAGE_SAFETY_ERROR_PATTERN = /image_unsafe|content blocked/i;
 

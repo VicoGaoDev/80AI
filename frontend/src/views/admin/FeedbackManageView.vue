@@ -78,7 +78,7 @@ async function load() {
     items.value = res.items;
     total.value = res.total;
   } catch (err: any) {
-    message.error(err.response?.data?.detail || "获取用户 Feedback 失败");
+    message.error(err.response?.data?.detail || "获取 用户反馈 失败");
   } finally {
     loading.value = false;
   }
@@ -119,7 +119,7 @@ onMounted(load);
           <MessageOutlined />
         </div>
         <div>
-          <div class="warm-page-title">用户 Feedback</div>
+          <div class="warm-page-title">用户反馈</div>
           <div class="warm-page-desc">查看所有用户反馈并按用户、任务和状态筛选。</div>
         </div>
       </div>
