@@ -14,6 +14,7 @@ from app.services.business_id_service import (
     task_external_id,
     user_external_id,
 )
+from app.services.task_type_service import get_task_scene_type_map, resolve_task_type_for_task
 from app.utils.datetime_utils import now_local
 
 VALID_FEEDBACK_STATUSES = {"pending", "processing", "completed"}
@@ -71,6 +72,7 @@ def _serialize_feedback(item: Feedback, *, db: Session, include_task_images: boo
     task = item.task
     task_user = task.user if task else None
     handler = item.handler
+    scene_type_map = get_task_scene_type_map(db)
     return {
         "feedback_id": feedback_external_id(item),
         "user_id": user_external_id(item.user),
@@ -91,6 +93,7 @@ def _serialize_feedback(item: Feedback, *, db: Session, include_task_images: boo
             "task_id": task_external_id(task),
             "model": task.model if task else "",
             "mode": task.mode if task else "generate",
+            "task_type": resolve_task_type_for_task(task, scene_type_map=scene_type_map) if task else "text_generate",
             "source": task.source if task else "web",
             "prompt": task.prompt if task else "",
             "status": task.status if task else "",

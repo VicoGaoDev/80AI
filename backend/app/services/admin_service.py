@@ -14,6 +14,14 @@ from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_MODE,
     PROMPT_REVERSE_MODEL,
 )
+from app.services.task_type_service import (
+    TASK_TYPE_IMAGE_EDIT,
+    TASK_TYPE_INPAINT,
+    TASK_TYPE_PROMPT_REVERSE,
+    TASK_TYPE_TEXT_GENERATE,
+    get_task_scene_type_map,
+    resolve_task_type_for_task,
+)
 from app.services.user_credit_service import (
     change_user_credit_balance,
     create_default_credit_account,
@@ -40,6 +48,7 @@ class AnalyticsRecord:
     source: str
     model: str
     mode: str
+    task_type: str
     credit_cost: int
     created_at: datetime
 
@@ -271,8 +280,9 @@ def get_credit_logs(
         task.id: task
         for task in db.query(Task).filter(Task.id.in_(task_ids)).all()
     } if task_ids else {}
+    scene_type_map = get_task_scene_type_map(db)
     task_modes = {
-        task_id: (task.mode or "generate")
+        task_id: resolve_task_type_for_task(task, scene_type_map=scene_type_map)
         for task_id, task in task_cache.items()
     }
 
@@ -555,6 +565,7 @@ def _task_query(
         User.role != "superadmin",
         _non_whitelisted_user_filter(),
     )
+    scene_type_map = get_task_scene_type_map(db)
     if status_filter:
         query = query.filter(Task.status == status_filter)
     if user_id:
@@ -564,7 +575,20 @@ def _task_query(
     if model:
         query = query.filter(Task.model == model)
     if mode:
-        query = query.filter(Task.mode == mode)
+        if mode == TASK_TYPE_INPAINT:
+            query = query.filter((Task.mode == "inpaint") | (Task.model == "inpaint"))
+        elif mode == TASK_TYPE_TEXT_GENERATE:
+            text_generate_models = [key for key, value in scene_type_map.items() if value == "generate"]
+            query = query.filter(Task.mode == "generate")
+            query = query.filter(Task.model.in_(text_generate_models)) if text_generate_models else query.filter(Task.id.is_(None))
+        elif mode == TASK_TYPE_IMAGE_EDIT:
+            image_edit_models = [key for key, value in scene_type_map.items() if value == "image_edit"]
+            query = query.filter(Task.mode == "generate")
+            query = query.filter(Task.model.in_(image_edit_models)) if image_edit_models else query.filter(Task.id.is_(None))
+        elif mode == TASK_TYPE_PROMPT_REVERSE:
+            query = query.filter(Task.id.is_(None))
+        else:
+            query = query.filter(Task.mode == mode)
     return query
 
 
@@ -581,7 +605,7 @@ def _prompt_reverse_query(
 ):
     if status_filter and status_filter != "success":
         return None
-    if mode and mode != PROMPT_REVERSE_MODE:
+    if mode and mode != TASK_TYPE_PROMPT_REVERSE:
         return None
     if model and model != PROMPT_REVERSE_MODEL:
         return None
@@ -629,6 +653,7 @@ def _build_analytics_records(
     model: str | None = None,
     mode: str | None = None,
 ) -> list[AnalyticsRecord]:
+    scene_type_map = get_task_scene_type_map(db)
     task_records = [
         AnalyticsRecord(
             user_id=task.user_id,
@@ -636,6 +661,7 @@ def _build_analytics_records(
             source=task.source or "web",
             model=task.model or "未设置",
             mode=task.mode or "generate",
+            task_type=resolve_task_type_for_task(task, scene_type_map=scene_type_map),
             credit_cost=int(task.credit_cost or 0),
             created_at=task.created_at,
         )
@@ -670,6 +696,7 @@ def _build_analytics_records(
                 source="web",
                 model=PROMPT_REVERSE_MODEL,
                 mode=PROMPT_REVERSE_MODE,
+                task_type=TASK_TYPE_PROMPT_REVERSE,
                 credit_cost=max(0, int(-(log.amount or 0))),
                 created_at=log.created_at,
             )
@@ -902,7 +929,7 @@ def get_analytics_breakdown(
     for record in records:
         task_cost = record.credit_cost
         status_key = record.status or "unknown"
-        mode_key = record.mode or "generate"
+        mode_key = record.task_type or TASK_TYPE_TEXT_GENERATE
         model_key = record.model or "未设置"
 
         status_breakdown[status_key]["count"] += 1

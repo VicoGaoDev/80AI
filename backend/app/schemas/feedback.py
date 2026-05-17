@@ -8,6 +8,7 @@ class FeedbackTaskSummary(BaseModel):
     task_id: str
     model: str = ""
     mode: str = "generate"
+    task_type: str = "text_generate"
     source: str = "web"
     prompt: str = ""
     status: str = ""

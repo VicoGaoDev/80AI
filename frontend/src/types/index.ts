@@ -34,6 +34,7 @@ export interface ImageResult {
 }
 
 export type TaskMode = "generate" | "inpaint" | "promptReverse";
+export type TaskType = "text_generate" | "image_edit" | "inpaint" | "promptReverse";
 export type TaskSource = "web" | "app";
 
 export interface TaskResult {
@@ -62,6 +63,7 @@ export interface HistoryItem {
   display_id?: string;
   username?: string;
   avatar_url?: string;
+  task_type: TaskType;
   model: string;
   source: TaskSource;
   mode: TaskMode;
@@ -82,7 +84,7 @@ export interface HistoryItem {
 }
 
 export interface HistoryFilter {
-  mode?: TaskMode;
+  mode?: TaskType;
   source?: TaskSource;
   model?: string;
   prompt?: string;
@@ -115,6 +117,7 @@ export interface UserHistoryCard {
   image_size_bytes?: number;
   task_is_deleted?: boolean;
   is_soft_deleted?: boolean;
+  task_type: TaskType;
   model: string;
   source: TaskSource;
   mode: TaskMode;
@@ -157,6 +160,7 @@ export interface FeedbackTaskSummary {
   task_id: string;
   model: string;
   mode: TaskMode;
+  task_type: TaskType;
   source: TaskSource;
   prompt: string;
   status: string;
@@ -234,7 +238,7 @@ export interface CreditLog {
   username: string;
   amount: number;
   type: "allocate" | "consume";
-  mode: TaskMode | "manual" | "redeem";
+  mode: TaskType | "manual" | "redeem";
   description: string;
   operator_name: string;
   task_id?: string;
@@ -318,7 +322,7 @@ export interface AdminAnalyticsQuery {
   user_id?: string;
   source?: TaskSource;
   model?: string;
-  mode?: TaskMode;
+  mode?: TaskType;
   status?: string;
 }
 

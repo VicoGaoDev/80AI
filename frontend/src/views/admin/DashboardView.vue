@@ -34,8 +34,8 @@ import type {
   HistoryFilter,
   HistoryItem,
   TaskSceneConfig,
-  TaskMode,
   TaskSource,
+  TaskType,
   UserHistoryCard,
 } from "@/types";
 
@@ -70,7 +70,7 @@ const filters = reactive<{
   user_id: string | undefined;
   source: TaskSource | undefined;
   model: string | undefined;
-  mode: TaskMode | undefined;
+  mode: TaskType | undefined;
   dateRange: [Dayjs, Dayjs] | null;
 }>({
   status: undefined,
@@ -398,7 +398,7 @@ function handleBucketClick(payload: { start?: string | null; end?: string | null
 function handleBreakdownFilter(payload: { type: "status" | "source" | "mode" | "model" | "user"; value: string }) {
   if (payload.type === "status") filters.status = payload.value;
   if (payload.type === "source") filters.source = payload.value as TaskSource;
-  if (payload.type === "mode") filters.mode = payload.value as TaskMode;
+  if (payload.type === "mode") filters.mode = payload.value as TaskType;
   if (payload.type === "model") filters.model = payload.value;
   if (payload.type === "user") {
     const matchedUser = users.value.find((item) => item.username === payload.value);
@@ -411,9 +411,11 @@ function fmtTime(value: string) {
 }
 
 function modeLabel(value: string) {
+  if (value === "text_generate") return "文生图";
+  if (value === "image_edit") return "图编辑";
   if (value === "inpaint") return "局部重绘";
   if (value === "promptReverse") return "提示词反推";
-  return "生图";
+  return value;
 }
 
 function sourceLabel(value: string) {
@@ -594,7 +596,7 @@ watch(filterSignature, async () => {
               </div>
             </template>
             <template v-else-if="column.dataIndex === 'mode'">
-              {{ modeLabel(record.mode) }}
+              {{ modeLabel(record.task_type) }}
             </template>
             <template v-else-if="column.dataIndex === 'source'">
               {{ sourceLabel(record.source) }}

@@ -9,7 +9,7 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { getCreditLogs as getUserCreditLogs } from "@/api/auth";
 import { getCreditLogs as getAdminCreditLogs, listUsers } from "@/api/admin";
-import type { CreditLog, AdminUser, TaskMode } from "@/types";
+import type { CreditLog, AdminUser, TaskType } from "@/types";
 import dayjs from "dayjs";
 
 const auth = useAuthStore();
@@ -24,7 +24,7 @@ const loading = ref(false);
 const filterUserId = ref<string | undefined>(undefined);
 const filterDateRange = ref<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 const filterDirection = ref<"increase" | "decrease" | undefined>(undefined);
-const filterMode = ref<TaskMode | "manual" | "redeem" | undefined>(undefined);
+const filterMode = ref<TaskType | "manual" | "redeem" | undefined>(undefined);
 
 const userList = ref<AdminUser[]>([]);
 
@@ -130,7 +130,8 @@ function directionLabel(record: CreditLog) {
 }
 
 function modeLabel(mode: CreditLog["mode"]) {
-  if (mode === "generate") return "生图";
+  if (mode === "text_generate") return "文生图";
+  if (mode === "image_edit") return "图编辑";
   if (mode === "inpaint") return "局部重绘";
   if (mode === "promptReverse") return "提示词反推";
   if (mode === "redeem") return "兑换积分";
@@ -195,7 +196,8 @@ onMounted(() => {
         placeholder="全部任务类型"
         style="width: 160px"
       >
-        <a-select-option value="generate">生图</a-select-option>
+        <a-select-option value="text_generate">文生图</a-select-option>
+        <a-select-option value="image_edit">图编辑</a-select-option>
         <a-select-option value="inpaint">局部重绘</a-select-option>
         <a-select-option value="promptReverse">提示词反推</a-select-option>
         <a-select-option value="redeem">兑换积分</a-select-option>

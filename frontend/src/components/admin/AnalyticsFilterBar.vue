@@ -2,14 +2,14 @@
 import { computed } from "vue";
 import type { PropType } from "vue";
 import type { Dayjs } from "dayjs";
-import type { AdminAnalyticsGranularity, AdminUser, TaskMode, TaskSource } from "@/types";
+import type { AdminAnalyticsGranularity, AdminUser, TaskSource, TaskType } from "@/types";
 
 type FilterState = {
   status?: string;
   user_id?: string;
   source?: TaskSource;
   model?: string;
-  mode?: TaskMode;
+  mode?: TaskType;
   dateRange: [Dayjs, Dayjs] | null;
 };
 
@@ -147,7 +147,8 @@ const presetOptions = computed(() => {
         allow-clear
         class="analytics-filter-select"
       >
-        <a-select-option value="generate">生图</a-select-option>
+        <a-select-option value="text_generate">文生图</a-select-option>
+        <a-select-option value="image_edit">图编辑</a-select-option>
         <a-select-option value="inpaint">局部重绘</a-select-option>
         <a-select-option value="promptReverse">提示词反推</a-select-option>
       </a-select>

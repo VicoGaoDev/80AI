@@ -73,10 +73,12 @@ function sourceLabel(source: UserHistoryCard["source"]) {
   return source === "app" ? "App" : "Web";
 }
 
-function modeLabel(mode: UserHistoryCard["mode"]) {
-  if (mode === "inpaint") return "局部重绘";
-  if (mode === "promptReverse") return "提示词反推";
-  return "生图";
+function modeLabel(taskType: UserHistoryCard["task_type"]) {
+  if (taskType === "text_generate") return "文生图";
+  if (taskType === "image_edit") return "图编辑";
+  if (taskType === "inpaint") return "局部重绘";
+  if (taskType === "promptReverse") return "提示词反推";
+  return taskType;
 }
 
 function getModelLabel(model?: string) {
@@ -97,7 +99,7 @@ function detailMetaList(item: UserHistoryCard) {
     item.task_is_deleted ? "任务状态：已软删除" : "",
     item.is_soft_deleted ? `图片软删除：${item.images.filter((img) => img.is_deleted).length} 张` : "",
     `来源：${sourceLabel(item.source)}`,
-    `类型：${modeLabel(item.mode)}`,
+    `类型：${modeLabel(item.task_type)}`,
     `模型：${getModelLabel(item.model)}`,
     `比例：${item.size || "-"}`,
     item.resolution ? `分辨率：${item.resolution}` : "",

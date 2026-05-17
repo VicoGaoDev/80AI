@@ -23,6 +23,7 @@ class HistoryItem(BaseModel):
     display_id: str = ""
     username: str = ""
     avatar_url: str = ""
+    task_type: str = "text_generate"
     model: str = ""
     source: str = "web"
     mode: str = "generate"
@@ -64,6 +65,7 @@ class UserHistoryCardItem(BaseModel):
     image_size_bytes: int = 0
     task_is_deleted: bool = False
     is_soft_deleted: bool = False
+    task_type: str = "text_generate"
     model: str = ""
     source: str = "web"
     mode: str = "generate"

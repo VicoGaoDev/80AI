@@ -42,9 +42,11 @@ function statusLabel(value: string) {
 }
 
 function modeLabel(value: string) {
+  if (value === "text_generate") return "文生图";
+  if (value === "image_edit") return "图编辑";
   if (value === "inpaint") return "局部重绘";
   if (value === "promptReverse") return "提示词反推";
-  return "生图";
+  return value;
 }
 
 function sourceLabel(value: string) {

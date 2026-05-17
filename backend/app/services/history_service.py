@@ -15,6 +15,14 @@ from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_MODE,
     PROMPT_REVERSE_MODEL,
 )
+from app.services.task_type_service import (
+    TASK_TYPE_IMAGE_EDIT,
+    TASK_TYPE_INPAINT,
+    TASK_TYPE_PROMPT_REVERSE,
+    TASK_TYPE_TEXT_GENERATE,
+    get_task_scene_type_map,
+    resolve_task_type_for_task,
+)
 from app.services.image_delivery_service import (
     get_optional_cos_config,
     serialize_asset_urls,
@@ -69,7 +77,7 @@ def _serialize_history_images(
     return result
 
 
-def _serialize_task_history_detail(task: Task, *, cos_config) -> dict:
+def _serialize_task_history_detail(task: Task, *, cos_config, scene_type_map: dict[str, str] | None = None) -> dict:
     primary_image = next(
         (img for img in sorted(task.images, key=lambda item: item.id, reverse=True) if not img.is_deleted),
         None,
@@ -103,6 +111,7 @@ def _serialize_task_history_detail(task: Task, *, cos_config) -> dict:
         "image_size_bytes": primary_image_payload["image_size_bytes"],
         "task_is_deleted": bool(task.is_deleted),
         "is_soft_deleted": False,
+        "task_type": resolve_task_type_for_task(task, scene_type_map=scene_type_map),
         "model": task.model or "",
         "source": task.source or "web",
         "mode": task.mode or "generate",
@@ -142,6 +151,7 @@ def _serialize_prompt_history_detail(row: PromptHistory, *, cos_config) -> dict:
         "image_size_bytes": 0,
         "task_is_deleted": False,
         "is_soft_deleted": False,
+        "task_type": TASK_TYPE_PROMPT_REVERSE,
         "model": PROMPT_REVERSE_MODEL,
         "source": "web",
         "mode": PROMPT_REVERSE_MODE,
@@ -178,6 +188,7 @@ def get_user_history(
     end_date: datetime | None = None,
 ):
     cos_config = get_optional_cos_config(db)
+    scene_type_map = get_task_scene_type_map(db)
     history_pins = (
         db.query(HistoryPin)
         .filter(HistoryPin.user_id == user_id)
@@ -203,9 +214,25 @@ def get_user_history(
         )
     )
     if mode:
-        image_query = image_query.filter(Task.mode == mode)
-        if mode != PROMPT_REVERSE_MODE:
+        if mode == TASK_TYPE_PROMPT_REVERSE:
+            image_query = image_query.filter(Task.id.is_(None))
+        elif mode == TASK_TYPE_INPAINT:
+            image_query = image_query.filter(or_(Task.mode == "inpaint", Task.model == "inpaint"))
             prompt_reverse_query = prompt_reverse_query.filter(PromptHistory.id.is_(None))
+        elif mode == TASK_TYPE_TEXT_GENERATE:
+            text_generate_models = [key for key, value in scene_type_map.items() if value == "generate"]
+            image_query = image_query.filter(Task.mode == "generate")
+            image_query = image_query.filter(Task.model.in_(text_generate_models)) if text_generate_models else image_query.filter(Task.id.is_(None))
+            prompt_reverse_query = prompt_reverse_query.filter(PromptHistory.id.is_(None))
+        elif mode == TASK_TYPE_IMAGE_EDIT:
+            image_edit_models = [key for key, value in scene_type_map.items() if value == "image_edit"]
+            image_query = image_query.filter(Task.mode == "generate")
+            image_query = image_query.filter(Task.model.in_(image_edit_models)) if image_edit_models else image_query.filter(Task.id.is_(None))
+            prompt_reverse_query = prompt_reverse_query.filter(PromptHistory.id.is_(None))
+        else:
+            image_query = image_query.filter(Task.mode == mode)
+            if mode != PROMPT_REVERSE_MODE:
+                prompt_reverse_query = prompt_reverse_query.filter(PromptHistory.id.is_(None))
     if source:
         image_query = image_query.filter(Task.source == source)
         if source != "web":
@@ -265,6 +292,7 @@ def get_user_history(
             "image_size_bytes": image_payload["image_size_bytes"],
             "task_is_deleted": False,
             "is_soft_deleted": False,
+            "task_type": resolve_task_type_for_task(task, scene_type_map=scene_type_map),
             "model": task.model or "",
             "source": task.source or "web",
             "mode": task.mode or "generate",
@@ -304,6 +332,7 @@ def get_user_history(
             "image_size_bytes": 0,
             "task_is_deleted": False,
             "is_soft_deleted": False,
+            "task_type": TASK_TYPE_PROMPT_REVERSE,
             "model": PROMPT_REVERSE_MODEL,
             "source": "web",
             "mode": PROMPT_REVERSE_MODE,
@@ -439,6 +468,7 @@ def get_all_history(
     end_date: Optional[datetime] = None,
 ):
     cos_config = get_optional_cos_config(db)
+    scene_type_map = get_task_scene_type_map(db)
     task_query = (
         db.query(Task)
         .join(User, User.id == Task.user_id)
@@ -471,9 +501,25 @@ def get_all_history(
         if model != PROMPT_REVERSE_MODEL:
             reverse_query = reverse_query.filter(CreditLog.id.is_(None))
     if mode:
-        task_query = task_query.filter(Task.mode == mode)
-        if mode != PROMPT_REVERSE_MODE:
+        if mode == TASK_TYPE_PROMPT_REVERSE:
+            task_query = task_query.filter(Task.id.is_(None))
+        elif mode == TASK_TYPE_INPAINT:
+            task_query = task_query.filter(or_(Task.mode == "inpaint", Task.model == "inpaint"))
             reverse_query = reverse_query.filter(CreditLog.id.is_(None))
+        elif mode == TASK_TYPE_TEXT_GENERATE:
+            text_generate_models = [key for key, value in scene_type_map.items() if value == "generate"]
+            task_query = task_query.filter(Task.mode == "generate")
+            task_query = task_query.filter(Task.model.in_(text_generate_models)) if text_generate_models else task_query.filter(Task.id.is_(None))
+            reverse_query = reverse_query.filter(CreditLog.id.is_(None))
+        elif mode == TASK_TYPE_IMAGE_EDIT:
+            image_edit_models = [key for key, value in scene_type_map.items() if value == "image_edit"]
+            task_query = task_query.filter(Task.mode == "generate")
+            task_query = task_query.filter(Task.model.in_(image_edit_models)) if image_edit_models else task_query.filter(Task.id.is_(None))
+            reverse_query = reverse_query.filter(CreditLog.id.is_(None))
+        else:
+            task_query = task_query.filter(Task.mode == mode)
+            if mode != PROMPT_REVERSE_MODE:
+                reverse_query = reverse_query.filter(CreditLog.id.is_(None))
     if start_date:
         task_query = task_query.filter(Task.created_at >= start_date)
         reverse_query = reverse_query.filter(CreditLog.created_at >= start_date)
@@ -508,6 +554,7 @@ def get_all_history(
             "display_id": task_external_id(task),
             "username": user_cache[task.user_id]["username"],
             "avatar_url": user_cache[task.user_id]["avatar_url"],
+            "task_type": resolve_task_type_for_task(task, scene_type_map=scene_type_map),
             "model": task.model or "",
             "source": task.source or "web",
             "mode": task.mode or "generate",
@@ -546,6 +593,7 @@ def get_all_history(
             "display_id": f"PR-{log.id}",
             "username": user_cache[log.user_id]["username"],
             "avatar_url": user_cache[log.user_id]["avatar_url"],
+            "task_type": TASK_TYPE_PROMPT_REVERSE,
             "model": PROMPT_REVERSE_MODEL,
             "source": "web",
             "mode": PROMPT_REVERSE_MODE,
@@ -580,6 +628,7 @@ def get_admin_history_detail(
     history_id: int | None = None,
 ):
     cos_config = get_optional_cos_config(db)
+    scene_type_map = get_task_scene_type_map(db)
     if item_type == "task":
         normalized_task_id = normalize_business_id(task_id)
         if not normalized_task_id:
@@ -597,7 +646,7 @@ def get_admin_history_detail(
         )
         if not task:
             raise LookupError("task_not_found")
-        return _serialize_task_history_detail(task, cos_config=cos_config)
+        return _serialize_task_history_detail(task, cos_config=cos_config, scene_type_map=scene_type_map)
 
     if item_type == "prompt_history":
         if not isinstance(history_id, int):

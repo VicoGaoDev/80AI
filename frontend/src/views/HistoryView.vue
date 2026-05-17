@@ -22,7 +22,7 @@ import { deletePromptHistory } from "@/api/auth";
 import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import { withBaseUrl } from "@/lib/assets";
-import type { GenerationModelOption, TaskSceneConfig, TaskSource, UserHistoryCard } from "@/types";
+import type { GenerationModelOption, TaskSceneConfig, TaskSource, TaskType, UserHistoryCard } from "@/types";
 
 const router = useRouter();
 const items = ref<UserHistoryCard[]>([]);
@@ -31,7 +31,7 @@ const page = ref(1);
 const pageSize = ref(20);
 const loading = ref(false);
 const loadingMore = ref(false);
-const typeFilter = ref<"generate" | "inpaint" | "promptReverse" | undefined>(undefined);
+const typeFilter = ref<TaskType | undefined>(undefined);
 const sourceFilter = ref<TaskSource | undefined>(undefined);
 const modelFilter = ref<string | undefined>(undefined);
 const statusFilter = ref<"pending" | "processing" | "success" | "failed" | undefined>(undefined);
@@ -249,10 +249,12 @@ watch(loadMoreAnchor, (target) => {
   setupLoadMoreObserver(target);
 });
 
-function modeLabel(mode: UserHistoryCard["mode"]) {
-  if (mode === "inpaint") return "局部重绘";
-  if (mode === "promptReverse") return "提示词反推";
-  return "生图";
+function modeLabel(taskType: UserHistoryCard["task_type"]) {
+  if (taskType === "text_generate") return "文生图";
+  if (taskType === "image_edit") return "图编辑";
+  if (taskType === "inpaint") return "局部重绘";
+  if (taskType === "promptReverse") return "提示词反推";
+  return taskType;
 }
 
 function statusLabel(status: UserHistoryCard["status"]) {
@@ -692,7 +694,8 @@ function handleEditImage(item: UserHistoryCard) {
 
     <div class="history-filter-bar">
       <a-select v-model:value="typeFilter" placeholder="全部类型" style="width: 160px" allow-clear>
-        <a-select-option value="generate">生图</a-select-option>
+        <a-select-option value="text_generate">文生图</a-select-option>
+        <a-select-option value="image_edit">图编辑</a-select-option>
         <a-select-option value="inpaint">局部重绘</a-select-option>
         <a-select-option value="promptReverse">提示词反推</a-select-option>
       </a-select>
