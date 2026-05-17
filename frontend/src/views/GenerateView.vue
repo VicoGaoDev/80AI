@@ -269,6 +269,11 @@ const hasBlockedUploads = computed(() => {
   }
   return false;
 });
+const canClickGenerate = computed(() => {
+  if (hasBlockedUploads.value) return false;
+  if (isImageEditMode.value) return true;
+  return !!activePrompt.value.trim();
+});
 const selectedModelOption = computed(
   () => generationModels.value.find((item) => item.model_key === selectedModel.value) || null
 );
@@ -1004,16 +1009,20 @@ function applyReversePrompt() {
 
 async function handleGenerate() {
   if (!(await ensureAuthenticated())) return;
-  if (!activePrompt.value.trim()) {
-    message.warning("请输入提示词");
-    return;
-  }
   if (isImageEditMode.value && hasPendingReferenceUploads.value) {
     message.warning("参考图仍在上传中，请稍候再发起任务");
     return;
   }
   if (isImageEditMode.value && hasFailedReferenceUploads.value) {
     message.warning("存在上传失败的参考图，请删除或重新上传后再试");
+    return;
+  }
+  if (isImageEditMode.value && !referenceUrls.value.length) {
+    message.warning("请先上传参考图片，再开始图编辑；如无需上传图片，请切换到文生图");
+    return;
+  }
+  if (!activePrompt.value.trim()) {
+    message.warning("请输入提示词");
     return;
   }
   if (!isSuperAdmin.value && userCredits.value < creditCost.value) {
@@ -1741,7 +1750,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   type="primary"
                   block
                   size="large"
-                  :disabled="sceneConfigLoading || !activePrompt.trim() || hasBlockedUploads"
+                  :disabled="sceneConfigLoading || !canClickGenerate"
                   class="generate-btn"
                   @click="handleGenerate"
                 >
@@ -1937,7 +1946,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   type="primary"
                   block
                   size="large"
-                  :disabled="sceneConfigLoading || !activePrompt.trim() || hasBlockedUploads"
+                  :disabled="sceneConfigLoading || !canClickGenerate"
                   class="generate-btn"
                   @click="handleGenerate"
                 >
@@ -2183,7 +2192,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
                   block
                   size="large"
                   :loading="sourceUploading"
-                  :disabled="!activePrompt.trim() || hasBlockedUploads"
+                  :disabled="!canClickGenerate"
                   class="generate-btn"
                   @click="handleGenerate"
                 >
