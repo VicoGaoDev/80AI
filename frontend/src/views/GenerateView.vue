@@ -82,7 +82,7 @@ const DEFAULT_SCENE_COSTS: Record<string, number> = {
 
 const generateMode = ref<GenerateMode>("textGenerate");
 const failedResultAsset = withBaseUrl("failed-result.svg");
-const generateEmptyStateAsset = withBaseUrl("generate-empty-state.svg");
+const generateEmptyStateAsset = withBaseUrl("generate-task-card.svg");
 const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 960 960">
   <defs>
@@ -3903,8 +3903,16 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   &.pending {
     background:
       linear-gradient(180deg, rgba(255, 252, 246, 0.24), rgba(255, 248, 238, 0.34)),
-      var(--result-pending-bg-image) center / cover no-repeat,
       linear-gradient(180deg, var(--theme-panel-bg-soft), var(--theme-panel-bg));
+  }
+
+  &.pending::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--result-pending-bg-image) center / cover no-repeat;
+    opacity: 0.5;
+    pointer-events: none;
   }
 
   &.failed {

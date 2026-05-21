@@ -41,7 +41,7 @@ const generationModels = ref<GenerationModelOption[]>([]);
 const taskScenes = ref<TaskSceneConfig[]>([]);
 const detailOpen = ref(false);
 const failedResultAsset = withBaseUrl("failed-result.svg");
-const generateEmptyStateAsset = withBaseUrl("generate-empty-state.svg");
+const generateEmptyStateAsset = withBaseUrl("generate-task-card.svg");
 const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 960 960">
   <defs>
@@ -1348,12 +1348,22 @@ function handleEditImage(item: UserHistoryCard) {
   &.result-card-media-pending {
     background:
       linear-gradient(180deg, rgba(255, 252, 246, 0.24), rgba(255, 248, 238, 0.34)),
-      var(--history-pending-bg-image) center / cover no-repeat,
       linear-gradient(180deg, var(--theme-panel-bg-soft), var(--theme-panel-bg));
+  }
+
+  &.result-card-media-pending::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--history-pending-bg-image) center / cover no-repeat;
+    opacity: 0.5;
+    pointer-events: none;
   }
 }
 
 .result-card-placeholder {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: flex;

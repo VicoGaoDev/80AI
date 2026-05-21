@@ -31,6 +31,7 @@ const emit = defineEmits<{
 const previewVisible = ref(false);
 const previewSrc = ref("");
 const failedResultAsset = withBaseUrl("failed-result.svg");
+const generateTaskCardAsset = withBaseUrl("generate-task-card.svg");
 const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 960 960">
   <defs>
@@ -211,6 +212,7 @@ function handleDownload(item: UserHistoryCard) {
                   pending: !getDetailImageSrc(item, img) && img.status !== 'failed',
                   failed: img.status === 'failed',
                 }"
+                :style="{ '--detail-pending-bg-image': `url('${generateTaskCardAsset}')` }"
                 @click="getDetailPreviewSrc(item, img) && openPreview(getDetailPreviewSrc(item, img))"
               >
                 <img
@@ -520,6 +522,18 @@ function handleDownload(item: UserHistoryCard) {
 
   &.pending {
     cursor: default;
+    background:
+      linear-gradient(180deg, rgba(255, 252, 246, 0.24), rgba(255, 248, 238, 0.34)),
+      linear-gradient(180deg, var(--theme-panel-bg-soft), var(--theme-panel-bg));
+  }
+
+  &.pending::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--detail-pending-bg-image) center / cover no-repeat;
+    opacity: 0.5;
+    pointer-events: none;
   }
 
   &:not(.pending):hover {
@@ -540,6 +554,8 @@ function handleDownload(item: UserHistoryCard) {
 }
 
 .result-card-placeholder {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: flex;
