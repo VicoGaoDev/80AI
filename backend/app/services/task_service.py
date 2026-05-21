@@ -93,7 +93,12 @@ def refund_task_credit_for_http_failure_if_needed(
 
     try:
         with db.begin_nested():
-            apply_user_credit_delta(db, task.user_id, delta=credit_cost)
+            apply_user_credit_delta(
+                db,
+                task.user_id,
+                delta=credit_cost,
+                restore_used_credit=True,
+            )
             db.add(CreditLog(
                 user_id=task.user_id,
                 amount=credit_cost,
@@ -539,6 +544,7 @@ def mark_tasks_enqueue_failed(
             db,
             user.id,
             delta=refund_total,
+            restore_used_credit=True,
         )
 
     db.commit()

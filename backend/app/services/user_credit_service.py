@@ -119,6 +119,7 @@ def apply_user_credit_delta(
     delta: int,
     credit_type: int = DEFAULT_CREDIT_TYPE,
     allow_negative: bool = False,
+    restore_used_credit: bool = False,
 ) -> UserCredit:
     account = get_user_credit_account(
         db,
@@ -135,6 +136,8 @@ def apply_user_credit_delta(
     next_used_credit = int(account.used_credit or 0)
     if int(delta) < 0:
         next_used_credit += abs(int(delta))
+    elif restore_used_credit:
+        next_used_credit = max(next_used_credit - int(delta), 0)
 
     if not allow_negative and next_remain_credit < 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="扣减后积分不能为负数")
@@ -157,6 +160,7 @@ def change_user_credit_balance(
     task_id: int | None = None,
     credit_type: int = DEFAULT_CREDIT_TYPE,
     allow_negative: bool = False,
+    restore_used_credit: bool = False,
 ) -> UserCredit:
     account = apply_user_credit_delta(
         db,
@@ -164,6 +168,7 @@ def change_user_credit_balance(
         delta=delta,
         credit_type=credit_type,
         allow_negative=allow_negative,
+        restore_used_credit=restore_used_credit,
     )
     db.add(
         CreditLog(
