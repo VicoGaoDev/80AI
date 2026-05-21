@@ -65,6 +65,18 @@ const router = createRouter({
           component: () => import("@/views/SystemMessageDetailView.vue"),
         },
         {
+          path: "user-agreement",
+          name: "UserAgreement",
+          meta: { hideTopMenu: true },
+          component: () => import("@/views/LegalDocumentView.vue"),
+        },
+        {
+          path: "privacy-policy",
+          name: "PrivacyPolicy",
+          meta: { hideTopMenu: true },
+          component: () => import("@/views/LegalDocumentView.vue"),
+        },
+        {
           path: "settings",
           name: "Settings",
           meta: { requiresAuth: true },

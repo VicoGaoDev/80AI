@@ -59,6 +59,7 @@ const route = useRoute();
 const auth = useAuthStore();
 const isAdmin = computed(() => auth.isAdmin);
 const isSuperAdmin = computed(() => auth.isSuperAdmin);
+const hideTopMenu = computed(() => route.meta.hideTopMenu === true);
 const mobileDrawerOpen = ref(false);
 const routeTransitionName = ref("route-page-forward");
 
@@ -294,7 +295,14 @@ provide("loginModalVisible", loginModalVisible);
 const authTab = ref<"login" | "register">("login");
 const loginForm = reactive({ account: "", password: "" });
 const loginLoading = ref(false);
-const registerForm = reactive({ email: "", verificationCode: "", username: "", password: "", confirmPassword: "" });
+const registerForm = reactive({
+  email: "",
+  verificationCode: "",
+  username: "",
+  password: "",
+  confirmPassword: "",
+  agreedTerms: false,
+});
 const registerLoading = ref(false);
 const registerCodeLoading = ref(false);
 const redeemDialogOpen = ref(false);
@@ -338,6 +346,7 @@ function resetAuthForms() {
   registerForm.username = "";
   registerForm.password = "";
   registerForm.confirmPassword = "";
+  registerForm.agreedTerms = false;
 }
 
 async function handleLoginSubmit() {
@@ -407,6 +416,10 @@ async function handleRegisterSubmit() {
   }
   if (registerForm.password !== registerForm.confirmPassword) {
     message.warning("两次密码不一致");
+    return;
+  }
+  if (!registerForm.agreedTerms) {
+    message.warning("请先阅读并同意用户协议和隐私政策");
     return;
   }
   registerLoading.value = true;
@@ -613,7 +626,7 @@ watch(
 
 <template>
   <a-layout class="app-layout">
-    <a-layout-header class="app-header">
+    <a-layout-header v-if="!hideTopMenu" class="app-header">
       <div class="header-inner">
         <div class="header-brand-wrap">
           <div class="header-brand" @click="router.push('/')">
@@ -800,6 +813,7 @@ watch(
     </a-layout-content>
 
     <a-drawer
+      v-if="!hideTopMenu"
       v-model:open="mobileDrawerOpen"
       placement="right"
       :width="320"
@@ -1041,7 +1055,7 @@ watch(
     >
       <a-tabs v-model:activeKey="authTab" centered class="auth-tabs">
         <a-tab-pane key="login" tab="登录">
-          <a-form layout="vertical" :model="loginForm" @finish="handleLoginSubmit" style="margin-top: 8px">
+          <a-form class="auth-form" layout="vertical" :model="loginForm" @finish="handleLoginSubmit">
             <a-form-item label="邮箱（推荐）/ 用户名">
               <a-input
                 v-model:value="loginForm.account"
@@ -1082,7 +1096,7 @@ watch(
         </a-tab-pane>
 
         <a-tab-pane key="register" tab="注册">
-          <a-form layout="vertical" :model="registerForm" @finish="handleRegisterSubmit" style="margin-top: 8px">
+          <a-form class="auth-form" layout="vertical" :model="registerForm" @finish="handleRegisterSubmit">
             <a-form-item label="邮箱">
               <a-input
                 v-model:value="registerForm.email"
@@ -1137,12 +1151,21 @@ watch(
                 @press-enter="handleRegisterSubmit"
               />
             </a-form-item>
+            <a-form-item class="auth-agreement-item">
+              <a-checkbox v-model:checked="registerForm.agreedTerms">
+                我同意
+                <RouterLink to="/user-agreement" target="_blank">用户协议</RouterLink>
+                和
+                <RouterLink to="/privacy-policy" target="_blank">隐私政策</RouterLink>
+              </a-checkbox>
+            </a-form-item>
             <a-form-item style="margin-bottom: 8px">
               <a-button
                 type="primary"
                 html-type="submit"
                 size="large"
                 :loading="registerLoading"
+                :disabled="!registerForm.agreedTerms"
                 block
                 class="warm-primary-btn"
               >
@@ -1879,7 +1902,7 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
 
 .auth-tabs {
   :deep(.ant-tabs-nav) {
-    margin-bottom: 4px;
+    margin-bottom: 0;
   }
 
   :deep(.ant-tabs-tab) {
@@ -1896,6 +1919,27 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
     background: var(--theme-accent);
     height: 3px;
     border-radius: 2px;
+  }
+}
+
+.auth-form {
+  margin-top: 4px;
+
+  :deep(.ant-form-item) {
+    margin-bottom: 14px;
+  }
+
+  :deep(.ant-form-item-label) {
+    padding-bottom: 4px;
+  }
+
+  :deep(.ant-form-item-label > label) {
+    height: 20px;
+    font-size: 13px;
+  }
+
+  .auth-agreement-item {
+    margin-bottom: 10px;
   }
 }
 
