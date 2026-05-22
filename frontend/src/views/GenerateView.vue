@@ -2723,6 +2723,7 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
 }
 
 .mode-switch-group-primary .mode-switch-btn {
+  height: 42px;
   min-width: 116px;
   border-radius: 14px;
   border-color: var(--theme-control-border-strong);
@@ -2801,7 +2802,8 @@ watch(() => auth.isLoggedIn, (isLoggedIn) => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 40px;
+  height: 42px;
+  min-height: 42px;
   padding: 0 12px;
   border-radius: 13px;
 }
@@ -4715,6 +4717,16 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-mor
     padding: 15px;
   }
 
+  .generate-config-panel .action-config-section {
+    padding-bottom: 18px;
+  }
+
+  .generate-config-panel .settings-footer {
+    z-index: 1;
+    margin-top: 8px;
+    padding-top: 0;
+  }
+
   .settings-row {
     flex-direction: column;
   }
@@ -4758,7 +4770,8 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-mor
   }
 
   .tool-trigger {
-    min-height: 38px;
+    height: 42px;
+    min-height: 42px;
     padding: 0 10px;
   }
 

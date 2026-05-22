@@ -639,7 +639,8 @@ watch(
           <a-button type="text" class="top-link-btn" @click="openCreditsContact">
             联系我们
           </a-button>
-            <a-dropdown v-if="auth.isLoggedIn && isAdmin" :trigger="['hover']" overlay-class-name="warm-dropdown">
+          <div v-if="auth.isLoggedIn && isAdmin" class="desktop-admin-entry">
+            <a-dropdown :trigger="['hover']" overlay-class-name="warm-dropdown">
               <a-badge :count="adminUnresolvedFeedbackCount" :offset="[-2, 2]" :show-zero="false">
                 <a-button class="admin-btn" type="text">
                   <SettingOutlined />
@@ -686,12 +687,10 @@ watch(
                 </a-menu>
               </template>
             </a-dropdown>
+          </div>
         </div>
 
         <div class="mobile-nav-entry">
-          <a-button type="text" class="mobile-nav-contact-btn" @click="openRedeemEntry">
-            兑换积分
-          </a-button>
           <div v-if="auth.isLoggedIn" class="mobile-nav-credits" @click="goCreditLogs">
             <ThunderboltOutlined />
             <span>{{ auth.user?.credits ?? 0 }}</span>
@@ -822,11 +821,16 @@ watch(
     >
       <div class="mobile-drawer-content">
         <div class="mobile-drawer-brand">
-          <div class="brand-mark">🍌</div>
-          <div class="brand-copy">
-            <span class="brand-name">80AI</span>
-            <span class="brand-sub">AI Creative Studio</span>
+          <div class="mobile-drawer-brand-main">
+            <div class="brand-mark">🍌</div>
+            <div class="brand-copy">
+              <span class="brand-name">80AI</span>
+              <span class="brand-sub">AI Creative Studio</span>
+            </div>
           </div>
+          <a-button type="link" size="small" class="mobile-drawer-contact-link" @click="openCreditsContact">
+            联系我们
+          </a-button>
         </div>
 
         <div v-if="auth.isLoggedIn" class="mobile-user-card">
@@ -840,9 +844,6 @@ watch(
             </span>
           </div>
           <div class="mobile-user-actions">
-            <a-button type="link" size="small" class="mobile-drawer-contact-link" @click="openCreditsContact">
-              联系我们
-            </a-button>
             <div class="mobile-user-credits" @click="goCreditLogs">
               <ThunderboltOutlined />
               <span>{{ auth.user?.credits ?? 0 }}</span>
@@ -863,6 +864,16 @@ watch(
               <span>{{ item.label }}</span>
             </a-menu-item>
           </a-menu>
+        </div>
+
+        <div class="mobile-drawer-section">
+          <div class="mobile-drawer-section-title">积分服务</div>
+          <div class="mobile-drawer-credit-actions">
+            <a-button block class="mobile-drawer-action-btn" @click="openRedeemEntry">
+              <template #icon><GiftOutlined /></template>
+              兑换积分
+            </a-button>
+          </div>
         </div>
 
         <div v-if="auth.isLoggedIn && isAdmin" class="mobile-drawer-section">
@@ -1367,26 +1378,6 @@ watch(
   margin-left: auto;
 }
 
-.mobile-nav-contact-btn {
-  height: 42px;
-  padding-inline: 12px !important;
-  border-radius: 999px !important;
-  border: 1px solid var(--theme-panel-border-strong) !important;
-  background: linear-gradient(180deg, var(--theme-panel-bg), var(--theme-panel-bg-strong)) !important;
-  color: var(--theme-title) !important;
-  font-weight: 700;
-  box-shadow: 0 8px 18px var(--theme-card-shadow);
-  flex-shrink: 1;
-  max-width: 42vw;
-
-  &:hover {
-    color: var(--theme-nav-hover-text) !important;
-    background: var(--theme-nav-hover-bg) !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
-  }
-}
-
 .mobile-nav-credits {
   display: inline-flex;
   align-items: center;
@@ -1402,6 +1393,30 @@ watch(
   cursor: pointer;
 }
 
+.mobile-drawer-credit-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.mobile-drawer-action-btn {
+  height: 44px;
+  border-radius: 14px !important;
+  border: 1px solid var(--theme-panel-border-strong) !important;
+  background: linear-gradient(180deg, var(--theme-panel-bg), var(--theme-panel-bg-strong)) !important;
+  color: var(--theme-title) !important;
+  font-weight: 700;
+  text-align: left;
+  box-shadow: 0 8px 18px var(--theme-card-shadow);
+
+  &:hover,
+  &:focus {
+    color: var(--theme-nav-hover-text) !important;
+    background: var(--theme-nav-hover-bg) !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+}
+
 .mobile-drawer-content {
   display: flex;
   flex-direction: column;
@@ -1411,7 +1426,15 @@ watch(
 .mobile-drawer-brand {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
+}
+
+.mobile-drawer-brand-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .mobile-user-card {
@@ -1447,8 +1470,10 @@ watch(
 
 .mobile-user-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
   gap: 8px;
   min-width: 0;
 }
@@ -1551,6 +1576,10 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .app-layout {
 html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdown-menu-item-danger:hover {
   background: rgba(185, 56, 42, 0.14) !important;
   color: #de8f84 !important;
+}
+
+.desktop-admin-entry {
+  display: inline-flex;
 }
 
 .mobile-auth-actions {
@@ -2001,6 +2030,10 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
   }
 
   .header-actions {
+    display: none;
+  }
+
+  .desktop-admin-entry {
     display: none;
   }
 
