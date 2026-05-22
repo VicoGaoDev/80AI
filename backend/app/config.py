@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     COS_IMAGE_STYLE_SEPARATOR: str = "!"
     GENERATED_PREVIEW_TTL_SECONDS: int = 3600
     GENERATED_IMAGE_CACHE_CONTROL: str = "public, max-age=31536000, immutable"
+    CLOUDBASE_ENV_ID: str = ""
+    CLOUDBASE_REGION: str = "ap-shanghai"
+    CLOUDBASE_AUTH_TIMEOUT: int = 15
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

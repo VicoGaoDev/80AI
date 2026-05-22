@@ -19,6 +19,10 @@ type CloudbaseErrorLike = {
   };
 };
 
+type VerificationInfo = {
+  verification_id?: string;
+};
+
 function getEnvId() {
   const envId = (import.meta.env.VITE_CLOUDBASE_ENV_ID || "").trim();
   if (!envId) {
@@ -53,7 +57,7 @@ function getErrorText(err: unknown) {
     .toLowerCase();
 }
 
-function mapCloudbaseAuthError(err: unknown, action: "sendCode" | "register") {
+function mapCloudbaseAuthError(err: unknown, action: "sendCode" | "register" | "resetPassword") {
   const text = getErrorText(err);
 
   if (text.includes("environment id") || text.includes("env id")) {
@@ -110,17 +114,52 @@ function mapCloudbaseAuthError(err: unknown, action: "sendCode" | "register") {
     return "密码不符合要求，请使用至少 6 位密码";
   }
 
-  return action === "sendCode" ? "验证码发送失败，请稍后重试" : "注册验证失败，请检查邮箱、验证码和密码";
+  if (action === "sendCode") {
+    return "验证码发送失败，请稍后重试";
+  }
+  if (action === "resetPassword") {
+    return "密码重置失败，请检查邮箱、验证码和新密码";
+  }
+  return "注册验证失败，请检查邮箱、验证码和密码";
+}
+
+async function sendEmailCode(email: string, usage: "SIGNUP" | "PASSWORD_RESET") {
+  const auth = getAuth();
+  try {
+    const verification = await auth.getVerification({
+      email: email.trim().toLowerCase(),
+      usage,
+    }) as VerificationInfo;
+    if (!verification?.verification_id) {
+      throw new Error("验证码发送失败，请稍后重试");
+    }
+    return verification.verification_id;
+  } catch (err) {
+    if (err instanceof Error && err.message === "验证码发送失败，请稍后重试") {
+      throw err;
+    }
+    throw new Error(mapCloudbaseAuthError(err, "sendCode"));
+  }
 }
 
 export async function sendRegisterEmailCode(email: string) {
+  await sendEmailCode(email, "SIGNUP");
+}
+
+export async function sendPasswordResetEmailCode(email: string) {
   const auth = getAuth();
   try {
-    await auth.getVerification({
+    const verification = await auth.getVerification({
       email: email.trim().toLowerCase(),
-      usage: "SIGNUP",
-    });
+    }) as VerificationInfo;
+    if (!verification?.verification_id) {
+      throw new Error("验证码发送失败，请稍后重试");
+    }
+    return verification.verification_id;
   } catch (err) {
+    if (err instanceof Error && err.message === "验证码发送失败，请稍后重试") {
+      throw err;
+    }
     throw new Error(mapCloudbaseAuthError(err, "sendCode"));
   }
 }

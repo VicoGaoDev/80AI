@@ -6,6 +6,7 @@ import { message, notification } from "ant-design-vue";
 import {
   login as apiLogin,
   register as apiRegister,
+  forgotPassword as apiForgotPassword,
   getMe,
   getContactConfig,
   getAnnouncementConfig,
@@ -13,7 +14,7 @@ import {
 } from "@/api/auth";
 import { getMyCompletedUnreadFeedbackCount } from "@/api/feedback";
 import { getAdminUnresolvedFeedbackCount } from "@/api/admin";
-import { registerCloudbaseAccount, sendRegisterEmailCode } from "@/lib/cloudbase";
+import { registerCloudbaseAccount, sendPasswordResetEmailCode, sendRegisterEmailCode } from "@/lib/cloudbase";
 import { withBaseUrl } from "@/lib/assets";
 import {
   getStoredAdminUnresolvedFeedbackCount,
@@ -295,6 +296,16 @@ provide("loginModalVisible", loginModalVisible);
 const authTab = ref<"login" | "register">("login");
 const loginForm = reactive({ account: "", password: "" });
 const loginLoading = ref(false);
+const forgotPasswordDialogOpen = ref(false);
+const forgotPasswordForm = reactive({
+  email: "",
+  verificationCode: "",
+  verificationId: "",
+  newPassword: "",
+  confirmPassword: "",
+});
+const forgotPasswordLoading = ref(false);
+const forgotPasswordCodeLoading = ref(false);
 const registerForm = reactive({
   email: "",
   verificationCode: "",
@@ -319,6 +330,20 @@ function openAuthModal(tab: "login" | "register") {
   mobileDrawerOpen.value = false;
   authTab.value = tab;
   loginModalVisible.value = true;
+}
+
+function openForgotPasswordDialog() {
+  forgotPasswordForm.email = loginForm.account.includes("@") ? loginForm.account.trim() : "";
+  forgotPasswordDialogOpen.value = true;
+  loginModalVisible.value = false;
+}
+
+function resetForgotPasswordForm() {
+  forgotPasswordForm.email = "";
+  forgotPasswordForm.verificationCode = "";
+  forgotPasswordForm.verificationId = "";
+  forgotPasswordForm.newPassword = "";
+  forgotPasswordForm.confirmPassword = "";
 }
 
 function handleAuthSessionExpired(detail: { redirectPath: string }) {
@@ -374,6 +399,74 @@ async function handleLoginSubmit() {
     message.error(err.response?.data?.detail || "登录失败");
   } finally {
     loginLoading.value = false;
+  }
+}
+
+async function handleSendForgotPasswordCode() {
+  if (!forgotPasswordForm.email) {
+    message.warning("请输入邮箱");
+    return;
+  }
+  if (!isValidEmail(forgotPasswordForm.email)) {
+    message.warning("邮箱格式不正确");
+    return;
+  }
+  forgotPasswordCodeLoading.value = true;
+  try {
+    forgotPasswordForm.verificationId = await sendPasswordResetEmailCode(forgotPasswordForm.email.trim());
+    message.success("验证码已发送，请检查邮箱");
+  } catch (err: any) {
+    forgotPasswordForm.verificationId = "";
+    message.error(err.message || "验证码发送失败");
+  } finally {
+    forgotPasswordCodeLoading.value = false;
+  }
+}
+
+async function handleForgotPasswordSubmit() {
+  if (!forgotPasswordForm.email || !forgotPasswordForm.verificationCode || !forgotPasswordForm.newPassword) {
+    message.warning("请完整填写找回密码信息");
+    return;
+  }
+  if (!isValidEmail(forgotPasswordForm.email)) {
+    message.warning("邮箱格式不正确");
+    return;
+  }
+  if (!/^\d{6}$/.test(forgotPasswordForm.verificationCode.trim())) {
+    message.warning("请输入正确的 6 位验证码");
+    return;
+  }
+  if (!forgotPasswordForm.verificationId) {
+    message.warning("请先获取邮箱验证码");
+    return;
+  }
+  if (forgotPasswordForm.newPassword.length < 6) {
+    message.warning("新密码至少6位");
+    return;
+  }
+  if (forgotPasswordForm.newPassword !== forgotPasswordForm.confirmPassword) {
+    message.warning("两次密码不一致");
+    return;
+  }
+  forgotPasswordLoading.value = true;
+  try {
+    await apiForgotPassword({
+      email: forgotPasswordForm.email.trim(),
+      verificationCode: forgotPasswordForm.verificationCode.trim(),
+      verificationId: forgotPasswordForm.verificationId,
+      newPassword: forgotPasswordForm.newPassword,
+    });
+    message.success("密码重置成功，请使用新密码登录");
+    loginForm.account = forgotPasswordForm.email.trim();
+    loginForm.password = "";
+    resetForgotPasswordForm();
+    authTab.value = "login";
+    forgotPasswordDialogOpen.value = false;
+    loginModalVisible.value = true;
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || err.message || "密码重置失败");
+  } finally {
+    forgotPasswordLoading.value = false;
   }
 }
 
@@ -1084,6 +1177,9 @@ watch(
                 @press-enter="handleLoginSubmit"
               />
             </a-form-item>
+            <div class="auth-row-action">
+              <a @click="openForgotPasswordDialog">忘记密码？</a>
+            </div>
             <a-form-item style="margin-bottom: 8px">
               <a-button
                 type="primary"
@@ -1190,6 +1286,78 @@ watch(
           </a-form>
         </a-tab-pane>
       </a-tabs>
+    </a-modal>
+
+    <a-modal
+      v-model:open="forgotPasswordDialogOpen"
+      title="找回密码"
+      :footer="null"
+      :width="420"
+      centered
+      @after-close="resetForgotPasswordForm"
+    >
+      <a-form class="auth-form forgot-password-form" layout="vertical" :model="forgotPasswordForm" @finish="handleForgotPasswordSubmit">
+        <a-form-item label="注册邮箱">
+          <a-input
+            v-model:value="forgotPasswordForm.email"
+            size="large"
+            placeholder="请输入注册邮箱"
+            :prefix="h(MailOutlined, { style: authInputPrefixStyle })"
+            :maxlength="255"
+          />
+        </a-form-item>
+        <a-form-item label="验证码">
+          <div class="auth-code-row">
+            <a-input
+              v-model:value="forgotPasswordForm.verificationCode"
+              size="large"
+              placeholder="请输入 6 位验证码"
+              :maxlength="6"
+            />
+            <a-button
+              size="large"
+              class="auth-code-btn"
+              :loading="forgotPasswordCodeLoading"
+              @click="handleSendForgotPasswordCode"
+            >
+              {{ forgotPasswordCodeLoading ? "发送中..." : (forgotPasswordForm.verificationId ? "重新发送" : "发送验证码") }}
+            </a-button>
+          </div>
+        </a-form-item>
+        <a-form-item label="新密码">
+          <a-input-password
+            v-model:value="forgotPasswordForm.newPassword"
+            size="large"
+            placeholder="至少 6 位"
+            :prefix="h(LockOutlined, { style: authInputPrefixStyle })"
+          />
+        </a-form-item>
+        <a-form-item label="确认新密码">
+          <a-input-password
+            v-model:value="forgotPasswordForm.confirmPassword"
+            size="large"
+            placeholder="请再次输入新密码"
+            :prefix="h(LockOutlined, { style: authInputPrefixStyle })"
+            @press-enter="handleForgotPasswordSubmit"
+          />
+        </a-form-item>
+        <a-form-item style="margin-bottom: 8px">
+          <a-button
+            type="primary"
+            html-type="submit"
+            size="large"
+            :loading="forgotPasswordLoading"
+            block
+            class="warm-primary-btn"
+          >
+            <template #icon><LockOutlined /></template>
+            {{ forgotPasswordLoading ? "重置中..." : "重置密码" }}
+          </a-button>
+        </a-form-item>
+        <div class="auth-switch-hint">
+          想起密码了？<a @click="forgotPasswordDialogOpen = false; authTab = 'login'; loginModalVisible = true">返回登录</a>
+        </div>
+      </a-form>
     </a-modal>
   </a-layout>
 </template>
@@ -1976,6 +2144,22 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
   text-align: center;
   font-size: 13px;
   color: var(--theme-text-muted);
+
+  a {
+    color: var(--theme-link);
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--theme-link-hover);
+    }
+  }
+}
+
+.auth-row-action {
+  margin: -4px 0 12px;
+  text-align: right;
+  font-size: 13px;
 
   a {
     color: var(--theme-link);

@@ -36,6 +36,13 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+    verification_code: str
+    verification_id: str
+    new_password: str
+
+
 class UpdateProfileRequest(BaseModel):
     username: str
 

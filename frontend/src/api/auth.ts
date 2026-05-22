@@ -27,6 +27,20 @@ export function changePassword(oldPassword: string, newPassword: string): Promis
   });
 }
 
+export function forgotPassword(payload: {
+  email: string;
+  verificationCode: string;
+  verificationId: string;
+  newPassword: string;
+}): Promise<{ message: string }> {
+  return client.post("/auth/forgot-password", {
+    email: payload.email,
+    verification_code: payload.verificationCode,
+    verification_id: payload.verificationId,
+    new_password: payload.newPassword,
+  });
+}
+
 export function getMe(): Promise<UserInfo> {
   return client.get("/auth/me");
 }

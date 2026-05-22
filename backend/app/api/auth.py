@@ -16,12 +16,19 @@ from app.schemas.auth import (
     RegisterRequest,
     UserBrief,
     ChangePasswordRequest,
+    ForgotPasswordRequest,
     UpdateProfileRequest,
     RedeemCreditKeyRequest,
     RedeemCreditKeyResponse,
 )
 from app.services.business_id_service import get_user_by_business_id, user_external_id
-from app.services.auth_service import authenticate_user, change_password, register_user, update_username
+from app.services.auth_service import (
+    authenticate_user,
+    change_password,
+    register_user,
+    reset_password_with_email_code,
+    update_username,
+)
 from app.services.credit_redeem_service import redeem_credit_key
 from app.models.prompt_history import PromptHistory
 from app.services.admin_service import get_credit_logs
@@ -105,6 +112,33 @@ def change_pwd(
         },
     )
     return {"message": "密码修改成功"}
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = await reset_password_with_email_code(
+        db,
+        body.email,
+        body.verification_id,
+        body.verification_code,
+        body.new_password,
+    )
+    request.state.user_id = user_external_id(user)
+    audit_logger.info(
+        "password reset by email code",
+        extra={
+            "event": "auth.password.reset",
+            "account": body.email.strip().lower(),
+            "client_ip": request.client.host if request.client else "",
+            "user_agent": request.headers.get("user-agent", ""),
+            "user_id": user_external_id(user),
+        },
+    )
+    return {"message": "密码重置成功"}
 
 
 @router.get("/me", response_model=UserBrief)

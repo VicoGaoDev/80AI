@@ -1,14 +1,17 @@
 import re
 
 from fastapi import HTTPException, status
+import httpx
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.user import User
 from app.services.business_id_service import user_external_id
 from app.services.user_credit_service import create_default_credit_account
 from app.utils.security import create_access_token, hash_password, verify_password
 
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+CLOUDBASE_AUTH_PATH = "/auth"
 
 
 def _normalize_email(email: str) -> str:
@@ -91,6 +94,93 @@ def change_password(db: Session, user: User, old_password: str, new_password: st
 
     user.password_hash = hash_password(new_password)
     db.commit()
+
+
+def _map_cloudbase_error(error_text: str) -> str:
+    text = (error_text or "").lower()
+    if "invalid_verification_code" in text or "verification" in text and "invalid" in text:
+        return "验证码错误或已过期，请重新获取"
+    if "user_not_found" in text or "not_found" in text:
+        return "该邮箱未注册"
+    if "weak password" in text or "password" in text:
+        return "新密码不符合要求，请使用至少 6 位密码"
+    if "resource_exhausted" in text or "rate" in text or "too many" in text:
+        return "操作过于频繁，请稍后再试"
+    return "密码重置验证失败，请稍后重试"
+
+
+async def _cloudbase_request(path: str, payload: dict) -> dict:
+    env_id = settings.CLOUDBASE_ENV_ID.strip()
+    if not env_id:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="CloudBase 环境 ID 未配置")
+
+    region = (settings.CLOUDBASE_REGION or "ap-shanghai").strip()
+    origin = f"https://{env_id}.{region}.tcb-api.tencentcloudapi.com"
+    url = f"{origin}{CLOUDBASE_AUTH_PATH}{path}?client_id={env_id}"
+    try:
+        async with httpx.AsyncClient(timeout=settings.CLOUDBASE_AUTH_TIMEOUT) as client:
+            response = await client.post(url, json=payload)
+            data = response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="CloudBase 验证服务暂时不可用") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="CloudBase 验证服务响应异常") from exc
+
+    if response.status_code >= 400 or data.get("error"):
+        error_text = " ".join(
+            str(data.get(key) or "")
+            for key in ("error", "error_description", "message", "details")
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_map_cloudbase_error(error_text))
+    return data
+
+
+async def reset_password_with_email_code(
+    db: Session,
+    email: str,
+    verification_id: str,
+    verification_code: str,
+    new_password: str,
+) -> User:
+    normalized_email = _validate_email(email)
+    code = (verification_code or "").strip()
+    verify_id = (verification_id or "").strip()
+    if len(new_password) < 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码至少6位")
+    if not re.fullmatch(r"\d{6}", code):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请输入正确的 6 位验证码")
+    if not verify_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先获取邮箱验证码")
+
+    user = db.query(User).filter(User.email == normalized_email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="该邮箱未注册")
+    if user.status == "disabled":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
+
+    verify_res = await _cloudbase_request(
+        "/v1/verification/verify",
+        {"verification_id": verify_id, "verification_code": code},
+    )
+    verification_token = verify_res.get("verification_token")
+    if not verification_token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误或已过期，请重新获取")
+
+    await _cloudbase_request(
+        "/v1/reset",
+        {
+            "email": normalized_email,
+            "new_password": new_password,
+            "verification_token": verification_token,
+        },
+    )
+
+    user.password_hash = hash_password(new_password)
+    user.email_verified = True
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def update_username(db: Session, user: User, username: str) -> User:
