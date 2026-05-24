@@ -9,6 +9,7 @@ import base64
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from datetime import timedelta
@@ -44,6 +45,8 @@ TASK_LOCK_UNAVAILABLE_ERROR = "任务锁服务不可用，请稍后重试"
 PROCESSING_TASK_TIMEOUT_ERROR = "任务处理超时，已自动关闭"
 TASK_PROCESSING_LOCK_TIMEOUT_SECONDS = max(int(settings.AI_TIMEOUT or 0) + 600, 900)
 SINGLE_IMAGE_LOCK_TIMEOUT_SECONDS = max(int(settings.AI_TIMEOUT or 0) + 600, 900)
+SYNC_GENERATION_MAX_WORKERS = max(int(settings.SYNC_GENERATION_MAX_WORKERS or 0), 1)
+_sync_generation_semaphore = threading.BoundedSemaphore(SYNC_GENERATION_MAX_WORKERS)
 
 
 def _clip_error_message(message: str) -> str:
@@ -213,6 +216,8 @@ def _call_gemini_api(
     try:
         scene_key = SCENE_INPAINT if mode == "inpaint" else model_key
         config = require_scene_config(db, scene_key)
+        config_name = config.name
+        configured_field_path = (config.result_base64_field or "").strip()
 
         parts: list[dict] = []
         render_variables = {
@@ -294,11 +299,13 @@ def _call_gemini_api(
             config,
             render_variables,
         )
+        request_kwargs = build_external_request_kwargs(rendered)
+        db.close()
 
         auth_value = rendered.headers.get("Authorization", "")
         logger.info(
             "Calling generation API: config=%s, mode=%s, prompt=%s, ratio=%s, size=%s, custom_size=%s, ref_count=%d, auth_prefix=%s, request_mode=%s",
-            config.name,
+            config_name,
             mode,
             prompt[:60],
             aspect_ratio,
@@ -312,7 +319,7 @@ def _call_gemini_api(
         with httpx.Client(timeout=settings.AI_TIMEOUT, trust_env=False) as client:
             resp = client.post(
                 rendered.request_url,
-                **build_external_request_kwargs(rendered),
+                **request_kwargs,
             )
 
             if resp.status_code != 200:
@@ -325,7 +332,6 @@ def _call_gemini_api(
 
             data = resp.json()
 
-        configured_field_path = (config.result_base64_field or "").strip()
         if configured_field_path:
             result, error_message = _extract_configured_image_data(data, configured_field_path)
             if result:
@@ -695,16 +701,25 @@ def _process_task(task_id: int, *, use_distributed_lock: bool = True):
             if _mark_task_request_started(task):
                 db.commit()
                 db.refresh(task)
+            api_prompt = task.prompt
+            api_aspect_ratio = task.size
+            api_image_size = task.resolution
+            api_custom_size = task.custom_size or ""
+            api_model_key = task.model or ""
+            api_source_image = task.source_image or ""
+            api_mask_image = task.mask_image or ""
+            # Release the checked-out DB connection while the external AI call is in flight.
+            db.commit()
             result, error_message, _http_status_code = _call_gemini_api(
-                prompt=task.prompt,
-                aspect_ratio=task.size,
-                image_size=task.resolution,
-                custom_size=task.custom_size or "",
-                model_key=task.model or "",
+                prompt=api_prompt,
+                aspect_ratio=api_aspect_ratio,
+                image_size=api_image_size,
+                custom_size=api_custom_size,
+                model_key=api_model_key,
                 reference_images=ref_urls,
                 mode=task_mode,
-                source_image=task.source_image or "",
-                mask_image=task.mask_image or "",
+                source_image=api_source_image,
+                mask_image=api_mask_image,
             )
             _mark_task_request_finished(task)
             db.commit()
@@ -821,16 +836,25 @@ def _process_single_image(image_id: int, *, use_distributed_lock: bool = True):
             db.commit()
             db.refresh(task)
 
+        api_prompt = task.prompt
+        api_aspect_ratio = task.size
+        api_image_size = task.resolution
+        api_custom_size = task.custom_size or ""
+        api_model_key = task.model or ""
+        api_source_image = task.source_image or ""
+        api_mask_image = task.mask_image or ""
+        # Release the checked-out DB connection while the external AI call is in flight.
+        db.commit()
         result, error_message, _http_status_code = _call_gemini_api(
-            prompt=task.prompt,
-            aspect_ratio=task.size,
-            image_size=task.resolution,
-            custom_size=task.custom_size or "",
-            model_key=task.model or "",
+            prompt=api_prompt,
+            aspect_ratio=api_aspect_ratio,
+            image_size=api_image_size,
+            custom_size=api_custom_size,
+            model_key=api_model_key,
             reference_images=ref_urls,
             mode=task_mode,
-            source_image=task.source_image or "",
-            mask_image=task.mask_image or "",
+            source_image=api_source_image,
+            mask_image=api_mask_image,
         )
         _mark_task_request_finished(task)
         db.commit()
@@ -944,22 +968,29 @@ else:
 
 # --- Sync fallbacks (for dev without Redis) ---
 
+def _run_sync_generation_worker(target, *args) -> None:
+    try:
+        target(*args, use_distributed_lock=False)
+    finally:
+        _sync_generation_semaphore.release()
+
+
 def generate_images_sync(task_id: int):
-    import threading
+    if not _sync_generation_semaphore.acquire(blocking=False):
+        raise RuntimeError(QUEUE_UNAVAILABLE_ERROR)
     threading.Thread(
-        target=_process_task,
-        args=(task_id,),
-        kwargs={"use_distributed_lock": False},
+        target=_run_sync_generation_worker,
+        args=(_process_task, task_id),
         daemon=True,
     ).start()
 
 
 def regenerate_single_sync(image_id: int):
-    import threading
+    if not _sync_generation_semaphore.acquire(blocking=False):
+        raise RuntimeError(QUEUE_UNAVAILABLE_ERROR)
     threading.Thread(
-        target=_process_single_image,
-        args=(image_id,),
-        kwargs={"use_distributed_lock": False},
+        target=_run_sync_generation_worker,
+        args=(_process_single_image, image_id),
         daemon=True,
     ).start()
 

@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     LOG_LEVEL: str = "INFO"
     LOG_JSON: bool = False
-    WEB_CONCURRENCY: int = 4
-    ALLOW_SYNC_GENERATION_FALLBACK: bool = True
+    WEB_CONCURRENCY: int = 2
+    ALLOW_SYNC_GENERATION_FALLBACK: bool = False
+    SYNC_GENERATION_MAX_WORKERS: int = 2
 
     DATABASE_URL: str | None = None
     DB_HOST: str = "sh-cynosdbmysql-grp-kmfw4ojg.sql.tencentcdb.com"
@@ -23,11 +24,11 @@ class Settings(BaseSettings):
     DB_PASSWORD: str | None = None
     DB_NAME: str | None = None
     DB_CHARSET: str = "utf8mb4"
-    DB_AUTO_CREATE_TABLES: bool = True
-    DB_RUN_SCHEMA_COMPAT: bool = True
+    DB_AUTO_CREATE_TABLES: bool = False
+    DB_RUN_SCHEMA_COMPAT: bool = False
     DB_RUN_SEED: bool = False
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 1800
     UPLOAD_DIR: str = str(BASE_DIR / "uploads")

@@ -12,6 +12,7 @@ engine = create_engine(
     max_overflow=settings.DB_MAX_OVERFLOW,
     pool_timeout=settings.DB_POOL_TIMEOUT,
     pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_use_lifo=True,
 )
 
 
@@ -25,7 +26,7 @@ def _set_mysql_session_timezone(dbapi_connection, connection_record):
         cursor.close()
 
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
 
 
 class Base(DeclarativeBase):
