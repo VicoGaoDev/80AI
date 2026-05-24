@@ -57,6 +57,9 @@ class UserHistoryCardItem(BaseModel):
     display_id: str = ""
     task_id: str | None = None
     image_id: int | None = None
+    user_id: str = ""
+    username: str = ""
+    avatar_url: str = ""
     is_pinned: bool = False
     pinned_at: datetime | None = None
     image_url: str = ""

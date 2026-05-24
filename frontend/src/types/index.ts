@@ -111,6 +111,9 @@ export interface UserHistoryCard {
   display_id?: string;
   task_id?: string | null;
   image_id?: number | null;
+  user_id?: string;
+  username?: string;
+  avatar_url?: string;
   is_pinned: boolean;
   pinned_at?: string | null;
   image_url: string;

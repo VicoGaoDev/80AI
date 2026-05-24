@@ -152,6 +152,28 @@ export function getAdminHistoryDetail(payload: {
   });
 }
 
+export function getAdminHistoryCards(
+  page: number = 1,
+  pageSize: number = 20,
+  filters: Pick<HistoryFilter, "mode" | "source" | "model" | "prompt" | "status" | "user_id" | "start_date" | "end_date" | "include_prompt_reverse"> = {},
+): Promise<{ total: number; items: UserHistoryCard[] }> {
+  return client.get("/admin/history/cards", {
+    params: {
+      page,
+      page_size: pageSize,
+      include_prompt_reverse: filters.include_prompt_reverse,
+      mode: filters.mode,
+      source: filters.source,
+      model: filters.model,
+      prompt: filters.prompt?.trim() || undefined,
+      status: filters.status,
+      user_id: filters.user_id,
+      start_date: filters.start_date,
+      end_date: filters.end_date,
+    },
+  });
+}
+
 export function listAdminFeedbacks(
   page = 1,
   pageSize = 20,

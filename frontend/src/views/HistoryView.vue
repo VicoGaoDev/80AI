@@ -15,6 +15,7 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons-vue";
 import { useRouter } from "vue-router";
+import { getAdminHistoryCards, listUsers } from "@/api/admin";
 import { getGenerationModels, getTaskScenes } from "@/api/config";
 import { deleteHistoryTask, fetchHistory, toggleHistoryPin } from "@/api/history";
 import { getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl, resolveImageUrl } from "@/api/images";
@@ -22,21 +23,31 @@ import { deletePromptHistory } from "@/api/auth";
 import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import { withBaseUrl } from "@/lib/assets";
-import type { GenerationModelOption, TaskSceneConfig, TaskSource, TaskType, UserHistoryCard } from "@/types";
+import { useAuthStore } from "@/stores/auth";
+import type { AdminUser, GenerationModelOption, TaskSceneConfig, TaskSource, TaskType, UserHistoryCard } from "@/types";
 
+const props = withDefaults(defineProps<{
+  adminUserTasks?: boolean;
+}>(), {
+  adminUserTasks: false,
+});
 const router = useRouter();
+const auth = useAuthStore();
 const items = ref<UserHistoryCard[]>([]);
 const total = ref(0);
 const page = ref(1);
 const pageSize = ref(20);
 const loading = ref(false);
 const loadingMore = ref(false);
+const gridColumnCount = ref<5 | 6 | 7 | 8>(6);
 const typeFilter = ref<TaskType | undefined>(undefined);
 const sourceFilter = ref<TaskSource | undefined>(undefined);
 const modelFilter = ref<string | undefined>(undefined);
 const statusFilter = ref<"pending" | "processing" | "success" | "failed" | undefined>(undefined);
+const userFilter = ref<string | undefined>(undefined);
 const promptFilter = ref("");
 const dateRangeFilter = ref<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+const users = ref<AdminUser[]>([]);
 const generationModels = ref<GenerationModelOption[]>([]);
 const taskScenes = ref<TaskSceneConfig[]>([]);
 const detailOpen = ref(false);
@@ -76,6 +87,7 @@ const previewSrc = ref("");
 const feedbackDialogOpen = ref(false);
 const feedbackTarget = ref<UserHistoryCard | null>(null);
 const pinningKeys = ref<string[]>([]);
+const isAdminHistoryView = computed(() => props.adminUserTasks && auth.isAdmin);
 
 const modelOptions = computed(() => {
   const optionMap = new Map<string, string>();
@@ -98,11 +110,15 @@ const activeFilterCount = computed(() => {
   if (sourceFilter.value) count += 1;
   if (modelFilter.value) count += 1;
   if (statusFilter.value) count += 1;
+  if (isAdminHistoryView.value && userFilter.value) count += 1;
   if (promptFilter.value.trim()) count += 1;
   if (dateRangeFilter.value) count += 1;
   return count;
 });
 const hasMoreHistory = computed(() => items.value.length < total.value);
+const historyGridStyle = computed(() => ({
+  "--history-grid-columns": String(gridColumnCount.value),
+}));
 
 const currentPageIds = computed(() => (
   items.value
@@ -151,6 +167,7 @@ function getHistoryQuery() {
     mode: typeFilter.value,
     source: sourceFilter.value,
     model: modelFilter.value,
+    user_id: isAdminHistoryView.value ? userFilter.value : undefined,
     prompt: promptFilter.value,
     status: statusFilter.value,
     start_date: dateRangeFilter.value?.[0].startOf("day").toISOString(),
@@ -169,6 +186,9 @@ function syncDetail(list: UserHistoryCard[]) {
 }
 
 async function fetchHistoryPage(targetPage: number) {
+  if (isAdminHistoryView.value) {
+    return getAdminHistoryCards(targetPage, pageSize.value, getHistoryQuery());
+  }
   return fetchHistory(targetPage, pageSize.value, getHistoryQuery());
 }
 
@@ -234,8 +254,18 @@ async function loadModels() {
   }
 }
 
+async function loadUsers() {
+  if (!isAdminHistoryView.value) return;
+  try {
+    users.value = (await listUsers()).filter((item) => !item.is_whitelisted);
+  } catch {
+    users.value = [];
+  }
+}
+
 onMounted(loadHistory);
 onMounted(loadModels);
+onMounted(loadUsers);
 onBeforeUnmount(() => {
   stopHistoryPolling();
   if (filterDebounceTimer) {
@@ -284,6 +314,7 @@ function resetFilters() {
   sourceFilter.value = undefined;
   modelFilter.value = undefined;
   statusFilter.value = undefined;
+  userFilter.value = undefined;
   promptFilter.value = "";
   dateRangeFilter.value = null;
 }
@@ -294,6 +325,7 @@ watch(
     sourceFilter,
     modelFilter,
     statusFilter,
+    userFilter,
     promptFilter,
     dateRangeFilter,
   ],
@@ -348,6 +380,10 @@ function openDetail(item: UserHistoryCard) {
 }
 
 function openFeedbackDialog(item: UserHistoryCard) {
+  if (isAdminHistoryView.value) {
+    message.warning("管理员查看全量历史时暂不支持代用户反馈");
+    return;
+  }
   if (!item.task_id) {
     message.warning("当前记录暂不支持反馈");
     return;
@@ -421,7 +457,7 @@ function isPinning(item: UserHistoryCard) {
 }
 
 function canPinHistoryItem(item: UserHistoryCard) {
-  return item.status !== "failed";
+  return !isAdminHistoryView.value && item.status !== "failed";
 }
 
 function clearSelection() {
@@ -478,6 +514,10 @@ async function downloadBlob(imageId: number, imageUrl: string) {
 }
 
 async function handleDelete(item: UserHistoryCard) {
+  if (isAdminHistoryView.value) {
+    message.warning("管理员查看全量历史时暂不支持删除用户历史");
+    return;
+  }
   Modal.confirm({
     title: item.mode === "promptReverse" ? "确认删除这条反推记录？" : "确认删除这个任务？",
     content: item.mode === "promptReverse"
@@ -616,6 +656,10 @@ async function deleteSelectedItems() {
 }
 
 function handleBatchDelete() {
+  if (isAdminHistoryView.value) {
+    message.warning("管理员查看全量历史时暂不支持批量删除");
+    return;
+  }
   if (!selectedCount.value) {
     message.warning("请先选择需要删除的记录");
     return;
@@ -708,8 +752,10 @@ function handleEditImage(item: UserHistoryCard) {
           <ClockCircleOutlined />
         </div>
         <div>
-          <div class="warm-page-title history-topbar-title">历史记录</div>
-          <div class="warm-page-desc">按结果图查看历史任务，详情中可查看完整参数并重新编辑。</div>
+          <div class="warm-page-title history-topbar-title">{{ isAdminHistoryView ? "用户任务" : "历史记录" }}</div>
+          <div class="warm-page-desc">
+            {{ isAdminHistoryView ? "管理员可查看所有用户的历史图片，并按用户或任务条件筛选。" : "按结果图查看历史任务，详情中可查看完整参数并重新编辑。" }}
+          </div>
         </div>
       </div>
       <div class="history-topbar-meta">
@@ -740,6 +786,24 @@ function handleEditImage(item: UserHistoryCard) {
         <a-select-option value="success">成功</a-select-option>
         <a-select-option value="failed">失败</a-select-option>
       </a-select>
+      <a-select
+        v-if="isAdminHistoryView"
+        v-model:value="userFilter"
+        placeholder="全部用户"
+        style="width: 190px"
+        allow-clear
+        show-search
+        option-filter-prop="label"
+      >
+        <a-select-option
+          v-for="user in users"
+          :key="user.id"
+          :value="user.id"
+          :label="user.username"
+        >
+          {{ user.username }}
+        </a-select-option>
+      </a-select>
       <a-input
         v-model:value="promptFilter"
         placeholder="按提示词筛选"
@@ -751,6 +815,12 @@ function handleEditImage(item: UserHistoryCard) {
         :placeholder="['开始日期', '结束日期']"
         style="width: 250px"
       />
+      <a-select v-model:value="gridColumnCount" placeholder="每行列数" style="width: 128px">
+        <a-select-option :value="5">5 列</a-select-option>
+        <a-select-option :value="6">6 列</a-select-option>
+        <a-select-option :value="7">7 列</a-select-option>
+        <a-select-option :value="8">8 列</a-select-option>
+      </a-select>
       <a-button class="history-filter-btn history-filter-btn-secondary" @click="resetFilters">重置</a-button>
       <a-tooltip :title="batchMode ? '退出批量模式' : '进入批量模式'">
         <a-button
@@ -794,6 +864,7 @@ function handleEditImage(item: UserHistoryCard) {
             批量下载
           </a-button>
           <a-button
+            v-if="!isAdminHistoryView"
             danger
             size="small"
             class="history-batch-btn history-batch-btn-danger"
@@ -811,7 +882,7 @@ function handleEditImage(item: UserHistoryCard) {
         <a-empty :description="activeFilterCount ? '没有符合条件的历史记录' : '暂无生成记录'" />
       </div>
 
-      <TransitionGroup v-else name="history-card" tag="div" class="history-grid">
+      <TransitionGroup v-else name="history-card" tag="div" class="history-grid" :style="historyGridStyle">
         <div
           v-for="(item, index) in items"
           :key="getHistoryItemKey(item)"
@@ -829,6 +900,12 @@ function handleEditImage(item: UserHistoryCard) {
               '--history-pending-bg-image': `url('${generateEmptyStateAsset}')`,
             }"
           >
+            <div v-if="isAdminHistoryView" class="result-card-user" @click.stop>
+              <a-avatar :size="22" :src="item.avatar_url || undefined" class="result-card-user-avatar">
+                {{ item.username?.charAt(0)?.toUpperCase() }}
+              </a-avatar>
+              <span class="result-card-user-name">{{ item.username || "未知用户" }}</span>
+            </div>
             <div v-if="batchMode" class="result-card-select" @click.stop>
               <a-checkbox
                 :checked="typeof item.image_id === 'number' ? isSelected(item.image_id) : false"
@@ -868,7 +945,7 @@ function handleEditImage(item: UserHistoryCard) {
               class="history-overlay-actions history-overlay-actions-top"
               :class="{ 'history-overlay-actions-with-persistent-pin': canPinHistoryItem(item) && item.is_pinned }"
             >
-              <a-tooltip v-if="item.task_id" title="反馈">
+              <a-tooltip v-if="!isAdminHistoryView && item.task_id" title="反馈">
                 <a-button
                   shape="circle"
                   type="text"
@@ -890,7 +967,7 @@ function handleEditImage(item: UserHistoryCard) {
                   <template #icon><PushpinOutlined /></template>
                 </a-button>
               </a-tooltip>
-              <a-tooltip v-if="!isHistoryItemPending(item.status)" title="删除">
+              <a-tooltip v-if="!isAdminHistoryView && !isHistoryItemPending(item.status)" title="删除">
                 <a-button shape="circle" type="text" class="history-overlay-btn history-overlay-btn-danger" @click.stop="handleDelete(item)">
                   <template #icon><DeleteOutlined /></template>
                 </a-button>
@@ -1244,7 +1321,7 @@ function handleEditImage(item: UserHistoryCard) {
 
 .history-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--history-grid-columns, 6), minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1291,6 +1368,48 @@ function handleEditImage(item: UserHistoryCard) {
   &:hover .result-card-model {
     color: var(--theme-accent-text-hover);
   }
+}
+
+.result-card-user {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 24px);
+  min-width: 0;
+  padding: 5px 8px 5px 5px;
+  border: 1px solid rgba(255, 240, 214, 0.18);
+  border-radius: 999px;
+  background: rgba(76, 52, 26, 0.58);
+  color: #fff7ea;
+  box-shadow: 0 10px 20px rgba(34, 22, 10, 0.22);
+  backdrop-filter: blur(10px);
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.result-card-user-avatar {
+  flex: 0 0 auto;
+  background: var(--theme-accent);
+  color: var(--theme-accent-contrast);
+}
+
+.result-card-user-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .history-page .result-card-user {
+  border-color: var(--theme-panel-border);
+  background: rgba(var(--theme-surface-strong-rgb), 0.9);
+  color: var(--theme-accent-text);
+  box-shadow: 0 10px 20px var(--theme-shadow-soft);
 }
 
 .result-card-select {
@@ -1920,21 +2039,4 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .history-page .history-ove
   }
 }
 
-@media (max-width: 1680px) {
-  .history-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1440px) {
-  .history-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1180px) {
-  .history-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
 </style>

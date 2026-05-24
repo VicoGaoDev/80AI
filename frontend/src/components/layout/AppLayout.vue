@@ -80,12 +80,13 @@ const routeOrder = new Map<string, number>([
   ["/admin/users", 12],
   ["/admin/redeem-keys", 13],
   ["/admin/dashboard", 14],
-  ["/admin/feedbacks", 15],
-  ["/admin/feedbacks/:feedbackId", 16],
-  ["/admin/system-messages", 17],
-  ["/admin/api-key", 18],
-  ["/admin/cos-config", 19],
-  ["/admin/external-api-configs", 20],
+  ["/admin/user-tasks", 15],
+  ["/admin/feedbacks", 16],
+  ["/admin/feedbacks/:feedbackId", 17],
+  ["/admin/system-messages", 18],
+  ["/admin/api-key", 19],
+  ["/admin/cos-config", 20],
+  ["/admin/external-api-configs", 21],
 ]);
 
 const currentTheme = ref<AppThemeName>(getCurrentTheme());
@@ -120,6 +121,7 @@ const adminMenuItems = computed(() =>
     { key: "/admin/templates", label: "模版管理", icon: PictureOutlined, superAdminOnly: false },
     { key: "/admin/users", label: "用户管理", icon: TeamOutlined, superAdminOnly: false },
     { key: "/admin/dashboard", label: "数据统计", icon: BarChartOutlined, superAdminOnly: false },
+    { key: "/admin/user-tasks", label: "用户任务", icon: PictureOutlined, superAdminOnly: false },
     { key: "/admin/redeem-keys", label: "兑换码管理", icon: GiftOutlined, superAdminOnly: false },
     { key: "/admin/feedbacks", label: "用户反馈", icon: MessageOutlined, superAdminOnly: false },
     { key: "/admin/system-messages", label: "系统邮件", icon: MailOutlined, superAdminOnly: false },
@@ -128,7 +130,7 @@ const adminMenuItems = computed(() =>
   ].filter((item) => !item.superAdminOnly || isSuperAdmin.value)
 );
 const adminMenuBaseItems = computed(() =>
-  adminMenuItems.value.filter((item) => ["/admin/templates", "/admin/users", "/admin/dashboard", "/admin/redeem-keys"].includes(item.key))
+  adminMenuItems.value.filter((item) => ["/admin/templates", "/admin/users", "/admin/dashboard", "/admin/user-tasks", "/admin/redeem-keys"].includes(item.key))
 );
 const adminMenuNoticeItems = computed(() =>
   adminMenuItems.value.filter((item) => ["/admin/feedbacks", "/admin/system-messages"].includes(item.key))

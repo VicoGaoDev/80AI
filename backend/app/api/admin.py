@@ -18,7 +18,7 @@ from app.schemas.feedback import (
     FeedbackUnresolvedCountResponse,
     FeedbackUpdateRequest,
 )
-from app.schemas.history import HistoryResponse, UserHistoryCardItem
+from app.schemas.history import HistoryResponse, UserHistoryCardItem, UserHistoryResponse
 from app.services.business_id_service import get_user_by_business_id
 from app.services.admin_service import (
     create_user, list_users, update_user_status, update_user_role,
@@ -32,7 +32,7 @@ from app.services.feedback_service import (
     list_feedbacks,
     update_feedback,
 )
-from app.services.history_service import get_admin_history_detail, get_all_history
+from app.services.history_service import get_admin_history_cards, get_admin_history_detail, get_all_history
 
 router = APIRouter(prefix="/api/admin", tags=["管理员"])
 
@@ -316,6 +316,38 @@ def admin_history_detail(
         raise HTTPException(status_code=400, detail="无效的历史记录标识")
     except LookupError:
         raise HTTPException(status_code=404, detail="历史记录不存在")
+
+
+@router.get("/history/cards", response_model=UserHistoryResponse)
+def admin_history_cards(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    include_prompt_reverse: bool = Query(True),
+    mode: Optional[str] = Query(None, pattern="^(text_generate|image_edit|inpaint|promptReverse)$"),
+    source: Optional[str] = Query(None, pattern="^(web|app)$"),
+    model: Optional[str] = Query(None),
+    prompt: Optional[str] = Query(None),
+    status: Optional[str] = Query(None, pattern="^(pending|processing|success|failed)$"),
+    user_id: Optional[str] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return get_admin_history_cards(
+        db,
+        page,
+        page_size,
+        include_prompt_reverse=include_prompt_reverse,
+        user_id=_resolve_optional_user_id(db, user_id),
+        mode=mode,
+        source=source,
+        model=model,
+        prompt=prompt,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
 
 @router.get("/feedback", response_model=FeedbackListResponse)

@@ -137,6 +137,9 @@ def _serialize_task_history_detail(task: Task, *, cos_config, scene_type_map: di
         "display_id": task_external_id(task),
         "task_id": task_external_id(task),
         "image_id": primary_image.id if primary_image else None,
+            "user_id": user_external_id(task.user),
+            "username": task.user.username if task.user else "",
+            "avatar_url": task.user.avatar_url or "" if task.user else "",
         "is_pinned": False,
         "pinned_at": None,
         "image_url": primary_image_payload["image_url"],
@@ -172,12 +175,17 @@ def _serialize_task_history_detail(task: Task, *, cos_config, scene_type_map: di
 
 def _serialize_prompt_history_detail(row: PromptHistory, *, cos_config) -> dict:
     source_asset = serialize_asset_urls(row.source_image or "", cos_config=cos_config)
+    db = Session.object_session(row)
+    user = db.query(User).filter(User.id == row.user_id).first() if db else None
     return {
         "history_id": row.id,
         "item_type": "prompt_history",
         "display_id": f"PR-{row.id}",
         "task_id": None,
         "image_id": -row.id,
+        "user_id": user_external_id(user),
+        "username": user.username if user else "",
+        "avatar_url": (user.avatar_url or "") if user else "",
         "is_pinned": False,
         "pinned_at": None,
         "image_url": "",
@@ -227,6 +235,7 @@ def get_user_history(
 ):
     cos_config = get_optional_cos_config(db)
     scene_type_map = get_task_scene_type_map(db)
+    current_user = db.query(User).filter(User.id == user_id).first()
     history_pins = (
         db.query(HistoryPin)
         .filter(HistoryPin.user_id == user_id)
@@ -353,6 +362,9 @@ def get_user_history(
             "display_id": task_external_id(task),
             "task_id": task_external_id(task),
             "image_id": image.id,
+            "user_id": user_external_id(current_user),
+            "username": current_user.username if current_user else "",
+            "avatar_url": (current_user.avatar_url or "") if current_user else "",
             "is_pinned": is_pinned,
             "pinned_at": pinned_at,
             "image_url": image_payload["image_url"],
@@ -394,6 +406,9 @@ def get_user_history(
             "display_id": f"PR-{row.id}",
             "task_id": None,
             "image_id": -row.id,
+            "user_id": user_external_id(current_user),
+            "username": current_user.username if current_user else "",
+            "avatar_url": (current_user.avatar_url or "") if current_user else "",
             "is_pinned": is_pinned,
             "pinned_at": pinned_at,
             "image_url": "",
@@ -699,6 +714,401 @@ def get_all_history(
     paged_items = items[start_index:start_index + page_size]
 
     return {"total": total, "total_credit_cost": total_credit_cost, "items": paged_items}
+
+
+def get_admin_history_cards(
+    db: Session,
+    page: int = 1,
+    page_size: int = 20,
+    *,
+    include_prompt_reverse: bool = True,
+    user_id: int | None = None,
+    mode: str | None = None,
+    source: str | None = None,
+    model: str | None = None,
+    prompt: str | None = None,
+    status: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+):
+    cos_config = get_optional_cos_config(db)
+    scene_type_map = get_task_scene_type_map(db)
+    running_statuses = ["pending", "queued", "processing"]
+    image_query = (
+        db.query(Image)
+        .join(Task, Image.task_id == Task.id)
+        .join(User, User.id == Task.user_id)
+        .options(selectinload(Image.task).selectinload(Task.images), selectinload(Image.task).selectinload(Task.user))
+        .filter(User.role != "superadmin")
+        .filter(User.is_whitelisted.is_(False))
+        .filter(Task.is_deleted.is_(False))
+        .filter(Image.is_deleted.is_(False))
+    )
+    running_task_query = (
+        db.query(Task)
+        .join(User, User.id == Task.user_id)
+        .options(selectinload(Task.images), selectinload(Task.user))
+        .filter(User.role != "superadmin")
+        .filter(User.is_whitelisted.is_(False))
+        .filter(Task.is_deleted.is_(False))
+        .filter(Task.status.in_(running_statuses))
+    )
+    task_without_image_query = (
+        db.query(Task)
+        .join(User, User.id == Task.user_id)
+        .options(selectinload(Task.images), selectinload(Task.user))
+        .filter(User.role != "superadmin")
+        .filter(User.is_whitelisted.is_(False))
+        .filter(Task.is_deleted.is_(False))
+        .filter(~Task.status.in_(running_statuses))
+        .filter(~Task.images.any(Image.is_deleted.is_(False)))
+    )
+    prompt_reverse_query = None
+    if include_prompt_reverse:
+        prompt_reverse_query = (
+            db.query(PromptHistory)
+            .join(User, User.id == PromptHistory.user_id)
+            .filter(
+                PromptHistory.mode == PROMPT_REVERSE_MODE,
+                User.role != "superadmin",
+                User.is_whitelisted.is_(False),
+            )
+        )
+
+    if user_id is not None:
+        image_query = image_query.filter(Task.user_id == user_id)
+        running_task_query = running_task_query.filter(Task.user_id == user_id)
+        task_without_image_query = task_without_image_query.filter(Task.user_id == user_id)
+        if prompt_reverse_query is not None:
+            prompt_reverse_query = prompt_reverse_query.filter(PromptHistory.user_id == user_id)
+    if mode:
+        if mode == TASK_TYPE_PROMPT_REVERSE:
+            image_query = image_query.filter(Task.id.is_(None))
+            running_task_query = running_task_query.filter(Task.id.is_(None))
+            task_without_image_query = task_without_image_query.filter(Task.id.is_(None))
+        elif mode == TASK_TYPE_INPAINT:
+            image_query = image_query.filter(or_(Task.mode == "inpaint", Task.model == "inpaint"))
+            running_task_query = running_task_query.filter(or_(Task.mode == "inpaint", Task.model == "inpaint"))
+            task_without_image_query = task_without_image_query.filter(or_(Task.mode == "inpaint", Task.model == "inpaint"))
+            prompt_reverse_query = None
+        elif mode == TASK_TYPE_TEXT_GENERATE:
+            text_generate_models = [key for key, value in scene_type_map.items() if value == "generate"]
+            image_query = image_query.filter(Task.mode == "generate")
+            image_query = image_query.filter(Task.model.in_(text_generate_models)) if text_generate_models else image_query.filter(Task.id.is_(None))
+            running_task_query = running_task_query.filter(Task.mode == "generate")
+            running_task_query = running_task_query.filter(Task.model.in_(text_generate_models)) if text_generate_models else running_task_query.filter(Task.id.is_(None))
+            task_without_image_query = task_without_image_query.filter(Task.mode == "generate")
+            task_without_image_query = task_without_image_query.filter(Task.model.in_(text_generate_models)) if text_generate_models else task_without_image_query.filter(Task.id.is_(None))
+            prompt_reverse_query = None
+        elif mode == TASK_TYPE_IMAGE_EDIT:
+            image_edit_models = [key for key, value in scene_type_map.items() if value == "image_edit"]
+            image_query = image_query.filter(Task.mode == "generate")
+            image_query = image_query.filter(Task.model.in_(image_edit_models)) if image_edit_models else image_query.filter(Task.id.is_(None))
+            running_task_query = running_task_query.filter(Task.mode == "generate")
+            running_task_query = running_task_query.filter(Task.model.in_(image_edit_models)) if image_edit_models else running_task_query.filter(Task.id.is_(None))
+            task_without_image_query = task_without_image_query.filter(Task.mode == "generate")
+            task_without_image_query = task_without_image_query.filter(Task.model.in_(image_edit_models)) if image_edit_models else task_without_image_query.filter(Task.id.is_(None))
+            prompt_reverse_query = None
+        else:
+            image_query = image_query.filter(Task.mode == mode)
+            running_task_query = running_task_query.filter(Task.mode == mode)
+            task_without_image_query = task_without_image_query.filter(Task.mode == mode)
+            if mode != PROMPT_REVERSE_MODE:
+                prompt_reverse_query = None
+    if source:
+        image_query = image_query.filter(Task.source == source)
+        running_task_query = running_task_query.filter(Task.source == source)
+        task_without_image_query = task_without_image_query.filter(Task.source == source)
+        if source != "web":
+            prompt_reverse_query = None
+    if model:
+        image_query = image_query.filter(Task.model == model)
+        running_task_query = running_task_query.filter(Task.model == model)
+        task_without_image_query = task_without_image_query.filter(Task.model == model)
+        if model != PROMPT_REVERSE_MODEL:
+            prompt_reverse_query = None
+    if prompt:
+        keyword = prompt.strip()
+        if keyword:
+            image_query = image_query.filter(Task.prompt.ilike(f"%{keyword}%"))
+            running_task_query = running_task_query.filter(Task.prompt.ilike(f"%{keyword}%"))
+            task_without_image_query = task_without_image_query.filter(Task.prompt.ilike(f"%{keyword}%"))
+            if prompt_reverse_query is not None:
+                prompt_reverse_query = prompt_reverse_query.filter(PromptHistory.prompt.ilike(f"%{keyword}%"))
+    if status:
+        if status == "processing":
+            image_query = image_query.filter(Task.id.is_(None))
+            running_task_query = running_task_query.filter(Task.status == "processing")
+            task_without_image_query = task_without_image_query.filter(Task.status == "processing")
+            prompt_reverse_query = None
+        elif status == "pending":
+            image_query = image_query.filter(Task.id.is_(None))
+            running_task_query = running_task_query.filter(Task.status.in_(["pending", "queued"]))
+            task_without_image_query = task_without_image_query.filter(Task.status.in_(["pending", "queued"]))
+            prompt_reverse_query = None
+        elif status == "failed":
+            image_query = image_query.filter(or_(Image.status == "failed", and_(Image.status == "pending", Task.status == "failed")))
+            running_task_query = running_task_query.filter(Task.id.is_(None))
+            task_without_image_query = task_without_image_query.filter(Task.status == "failed")
+            prompt_reverse_query = None
+        else:
+            image_query = image_query.filter(Image.status == status)
+            running_task_query = running_task_query.filter(Task.id.is_(None))
+            task_without_image_query = task_without_image_query.filter(Task.status == status)
+    else:
+        image_query = image_query.filter(~Task.status.in_(running_statuses))
+    if start_date:
+        image_query = image_query.filter(Task.created_at >= start_date)
+        running_task_query = running_task_query.filter(Task.created_at >= start_date)
+        task_without_image_query = task_without_image_query.filter(Task.created_at >= start_date)
+        if prompt_reverse_query is not None:
+            prompt_reverse_query = prompt_reverse_query.filter(PromptHistory.created_at >= start_date)
+    if end_date:
+        image_query = image_query.filter(Task.created_at <= end_date)
+        running_task_query = running_task_query.filter(Task.created_at <= end_date)
+        task_without_image_query = task_without_image_query.filter(Task.created_at <= end_date)
+        if prompt_reverse_query is not None:
+            prompt_reverse_query = prompt_reverse_query.filter(PromptHistory.created_at <= end_date)
+
+    start_index = (page - 1) * page_size
+    fetch_limit = start_index + page_size + 1
+    images = (
+        image_query
+        .order_by(Task.created_at.desc(), Image.id.desc())
+        .limit(fetch_limit)
+        .all()
+    )
+    running_tasks = (
+        running_task_query
+        .order_by(Task.created_at.desc(), Task.id.desc())
+        .limit(fetch_limit)
+        .all()
+    )
+    tasks_without_images = (
+        task_without_image_query
+        .order_by(Task.created_at.desc(), Task.id.desc())
+        .limit(fetch_limit)
+        .all()
+    )
+    prompt_reverse_rows = (
+        prompt_reverse_query
+        .order_by(PromptHistory.created_at.desc(), PromptHistory.id.desc())
+        .limit(fetch_limit)
+        .all()
+        if prompt_reverse_query is not None
+        else []
+    )
+
+    user_ids = (
+        {image.task.user_id for image in images if image.task}
+        | {task.user_id for task in running_tasks}
+        | {task.user_id for task in tasks_without_images}
+        | {row.user_id for row in prompt_reverse_rows}
+    )
+    user_cache = {
+        user.id: user
+        for user in db.query(User).filter(User.id.in_(user_ids)).all()
+    } if user_ids else {}
+    items = []
+    for image in images:
+        task = image.task
+        task_user = user_cache.get(task.user_id) if task else None
+        task_credit_cost = int(task.credit_cost or 0) if task else 0
+        credit_refunded = False
+        if task and task.status == "failed" and task_credit_cost > 0:
+            credit_refunded = is_task_generation_failure_credit_refunded(db, task.id)
+        image_payload = serialize_image(image, cos_config=cos_config)
+        source_asset = serialize_asset_urls(task.source_image or "", cos_config=cos_config)
+        mask_asset = serialize_asset_urls(task.mask_image or "", cos_config=cos_config)
+        reference_assets = [serialize_asset_urls(ref, cos_config=cos_config) for ref in _parse_refs(task.reference_images)]
+        visible_images = _serialize_history_images(task.images, cos_config=cos_config)
+        items.append({
+            "history_id": None,
+            "item_type": "task",
+            "display_id": task_external_id(task),
+            "task_id": task_external_id(task),
+            "image_id": image.id,
+            "user_id": user_external_id(task_user),
+            "username": task_user.username if task_user else "",
+            "avatar_url": (task_user.avatar_url or "") if task_user else "",
+            "is_pinned": False,
+            "pinned_at": None,
+            "image_url": image_payload["image_url"],
+            "preview_url": image_payload["preview_url"],
+            "thumb_url": image_payload["thumb_url"],
+            "status": _resolve_history_card_status(task.status, image.status),
+            "image_format": image_payload["image_format"],
+            "image_size_bytes": image_payload["image_size_bytes"],
+            "task_is_deleted": False,
+            "is_soft_deleted": False,
+            "task_type": resolve_task_type_for_task(task, scene_type_map=scene_type_map),
+            "model": task.model or "",
+            "source": task.source or "web",
+            "mode": task.mode or "generate",
+            "prompt": task.prompt or "",
+            "reference_images": [asset["image_url"] for asset in reference_assets],
+            "reference_image_thumbs": [asset["thumb_url"] for asset in reference_assets],
+            "source_image": source_asset["image_url"],
+            "source_image_thumb": source_asset["thumb_url"],
+            "mask_image": mask_asset["image_url"],
+            "mask_image_thumb": mask_asset["thumb_url"],
+            "num_images": task.num_images,
+            "size": task.size,
+            "resolution": task.resolution or "",
+            "custom_size": task.custom_size or "",
+            "credit_cost": task_credit_cost,
+            "credit_refunded": credit_refunded,
+            "created_at": task.created_at,
+            "error_message": task.error_message or "",
+            "images": visible_images,
+        })
+
+    for task in running_tasks:
+        task_user = user_cache.get(task.user_id)
+        source_asset = serialize_asset_urls(task.source_image or "", cos_config=cos_config)
+        mask_asset = serialize_asset_urls(task.mask_image or "", cos_config=cos_config)
+        reference_assets = [serialize_asset_urls(ref, cos_config=cos_config) for ref in _parse_refs(task.reference_images)]
+        visible_images = _serialize_history_images(task.images, cos_config=cos_config)
+        primary_image = next((image for image in visible_images if not image.get("is_deleted")), None)
+        items.append({
+            "history_id": None,
+            "item_type": "task",
+            "display_id": task_external_id(task),
+            "task_id": task_external_id(task),
+            "image_id": primary_image["id"] if primary_image else None,
+            "user_id": user_external_id(task_user),
+            "username": task_user.username if task_user else "",
+            "avatar_url": (task_user.avatar_url or "") if task_user else "",
+            "is_pinned": False,
+            "pinned_at": None,
+            "image_url": primary_image["image_url"] if primary_image else "",
+            "preview_url": primary_image["preview_url"] if primary_image else "",
+            "thumb_url": primary_image["thumb_url"] if primary_image else "",
+            "status": task.status or "pending",
+            "image_format": primary_image["image_format"] if primary_image else "",
+            "image_size_bytes": primary_image["image_size_bytes"] if primary_image else 0,
+            "task_is_deleted": False,
+            "is_soft_deleted": False,
+            "task_type": resolve_task_type_for_task(task, scene_type_map=scene_type_map),
+            "model": task.model or "",
+            "source": task.source or "web",
+            "mode": task.mode or "generate",
+            "prompt": task.prompt or "",
+            "reference_images": [asset["image_url"] for asset in reference_assets],
+            "reference_image_thumbs": [asset["thumb_url"] for asset in reference_assets],
+            "source_image": source_asset["image_url"],
+            "source_image_thumb": source_asset["thumb_url"],
+            "mask_image": mask_asset["image_url"],
+            "mask_image_thumb": mask_asset["thumb_url"],
+            "num_images": task.num_images,
+            "size": task.size,
+            "resolution": task.resolution or "",
+            "custom_size": task.custom_size or "",
+            "credit_cost": int(task.credit_cost or 0),
+            "credit_refunded": False,
+            "created_at": task.created_at,
+            "error_message": task.error_message or "",
+            "images": visible_images,
+        })
+
+    for task in tasks_without_images:
+        task_user = user_cache.get(task.user_id)
+        task_credit_cost = int(task.credit_cost or 0)
+        credit_refunded = False
+        if task.status == "failed" and task_credit_cost > 0:
+            credit_refunded = is_task_generation_failure_credit_refunded(db, task.id)
+        source_asset = serialize_asset_urls(task.source_image or "", cos_config=cos_config)
+        mask_asset = serialize_asset_urls(task.mask_image or "", cos_config=cos_config)
+        reference_assets = [serialize_asset_urls(ref, cos_config=cos_config) for ref in _parse_refs(task.reference_images)]
+        items.append({
+            "history_id": None,
+            "item_type": "task",
+            "display_id": task_external_id(task),
+            "task_id": task_external_id(task),
+            "image_id": None,
+            "user_id": user_external_id(task_user),
+            "username": task_user.username if task_user else "",
+            "avatar_url": (task_user.avatar_url or "") if task_user else "",
+            "is_pinned": False,
+            "pinned_at": None,
+            "image_url": "",
+            "preview_url": "",
+            "thumb_url": "",
+            "status": task.status or "pending",
+            "image_format": "",
+            "image_size_bytes": 0,
+            "task_is_deleted": False,
+            "is_soft_deleted": False,
+            "task_type": resolve_task_type_for_task(task, scene_type_map=scene_type_map),
+            "model": task.model or "",
+            "source": task.source or "web",
+            "mode": task.mode or "generate",
+            "prompt": task.prompt or "",
+            "reference_images": [asset["image_url"] for asset in reference_assets],
+            "reference_image_thumbs": [asset["thumb_url"] for asset in reference_assets],
+            "source_image": source_asset["image_url"],
+            "source_image_thumb": source_asset["thumb_url"],
+            "mask_image": mask_asset["image_url"],
+            "mask_image_thumb": mask_asset["thumb_url"],
+            "num_images": task.num_images,
+            "size": task.size,
+            "resolution": task.resolution or "",
+            "custom_size": task.custom_size or "",
+            "credit_cost": task_credit_cost,
+            "credit_refunded": credit_refunded,
+            "created_at": task.created_at,
+            "error_message": task.error_message or "",
+            "images": [],
+        })
+
+    for row in prompt_reverse_rows:
+        row_user = user_cache.get(row.user_id)
+        source_asset = serialize_asset_urls(row.source_image or "", cos_config=cos_config)
+        items.append({
+            "history_id": row.id,
+            "item_type": "prompt_history",
+            "display_id": f"PR-{row.id}",
+            "task_id": None,
+            "image_id": -row.id,
+            "user_id": user_external_id(row_user),
+            "username": row_user.username if row_user else "",
+            "avatar_url": (row_user.avatar_url or "") if row_user else "",
+            "is_pinned": False,
+            "pinned_at": None,
+            "image_url": "",
+            "preview_url": "",
+            "thumb_url": "",
+            "status": "success",
+            "image_format": "",
+            "image_size_bytes": 0,
+            "task_is_deleted": False,
+            "is_soft_deleted": False,
+            "task_type": TASK_TYPE_PROMPT_REVERSE,
+            "model": PROMPT_REVERSE_MODEL,
+            "source": "web",
+            "mode": PROMPT_REVERSE_MODE,
+            "prompt": row.prompt or "",
+            "reference_images": [],
+            "reference_image_thumbs": [],
+            "source_image": source_asset["image_url"],
+            "source_image_thumb": source_asset["thumb_url"],
+            "mask_image": "",
+            "mask_image_thumb": "",
+            "num_images": 0,
+            "size": "-",
+            "resolution": "",
+            "custom_size": "",
+            "credit_cost": 0,
+            "created_at": row.created_at,
+            "error_message": "",
+            "images": [],
+        })
+
+    items.sort(key=lambda item: item.get("created_at") or datetime.min, reverse=True)
+    page_items = items[start_index:start_index + page_size]
+    has_more = len(items) > start_index + page_size
+    total = start_index + len(page_items) + (1 if has_more else 0)
+    return {"total": total, "items": page_items}
 
 
 def get_admin_history_detail(

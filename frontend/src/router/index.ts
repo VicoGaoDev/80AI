@@ -107,6 +107,13 @@ const router = createRouter({
           component: () => import("@/views/admin/DashboardView.vue"),
         },
         {
+          path: "admin/user-tasks",
+          name: "AdminUserTasks",
+          meta: { requiresAdmin: true },
+          component: () => import("@/views/HistoryView.vue"),
+          props: { adminUserTasks: true },
+        },
+        {
           path: "admin/feedbacks",
           name: "AdminFeedbackManage",
           meta: { requiresAdmin: true },
