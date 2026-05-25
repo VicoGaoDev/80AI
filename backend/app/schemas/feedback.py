@@ -13,6 +13,8 @@ class FeedbackTaskSummary(BaseModel):
     prompt: str = ""
     status: str = ""
     created_at: datetime | None = None
+    reference_images: list[str] = []
+    reference_image_thumbs: list[str] = []
     images: list[ImageOut] = []
 
 

@@ -173,6 +173,8 @@ export interface FeedbackTaskSummary {
   prompt: string;
   status: string;
   created_at?: string | null;
+  reference_images: string[];
+  reference_image_thumbs: string[];
   images: ImageResult[];
 }
 

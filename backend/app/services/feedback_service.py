@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.feedback import Feedback
 from app.models.task import Task
 from app.models.user import User
-from app.services.image_delivery_service import get_optional_cos_config, serialize_image
+from app.services.image_delivery_service import get_optional_cos_config, serialize_asset_urls, serialize_image
 from app.services.business_id_service import (
     feedback_external_id,
     get_feedback_by_business_id,
@@ -68,11 +70,29 @@ def _serialize_task_images(task: Task | None, *, db: Session) -> list[dict]:
     ]
 
 
+def _parse_reference_images(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    try:
+        refs = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [str(ref).strip() for ref in refs if str(ref or "").strip()] if isinstance(refs, list) else []
+
+
+def _serialize_task_reference_images(task: Task | None, *, db: Session) -> list[dict[str, str]]:
+    if not task:
+        return []
+    cos_config = get_optional_cos_config(db)
+    return [serialize_asset_urls(ref, cos_config=cos_config) for ref in _parse_reference_images(task.reference_images)]
+
+
 def _serialize_feedback(item: Feedback, *, db: Session, include_task_images: bool = False) -> dict:
     task = item.task
     task_user = task.user if task else None
     handler = item.handler
     scene_type_map = get_task_scene_type_map(db)
+    reference_assets = _serialize_task_reference_images(task, db=db) if include_task_images else []
     return {
         "feedback_id": feedback_external_id(item),
         "user_id": user_external_id(item.user),
@@ -98,6 +118,8 @@ def _serialize_feedback(item: Feedback, *, db: Session, include_task_images: boo
             "prompt": task.prompt if task else "",
             "status": task.status if task else "",
             "created_at": task.created_at if task else None,
+            "reference_images": [asset["image_url"] for asset in reference_assets],
+            "reference_image_thumbs": [asset["thumb_url"] for asset in reference_assets],
             "images": _serialize_task_images(task, db=db) if include_task_images else [],
         },
     }

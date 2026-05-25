@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeftOutlined, LoadingOutlined, MessageOutlined } from "@ant-design/icons-vue";
+import { ArrowLeftOutlined, CopyOutlined, LoadingOutlined, MessageOutlined } from "@ant-design/icons-vue";
 import { message } from "ant-design-vue";
 import dayjs from "dayjs";
 import { getDisplayImageUrl, getPreviewImageUrl } from "@/api/images";
@@ -31,6 +31,8 @@ const form = reactive<{
 
 const feedbackId = computed(() => String(route.params.feedbackId || ""));
 const taskImages = computed(() => detail.value?.task.images || []);
+const taskReferenceImages = computed(() => detail.value?.task.reference_images || []);
+const taskReferenceThumbs = computed(() => detail.value?.task.reference_image_thumbs || []);
 
 function statusLabel(status: FeedbackStatus) {
   return {
@@ -52,6 +54,27 @@ function formatTime(value?: string | null) {
   return value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "-";
 }
 
+function formatShortId(value?: string | null) {
+  const normalized = (value || "").trim();
+  if (!normalized) return "-";
+  if (normalized.length <= 14) return normalized;
+  return `${normalized.slice(0, 8)}...${normalized.slice(-4)}`;
+}
+
+async function copyText(value?: string | null, label = "内容") {
+  const normalized = (value || "").trim();
+  if (!normalized) {
+    message.warning(`暂无可复制的${label}`);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(normalized);
+    message.success(`${label}已复制`);
+  } catch {
+    message.error("复制失败，请重试");
+  }
+}
+
 function getModelLabel(model?: string) {
   if (!model) return "未设置";
   const matched = generationModels.value.find((item) => item.model_key === model);
@@ -64,6 +87,10 @@ function getTaskImageSrc(image: ImageResult) {
 
 function getTaskPreviewSrc(image: ImageResult) {
   return getPreviewImageUrl(image);
+}
+
+function getReferenceThumbSrc(url: string, index: number) {
+  return taskReferenceThumbs.value[index] || url;
 }
 
 function openPreview(url: string) {
@@ -159,9 +186,33 @@ onMounted(() => {
             </div>
 
             <div class="meta-grid">
-              <div><span>反馈编号</span><strong>{{ detail.feedback_id }}</strong></div>
-              <div><span>用户</span><strong>{{ detail.username }} / {{ detail.user_id }}</strong></div>
-              <div><span>任务 ID</span><strong>{{ detail.task_id }}</strong></div>
+              <div>
+                <span>反馈编号</span>
+                <strong class="copyable-id">
+                  <span :title="detail.feedback_id">{{ formatShortId(detail.feedback_id) }}</span>
+                  <a-button type="text" size="small" class="copy-id-btn" @click="copyText(detail.feedback_id, '反馈编号')">
+                    <template #icon><CopyOutlined /></template>
+                  </a-button>
+                </strong>
+              </div>
+              <div>
+                <span>用户</span>
+                <strong class="copyable-id">
+                  <span :title="detail.user_id">{{ detail.username }} / {{ formatShortId(detail.user_id) }}</span>
+                  <a-button type="text" size="small" class="copy-id-btn" @click="copyText(detail.user_id, '用户 ID')">
+                    <template #icon><CopyOutlined /></template>
+                  </a-button>
+                </strong>
+              </div>
+              <div>
+                <span>任务 ID</span>
+                <strong class="copyable-id">
+                  <span :title="detail.task_id">{{ formatShortId(detail.task_id) }}</span>
+                  <a-button type="text" size="small" class="copy-id-btn" @click="copyText(detail.task_id, '任务 ID')">
+                    <template #icon><CopyOutlined /></template>
+                  </a-button>
+                </strong>
+              </div>
               <div><span>提交时间</span><strong>{{ formatTime(detail.created_at) }}</strong></div>
               <div><span>更新时间</span><strong>{{ formatTime(detail.updated_at) }}</strong></div>
               <div><span>处理时间</span><strong>{{ formatTime(detail.handled_at) }}</strong></div>
@@ -205,12 +256,28 @@ onMounted(() => {
               <div><span>来源</span><strong>{{ detail.task.source || "-" }}</strong></div>
               <div><span>任务状态</span><strong>{{ detail.task.status || "-" }}</strong></div>
               <div><span>任务时间</span><strong>{{ formatTime(detail.task.created_at) }}</strong></div>
-              <div><span>任务归属用户</span><strong>{{ detail.task_user_id || "-" }}</strong></div>
-              <div><span>结果数量</span><strong>{{ taskImages.length || 0 }} 张</strong></div>
             </div>
             <div class="detail-block" style="margin-top: 18px">
               <div class="detail-label">任务提示词</div>
               <div class="detail-text">{{ detail.task.prompt || "-" }}</div>
+            </div>
+
+            <div v-if="taskReferenceImages.length" class="detail-block task-result-block">
+              <div class="detail-label detail-label-inline">
+                <span>任务参考图</span>
+                <small>点击缩略图可放大</small>
+              </div>
+              <div class="task-result-grid task-reference-grid">
+                <button
+                  v-for="(url, index) in taskReferenceImages"
+                  :key="url + index"
+                  type="button"
+                  class="task-result-thumb task-reference-thumb clickable"
+                  @click="openPreview(url)"
+                >
+                  <img :src="getReferenceThumbSrc(url, index)" :alt="`任务参考图 ${index + 1}`" loading="lazy" />
+                </button>
+              </div>
             </div>
 
             <div class="detail-block task-result-block">
@@ -271,7 +338,7 @@ onMounted(() => {
 
 .detail-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -297,7 +364,7 @@ onMounted(() => {
 .meta-grid,
 .task-meta-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 
   > div {
@@ -318,6 +385,27 @@ onMounted(() => {
     color: var(--theme-title);
     word-break: break-word;
   }
+}
+
+.copyable-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+
+  > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.copy-id-btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  color: var(--theme-accent-text);
 }
 
 .detail-block {
@@ -388,6 +476,11 @@ onMounted(() => {
   gap: 10px;
 }
 
+.task-reference-grid {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 72px));
+  gap: 8px;
+}
+
 .task-result-thumb {
   display: flex;
   align-items: center;
@@ -418,6 +511,14 @@ onMounted(() => {
     object-fit: cover;
     border-radius: 0;
     background: var(--theme-empty-bg);
+  }
+}
+
+.task-reference-thumb {
+  min-height: 72px;
+
+  img {
+    aspect-ratio: 1 / 1;
   }
 }
 
