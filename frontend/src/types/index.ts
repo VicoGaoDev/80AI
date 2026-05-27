@@ -548,6 +548,7 @@ export interface ExternalApiSceneBinding {
   aspect_ratio_options_json: string;
   image_size_options_json: string;
   custom_size_options_json: string;
+  resolution_mapping_json: string;
 }
 
 export interface ExternalApiSceneBindingCreatePayload {
@@ -567,6 +568,7 @@ export interface ExternalApiSceneBindingCreatePayload {
   aspect_ratio_options_json: string;
   image_size_options_json: string;
   custom_size_options_json: string;
+  resolution_mapping_json: string;
 }
 
 export interface ExternalApiSceneBindingMetaPayload {
@@ -581,6 +583,7 @@ export interface ExternalApiSceneBindingMetaPayload {
   aspect_ratio_options_json: string;
   image_size_options_json: string;
   custom_size_options_json: string;
+  resolution_mapping_json: string;
 }
 
 export interface ExternalApiConfigTestResult {

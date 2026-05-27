@@ -58,6 +58,7 @@ const DEFAULT_CUSTOM_SIZE_OPTIONS_JSON = JSON.stringify([
   { label: "896 x 1152", value: "896x1152" },
   { label: "1280 x 720", value: "1280x720" },
 ], null, 2);
+const DEFAULT_RESOLUTION_MAPPING_JSON = JSON.stringify({}, null, 2);
 const DEFAULT_IMAGE_EDIT_MAX_REFERENCE_IMAGES = 6;
 
 const configs = ref<ExternalApiConfig[]>([]);
@@ -131,6 +132,7 @@ const sceneForm = reactive<ExternalApiSceneBindingCreatePayload>({
   aspect_ratio_options_json: DEFAULT_ASPECT_RATIO_OPTIONS_JSON,
   image_size_options_json: DEFAULT_IMAGE_SIZE_OPTIONS_JSON,
   custom_size_options_json: DEFAULT_CUSTOM_SIZE_OPTIONS_JSON,
+  resolution_mapping_json: DEFAULT_RESOLUTION_MAPPING_JSON,
 });
 const sceneMetaForm = reactive<ExternalApiSceneBindingMetaPayload>({
   scene_key: "",
@@ -144,6 +146,7 @@ const sceneMetaForm = reactive<ExternalApiSceneBindingMetaPayload>({
   aspect_ratio_options_json: DEFAULT_ASPECT_RATIO_OPTIONS_JSON,
   image_size_options_json: DEFAULT_IMAGE_SIZE_OPTIONS_JSON,
   custom_size_options_json: DEFAULT_CUSTOM_SIZE_OPTIONS_JSON,
+  resolution_mapping_json: DEFAULT_RESOLUTION_MAPPING_JSON,
 });
 
 const modalTitle = computed(() => {
@@ -262,6 +265,7 @@ function resetSceneForm() {
   sceneForm.aspect_ratio_options_json = DEFAULT_ASPECT_RATIO_OPTIONS_JSON;
   sceneForm.image_size_options_json = DEFAULT_IMAGE_SIZE_OPTIONS_JSON;
   sceneForm.custom_size_options_json = DEFAULT_CUSTOM_SIZE_OPTIONS_JSON;
+  sceneForm.resolution_mapping_json = DEFAULT_RESOLUTION_MAPPING_JSON;
 }
 
 function buildCopiedSceneLabel(sourceLabel: string) {
@@ -313,6 +317,7 @@ function fillSceneMetaForm(record: ExternalApiSceneBinding) {
   sceneMetaForm.aspect_ratio_options_json = record.aspect_ratio_options_json || DEFAULT_ASPECT_RATIO_OPTIONS_JSON;
   sceneMetaForm.image_size_options_json = record.image_size_options_json || DEFAULT_IMAGE_SIZE_OPTIONS_JSON;
   sceneMetaForm.custom_size_options_json = record.custom_size_options_json || DEFAULT_CUSTOM_SIZE_OPTIONS_JSON;
+  sceneMetaForm.resolution_mapping_json = record.resolution_mapping_json || DEFAULT_RESOLUTION_MAPPING_JSON;
 }
 
 watch(
@@ -345,6 +350,36 @@ function validateSceneOptionsJson(raw: string, label: string) {
       if (!optionLabel || !optionValue) {
         message.warning(`${label}第 ${index + 1} 项必须包含非空 label 和 value`);
         return false;
+      }
+    }
+    return true;
+  } catch {
+    message.warning(`${label}不是合法的 JSON`);
+    return false;
+  }
+}
+
+function validateResolutionMappingJson(raw: string, label: string) {
+  try {
+    const parsed = JSON.parse(raw || "{}");
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      message.warning(`${label}必须是 JSON 对象`);
+      return false;
+    }
+    for (const [aspectRatio, resolutionMap] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!String(aspectRatio).trim()) {
+        message.warning(`${label}的宽高比键不能为空`);
+        return false;
+      }
+      if (!resolutionMap || Array.isArray(resolutionMap) || typeof resolutionMap !== "object") {
+        message.warning(`${label}中 ${aspectRatio} 的值必须是对象`);
+        return false;
+      }
+      for (const [imageSize, mappedResolution] of Object.entries(resolutionMap as Record<string, unknown>)) {
+        if (!String(imageSize).trim() || !String(mappedResolution ?? "").trim()) {
+          message.warning(`${label}中 ${aspectRatio} 的分辨率键和值不能为空`);
+          return false;
+        }
       }
     }
     return true;
@@ -405,6 +440,7 @@ function openCopyScene(record: ExternalApiSceneBinding) {
   sceneForm.aspect_ratio_options_json = record.aspect_ratio_options_json || DEFAULT_ASPECT_RATIO_OPTIONS_JSON;
   sceneForm.image_size_options_json = record.image_size_options_json || DEFAULT_IMAGE_SIZE_OPTIONS_JSON;
   sceneForm.custom_size_options_json = record.custom_size_options_json || DEFAULT_CUSTOM_SIZE_OPTIONS_JSON;
+  sceneForm.resolution_mapping_json = record.resolution_mapping_json || DEFAULT_RESOLUTION_MAPPING_JSON;
   sceneModalOpen.value = true;
 }
 
@@ -629,6 +665,7 @@ async function handleCreateScene() {
   if (!validateSceneOptionsJson(sceneForm.aspect_ratio_options_json, "宽高比选项 JSON")) return;
   if (!validateSceneOptionsJson(sceneForm.image_size_options_json, "生图质量选项 JSON")) return;
   if (!validateSceneOptionsJson(sceneForm.custom_size_options_json, "自定义分辨率选项 JSON")) return;
+  if (!validateResolutionMappingJson(sceneForm.resolution_mapping_json, "分辨率映射 JSON")) return;
 
   bindingCreating.value = true;
   try {
@@ -649,6 +686,7 @@ async function handleCreateScene() {
       aspect_ratio_options_json: sceneForm.aspect_ratio_options_json,
       image_size_options_json: sceneForm.image_size_options_json,
       custom_size_options_json: sceneForm.custom_size_options_json,
+      resolution_mapping_json: sceneForm.resolution_mapping_json,
     });
     message.success("场景创建成功");
     sceneModalOpen.value = false;
@@ -674,6 +712,7 @@ async function handleSaveSceneMeta() {
   if (!validateSceneOptionsJson(sceneMetaForm.aspect_ratio_options_json, "宽高比选项 JSON")) return;
   if (!validateSceneOptionsJson(sceneMetaForm.image_size_options_json, "生图质量选项 JSON")) return;
   if (!validateSceneOptionsJson(sceneMetaForm.custom_size_options_json, "自定义分辨率选项 JSON")) return;
+  if (!validateResolutionMappingJson(sceneMetaForm.resolution_mapping_json, "分辨率映射 JSON")) return;
 
   sceneMetaSaving.value = true;
   try {
@@ -689,6 +728,7 @@ async function handleSaveSceneMeta() {
       aspect_ratio_options_json: sceneMetaForm.aspect_ratio_options_json,
       image_size_options_json: sceneMetaForm.image_size_options_json,
       custom_size_options_json: sceneMetaForm.custom_size_options_json,
+      resolution_mapping_json: sceneMetaForm.resolution_mapping_json,
     });
     message.success("场景基础信息已更新");
     sceneMetaModalOpen.value = false;
@@ -1027,6 +1067,7 @@ function copySecret(value: string, label: string) {
               <pre v-pre>{{ aspect_ratio }}</pre>
               <pre v-pre>{{ image_size }}</pre>
               <pre v-pre>{{ custom_size }}</pre>
+              <pre v-pre>{{ mapped_resolution }}</pre>
               <pre v-pre>{{ mode }}</pre>
             </div>
           </a-collapse-panel>
@@ -1078,6 +1119,15 @@ function copySecret(value: string, label: string) {
                 <code v-pre>{{ image_size }}</code>
                 /
                 <code v-pre>{{ custom_size }}</code>
+                。
+              </div>
+              <div class="scene-desc" style="margin-top: 8px">
+                如果第三方只接受一个分辨率参数，可在场景表单维护“分辨率映射 JSON”，系统会按
+                <code v-pre>{{ aspect_ratio }}</code>
+                +
+                <code v-pre>{{ image_size }}</code>
+                输出
+                <code v-pre>{{ mapped_resolution }}</code>
                 。
               </div>
             </div>
@@ -1232,6 +1282,20 @@ function copySecret(value: string, label: string) {
             使用 `label/value` 数组；`value` 会映射到请求里的 <code v-pre>{{ custom_size }}</code> 占位符。
           </div>
         </a-form-item>
+
+        <a-form-item label="分辨率映射 JSON">
+          <a-textarea
+            v-model:value="sceneForm.resolution_mapping_json"
+            class="warm-textarea"
+            :rows="8"
+            placeholder='{"1:1":{"2K":"2048x2048"},"3:4":{"2K":"1536x2048"}}'
+          />
+          <div class="scene-desc" style="margin-top: 6px">
+            使用 `宽高比 -> 生图质量 -> 第三方分辨率` 对象；匹配结果会映射到请求里的
+            <code v-pre>{{ mapped_resolution }}</code>
+            占位符。
+          </div>
+        </a-form-item>
       </a-form>
 
       <template #footer>
@@ -1331,6 +1395,20 @@ function copySecret(value: string, label: string) {
           />
           <div class="scene-desc" style="margin-top: 6px">
             使用 `label/value` 数组；`value` 会映射到请求里的 <code v-pre>{{ custom_size }}</code> 占位符。
+          </div>
+        </a-form-item>
+
+        <a-form-item label="分辨率映射 JSON">
+          <a-textarea
+            v-model:value="sceneMetaForm.resolution_mapping_json"
+            class="warm-textarea"
+            :rows="8"
+            placeholder='{"1:1":{"2K":"2048x2048"},"3:4":{"2K":"1536x2048"}}'
+          />
+          <div class="scene-desc" style="margin-top: 6px">
+            使用 `宽高比 -> 生图质量 -> 第三方分辨率` 对象；匹配结果会映射到请求里的
+            <code v-pre>{{ mapped_resolution }}</code>
+            占位符。
           </div>
         </a-form-item>
       </a-form>
