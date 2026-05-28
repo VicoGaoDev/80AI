@@ -3,7 +3,14 @@ import { reactive, ref, onMounted } from "vue";
 import { message, Modal } from "ant-design-vue";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
-import { CopyOutlined, EyeInvisibleOutlined, EyeOutlined, KeyOutlined, PlusOutlined } from "@ant-design/icons-vue";
+import {
+  BookOutlined,
+  CopyOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined,
+  KeyOutlined,
+  PlusOutlined,
+} from "@ant-design/icons-vue";
 import {
   createUserApiKey,
   deleteUserApiKey,
@@ -148,6 +155,10 @@ function fmtTime(t?: string | null) {
       })
     : "永不过期";
 }
+
+function openApiDocs() {
+  window.open("https://80ai.net/docs-api/", "_blank", "noopener,noreferrer");
+}
 </script>
 
 <template>
@@ -162,10 +173,16 @@ function fmtTime(t?: string | null) {
           <div class="warm-page-desc">创建和管理你的 API 调用密钥</div>
         </div>
       </div>
-      <a-button type="primary" class="warm-primary-btn" @click="openCreateModal">
-        <template #icon><PlusOutlined /></template>
-        新建 Key
-      </a-button>
+      <a-space>
+        <a-button class="warm-secondary-btn" @click="openApiDocs">
+          <template #icon><BookOutlined /></template>
+          接口文档
+        </a-button>
+        <a-button type="primary" class="warm-primary-btn" @click="openCreateModal">
+          <template #icon><PlusOutlined /></template>
+          新建 Key
+        </a-button>
+      </a-space>
     </div>
 
     <div class="warm-card motion-fade-up motion-card-lift" style="--motion-delay: 120ms">
