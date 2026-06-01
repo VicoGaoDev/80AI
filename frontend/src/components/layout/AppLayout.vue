@@ -12,7 +12,7 @@ import {
   getAnnouncementConfig,
   redeemCreditKey,
 } from "@/api/auth";
-import { createFeedback, getMyCompletedUnreadFeedbackCount } from "@/api/feedback";
+import { getMyCompletedUnreadFeedbackCount } from "@/api/feedback";
 import { getAdminUnresolvedFeedbackCount } from "@/api/admin";
 import { registerCloudbaseAccount, sendPasswordResetEmailCode, sendRegisterEmailCode } from "@/lib/cloudbase";
 import { withBaseUrl } from "@/lib/assets";
@@ -54,7 +54,6 @@ import {
   MessageOutlined,
   GiftOutlined,
   AccountBookOutlined,
-  CheckOutlined,
 } from "@ant-design/icons-vue";
 
 const router = useRouter();
@@ -161,14 +160,6 @@ const userMenuItems = [
 const userMenuAccountItems = userMenuItems.filter((item) => ["profile", "credits", "api-keys", "settings"].includes(item.key));
 const userMenuNoticeItems = userMenuItems.filter((item) => ["my-feedback", "system-messages"].includes(item.key));
 const userMenuDangerItems = userMenuItems.filter((item) => item.danger);
-
-const creditPurchasePlans = [
-  { key: "starter", price: "1.8", points: 50, title: "新人首单专享", tag: "新人专享" },
-  { key: "light", price: "9.8", points: 150, title: "轻量畅享包" },
-  { key: "popular", price: "29.8", points: 480, title: "优选性价比包" },
-  { key: "value", price: "59.8", points: 1000, title: "超值囤货包", tag: "最受欢迎" },
-  { key: "vip", price: "119.8", points: 2100, title: "至尊畅玩包", tag: "最划算" },
-] as const;
 
 function getRouteRank(path: string) {
   if (path.startsWith("/feedbacks/")) return routeOrder.get("/feedbacks/:feedbackId") ?? 0;
@@ -371,11 +362,6 @@ const registerCodeLoading = ref(false);
 const redeemDialogOpen = ref(false);
 const redeemLoading = ref(false);
 const redeemForm = reactive({ key: "" });
-const purchaseDialogOpen = ref(false);
-const selectedPurchasePlanKey = ref<(typeof creditPurchasePlans)[number]["key"]>(creditPurchasePlans[0].key);
-const purchaseFeedbackDialogOpen = ref(false);
-const purchaseFeedbackSubmitting = ref(false);
-const purchaseFeedbackForm = reactive({ content: "" });
 const authExpiredPromptVisible = ref(false);
 const expiredSessionRedirectPath = ref("");
 
@@ -762,56 +748,6 @@ function openRedeemEntry() {
   redeemDialogOpen.value = true;
 }
 
-function openPurchaseEntry() {
-  mobileDrawerOpen.value = false;
-  if (!auth.isLoggedIn) {
-    openAuthModal("login");
-    return;
-  }
-  purchaseDialogOpen.value = true;
-}
-
-function handlePurchaseCredits() {
-  const selectedPlan = creditPurchasePlans.find((item) => item.key === selectedPurchasePlanKey.value);
-  if (!selectedPlan) return;
-  message.info(`已选择 ${selectedPlan.points} 积分套餐，支付功能即将接入`);
-}
-
-function openPurchaseFeedbackDialog() {
-  purchaseFeedbackForm.content = "";
-  purchaseFeedbackDialogOpen.value = true;
-}
-
-function closePurchaseFeedbackDialog() {
-  purchaseFeedbackDialogOpen.value = false;
-}
-
-async function handleSubmitPurchaseFeedback() {
-  const normalized = purchaseFeedbackForm.content.trim();
-  if (!normalized) {
-    message.warning("请输入反馈内容");
-    return;
-  }
-
-  const selectedPlan = creditPurchasePlans.find((item) => item.key === selectedPurchasePlanKey.value);
-  const planText = selectedPlan ? `当前套餐：¥${selectedPlan.price} / ${selectedPlan.points}积分` : "当前套餐：未选择";
-  purchaseFeedbackSubmitting.value = true;
-  try {
-    await createFeedback(null, `【积分购买反馈】\n${planText}\n\n${normalized}`);
-    message.success("反馈已提交");
-    closePurchaseFeedbackDialog();
-  } catch (err: any) {
-    message.error(err.response?.data?.detail || "提交反馈失败");
-  } finally {
-    purchaseFeedbackSubmitting.value = false;
-  }
-}
-
-function openContactFromPurchaseFeedback() {
-  purchaseFeedbackDialogOpen.value = false;
-  openCreditsContact();
-}
-
 function goCreditLogs() {
   mobileDrawerOpen.value = false;
   router.push("/credit-logs");
@@ -919,9 +855,6 @@ watch(
         </a-menu>
 
         <div class="header-actions">
-          <a-button type="text" class="top-link-btn" @click="openPurchaseEntry">
-            积分购买
-          </a-button>
           <a-button type="text" class="top-link-btn" @click="openRedeemEntry">
             兑换积分
           </a-button>
@@ -1078,10 +1011,6 @@ watch(
         <div class="mobile-drawer-section">
           <div class="mobile-drawer-section-title">积分服务</div>
           <div class="mobile-drawer-credit-actions">
-            <a-button block class="mobile-drawer-action-btn" @click="openPurchaseEntry">
-              <template #icon><ThunderboltOutlined /></template>
-              积分购买
-            </a-button>
             <a-button block class="mobile-drawer-action-btn" @click="openRedeemEntry">
               <template #icon><GiftOutlined /></template>
               兑换积分
@@ -1217,90 +1146,6 @@ watch(
           <li>技术支持</li>
           <li>需求定制</li>
         </ul>
-      </div>
-    </a-modal>
-
-    <a-modal
-      v-model:open="purchaseDialogOpen"
-      :footer="null"
-      :width="520"
-      centered
-      wrap-class-name="credits-purchase-modal-wrap"
-    >
-      <template #title>
-        <div class="credits-purchase-title">
-          <span>积分套餐</span>
-          <button type="button" class="credits-purchase-title-feedback" @click="openPurchaseFeedbackDialog">
-            遇到问题？
-          </button>
-        </div>
-      </template>
-      <div class="credits-purchase-modal">
-        <div class="credits-purchase-list">
-          <button
-            v-for="plan in creditPurchasePlans"
-            :key="plan.key"
-            type="button"
-            class="credits-purchase-card"
-            :class="[`credits-purchase-card-${plan.key}`, { 'credits-purchase-card-active': selectedPurchasePlanKey === plan.key }]"
-            @click="selectedPurchasePlanKey = plan.key"
-          >
-            <span v-if="'tag' in plan" class="credits-purchase-tag" :class="`credits-purchase-tag-${plan.key}`">{{ plan.tag }}</span>
-            <div class="credits-purchase-price">
-              <span class="credits-purchase-price-unit">¥</span>
-              <span class="credits-purchase-price-value">{{ plan.price }}</span>
-            </div>
-            <div class="credits-purchase-points">
-              {{ plan.points }} 积分
-            </div>
-            <div class="credits-purchase-name">{{ plan.title }}</div>
-            <div class="credits-purchase-check" :class="{ 'credits-purchase-check-active': selectedPurchasePlanKey === plan.key }">
-              <CheckOutlined v-if="selectedPurchasePlanKey === plan.key" />
-            </div>
-          </button>
-        </div>
-        <div class="credits-purchase-safe-tip">安全支付，积分即充即用</div>
-        <a-button type="primary" block class="warm-primary-btn credits-purchase-submit" @click="handlePurchaseCredits">
-          立即购买
-        </a-button>
-      </div>
-    </a-modal>
-
-    <a-modal
-      v-model:open="purchaseFeedbackDialogOpen"
-      title="提交反馈"
-      :footer="null"
-      :width="420"
-      centered
-      @cancel="closePurchaseFeedbackDialog"
-    >
-      <div class="purchase-feedback-modal">
-        <a-form layout="vertical">
-          <a-form-item label="问题描述" style="margin-bottom: 0">
-            <a-textarea
-              v-model:value="purchaseFeedbackForm.content"
-              :rows="5"
-              :maxlength="500"
-              show-count
-              placeholder="请描述你在积分购买时遇到的问题，我们会尽快处理"
-            />
-          </a-form-item>
-        </a-form>
-        <div class="purchase-feedback-hint">
-          当前购买反馈入口已打开，你也可以通过
-          <button type="button" class="purchase-feedback-contact-link" @click="openContactFromPurchaseFeedback">
-            联系我们
-          </button>
-          获取更快支持。
-        </div>
-        <div class="purchase-feedback-actions">
-          <a-button class="warm-secondary-btn" @click="closePurchaseFeedbackDialog">
-            关闭
-          </a-button>
-          <a-button type="primary" class="warm-primary-btn" :loading="purchaseFeedbackSubmitting" @click="handleSubmitPurchaseFeedback">
-            提交反馈
-          </a-button>
-        </div>
       </div>
     </a-modal>
 
@@ -2151,271 +1996,6 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
   line-height: 1.8;
 }
 
-.credits-purchase-modal {
-  padding: 2px 2px 2px;
-}
-
-.credits-purchase-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.credits-purchase-title {
-  position: relative;
-  display: flex;
-  align-items: center;
-  padding-right: 56px;
-}
-
-.credits-purchase-title-feedback {
-  position: absolute;
-  right: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--theme-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.credits-purchase-title-feedback:hover {
-  color: var(--theme-accent-text);
-}
-
-.credits-purchase-card {
-  --credits-purchase-accent: #ff8a18;
-  --credits-purchase-accent-start: #ff9a23;
-  --credits-purchase-accent-end: #ff7a11;
-  --credits-purchase-accent-shadow: rgba(255, 142, 31, 0.24);
-
-  position: relative;
-  display: grid;
-  grid-template-columns: 90px minmax(82px, 0.72fr) minmax(128px, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 70px;
-  padding: 14px;
-  border-radius: 18px;
-  border: 1.5px solid rgba(243, 154, 73, 0.24);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 248, 241, 0.94)),
-    radial-gradient(circle at top, rgba(255, 214, 171, 0.34), transparent 62%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 10px 30px rgba(227, 150, 72, 0.08);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.credits-purchase-card:hover {
-  transform: translateY(-1px);
-  border-color: rgba(244, 145, 53, 0.45);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 14px 36px rgba(227, 150, 72, 0.14);
-}
-
-.credits-purchase-card-active {
-  border: 1px solid #ff8a18;
-  background: #fff1e3;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 14px 30px var(--credits-purchase-accent-shadow);
-}
-
-.credits-purchase-tag {
-  position: absolute;
-  top: -9px;
-  left: 14px;
-  padding: 5px 11px;
-  border-radius: 11px;
-  background: linear-gradient(180deg, var(--credits-purchase-accent-start), var(--credits-purchase-accent-end));
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
-  box-shadow: 0 8px 16px var(--credits-purchase-accent-shadow);
-}
-
-.credits-purchase-card-starter {
-  --credits-purchase-accent: #0ea5e9;
-  --credits-purchase-accent-start: #38bdf8;
-  --credits-purchase-accent-end: #0ea5e9;
-  --credits-purchase-accent-shadow: rgba(14, 165, 233, 0.24);
-}
-
-.credits-purchase-card-light {
-  --credits-purchase-accent: #ff8a18;
-  --credits-purchase-accent-start: #ff9a23;
-  --credits-purchase-accent-end: #ff7a11;
-  --credits-purchase-accent-shadow: rgba(255, 142, 31, 0.24);
-}
-
-.credits-purchase-card-popular {
-  --credits-purchase-accent: #ff8a18;
-  --credits-purchase-accent-start: #ff9a23;
-  --credits-purchase-accent-end: #ff7a11;
-  --credits-purchase-accent-shadow: rgba(255, 142, 31, 0.24);
-}
-
-.credits-purchase-card-value {
-  --credits-purchase-accent: #f43f5e;
-  --credits-purchase-accent-start: #fb7185;
-  --credits-purchase-accent-end: #f43f5e;
-  --credits-purchase-accent-shadow: rgba(244, 63, 94, 0.24);
-}
-
-.credits-purchase-card-vip {
-  --credits-purchase-accent: #7c3aed;
-  --credits-purchase-accent-start: #a78bfa;
-  --credits-purchase-accent-end: #7c3aed;
-  --credits-purchase-accent-shadow: rgba(124, 58, 237, 0.28);
-}
-
-.credits-purchase-price {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 6px;
-  white-space: nowrap;
-  color: #22252c;
-}
-
-.credits-purchase-price-value {
-  font-size: 22px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-.credits-purchase-price-unit {
-  padding-bottom: 0;
-  font-size: 12px;
-  font-weight: 500;
-  transform: translateY(1px);
-}
-
-.credits-purchase-points {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  flex-wrap: nowrap;
-  font-size: 14px;
-  font-weight: 700;
-  color: #ff7a10;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.credits-purchase-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: #76614f;
-  white-space: nowrap;
-}
-
-.credits-purchase-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  justify-self: end;
-  width: 24px;
-  height: 24px;
-  margin-left: 6px;
-  border-radius: 999px;
-  border: 1.5px solid #ecd9c9;
-  color: transparent;
-  background: rgba(255, 255, 255, 0.9);
-  font-size: 12px;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease,
-    color 0.2s ease;
-}
-
-.credits-purchase-check-active {
-  border-color: var(--credits-purchase-accent);
-  background: linear-gradient(180deg, var(--credits-purchase-accent-start), var(--credits-purchase-accent-end));
-  color: #fff;
-  box-shadow: 0 10px 20px var(--credits-purchase-accent-shadow);
-}
-
-.credits-purchase-safe-tip {
-  margin: 14px 0 12px;
-  text-align: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: #c69063;
-}
-
-.credits-purchase-submit {
-  height: 46px !important;
-}
-
-.purchase-feedback-modal {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding-top: 8px;
-}
-
-.purchase-feedback-hint {
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--theme-text-secondary);
-}
-
-.purchase-feedback-contact-link {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--theme-accent-text);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.purchase-feedback-contact-link:hover {
-  color: var(--theme-accent-text-hover);
-}
-
-.purchase-feedback-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-:deep(.credits-purchase-modal-wrap .ant-modal-content) {
-  border-radius: 22px;
-  padding: 16px 18px 18px;
-  background:
-    radial-gradient(circle at top, rgba(255, 222, 183, 0.36), transparent 38%),
-    linear-gradient(180deg, #fffdf9 0%, #fff9f1 100%);
-  box-shadow:
-    0 22px 60px rgba(83, 57, 28, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
-:deep(.credits-purchase-modal-wrap .ant-modal-close) {
-  top: 12px;
-  right: 12px;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  background: rgba(255, 248, 240, 0.88);
-  color: #b88c67;
-}
-
-:deep(.credits-purchase-modal-wrap .ant-modal-close:hover) {
-  background: rgba(255, 241, 227, 0.96);
-  color: #9f724d;
-}
-
 .announcement-modal {
   display: flex;
   flex-direction: column;
@@ -2713,57 +2293,6 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
 
   :deep(.mobile-nav-drawer .ant-drawer-content-wrapper) {
     width: min(88vw, 320px) !important;
-  }
-
-  .credits-purchase-card {
-    grid-template-columns: 1fr auto;
-    gap: 6px 10px;
-    padding: 14px 12px;
-  }
-
-  .credits-purchase-price,
-  .credits-purchase-points,
-  .credits-purchase-name {
-    grid-column: 1 / 2;
-  }
-
-  .credits-purchase-check {
-    grid-column: 2 / 3;
-    grid-row: 1 / 4;
-    align-self: center;
-  }
-
-  .credits-purchase-price-value {
-    font-size: 19px;
-  }
-
-  .credits-purchase-points {
-    font-size: 13px;
-    white-space: normal;
-  }
-
-  .credits-purchase-name {
-    font-size: 11px;
-    white-space: normal;
-  }
-
-  .credits-purchase-safe-tip {
-    margin: 14px 0 12px;
-    font-size: 10px;
-  }
-
-  .credits-purchase-submit {
-    height: 44px !important;
-  }
-
-  :deep(.credits-purchase-modal-wrap .ant-modal) {
-    max-width: calc(100vw - 24px);
-    margin: 0 auto;
-  }
-
-  :deep(.credits-purchase-modal-wrap .ant-modal-content) {
-    padding: 16px 12px 16px;
-    border-radius: 18px;
   }
 }
 </style>
