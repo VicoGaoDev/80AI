@@ -3,6 +3,7 @@ import type {
   AdminStats,
   AdminAnalyticsBreakdown,
   AdminAnalyticsQuery,
+  AdminAnalyticsRedeemRevenue,
   AdminAnalyticsSummary,
   AdminAnalyticsTimeseries,
   AdminConfig,
@@ -211,6 +212,16 @@ export function getAdminAnalyticsTimeseries(query: AdminAnalyticsQuery): Promise
 
 export function getAdminAnalyticsBreakdown(query: AdminAnalyticsQuery): Promise<AdminAnalyticsBreakdown> {
   return client.get("/admin/analytics/breakdown", { params: buildAnalyticsParams(query) });
+}
+
+export function getAdminAnalyticsRedeemRevenue(query: AdminAnalyticsQuery): Promise<AdminAnalyticsRedeemRevenue> {
+  return client.get("/admin/analytics/redeem-revenue", {
+    params: {
+      granularity: query.granularity,
+      start_date: query.start_date,
+      end_date: query.end_date,
+    },
+  });
 }
 
 export function getAdminConfig(): Promise<AdminConfig | null> {

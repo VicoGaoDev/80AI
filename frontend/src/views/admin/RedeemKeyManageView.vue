@@ -267,22 +267,23 @@ function formatQueryDate(value?: Dayjs) {
       <a-range-picker
         v-model:value="filters.dateRange"
         :placeholder="['使用开始', '使用结束']"
-        class="redeem-filter-date"
+        class="analytics-filter-date redeem-filter-date"
         @change="handleDateRangeChange"
       />
-      <a-radio-group
-        v-model:value="dateShortcut"
-        button-style="solid"
-        size="small"
-        class="redeem-date-shortcuts"
-        @change="handleDateShortcutChange"
-      >
-        <a-radio-button value="today">今日</a-radio-button>
-        <a-radio-button value="last7Days">近7天</a-radio-button>
-        <a-radio-button value="thisWeek">本周</a-radio-button>
-      </a-radio-group>
-      <a-button type="primary" class="warm-primary-btn action-btn" @click="handleFilter">筛选</a-button>
-      <a-button class="filter-reset-btn action-btn" @click="handleReset">重置</a-button>
+      <div class="analytics-filter-panel-compact">
+        <a-radio-group
+          v-model:value="dateShortcut"
+          class="analytics-segmented-group analytics-segmented-group-secondary"
+          button-style="solid"
+          @change="handleDateShortcutChange"
+        >
+          <a-radio-button value="today">今日</a-radio-button>
+          <a-radio-button value="last7Days">近 7 天</a-radio-button>
+          <a-radio-button value="thisWeek">本周</a-radio-button>
+        </a-radio-group>
+      </div>
+      <a-button type="primary" class="analytics-action-btn action-btn" @click="handleFilter">筛选</a-button>
+      <a-button class="analytics-action-btn analytics-action-btn-secondary action-btn" @click="handleReset">重置</a-button>
     </div>
 
     <div class="warm-card warm-table-card motion-fade-up motion-card-lift" style="--motion-delay: 240ms">
@@ -417,45 +418,6 @@ function formatQueryDate(value?: Dayjs) {
 .redeem-filter-date {
   width: 218px;
   flex: 0 0 218px;
-}
-
-.redeem-date-shortcuts {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-
-  :deep(.ant-radio-button-wrapper) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 28px;
-    line-height: 28px;
-    padding-inline: 8px;
-    color: #a9772e;
-    border-color: #efc784;
-    background: #fffaf2;
-  }
-
-  :deep(.ant-radio-button-wrapper:first-child) {
-    border-start-start-radius: 9px;
-    border-end-start-radius: 9px;
-  }
-
-  :deep(.ant-radio-button-wrapper:last-child) {
-    border-start-end-radius: 9px;
-    border-end-end-radius: 9px;
-  }
-
-  :deep(.ant-radio-button-wrapper:hover) {
-    color: #c7770d;
-    background: #fff0d3;
-  }
-
-  :deep(.ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled)) {
-    color: #fff;
-    border-color: #d48806;
-    background: #d48806;
-  }
 }
 
 .action-btn {
@@ -603,13 +565,17 @@ function formatQueryDate(value?: Dayjs) {
     flex-basis: auto;
   }
 
-  .redeem-date-shortcuts {
+  .analytics-segmented-group {
     width: 100%;
   }
 
-  .redeem-date-shortcuts :deep(.ant-radio-button-wrapper) {
+  .analytics-segmented-group :deep(.ant-radio-button-wrapper) {
     flex: 1;
     text-align: center;
+  }
+
+  .action-btn {
+    width: 100%;
   }
 
   :deep(.admin-mobile-table .ant-table-content) {

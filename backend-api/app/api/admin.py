@@ -10,7 +10,7 @@ from app.schemas.admin import (
     CreateUserRequest, UserOut, UpdateStatusRequest, UpdateRoleRequest,
     UpdateWhitelistRequest, ResetPasswordRequest, StatsOut, AllocateCreditsRequest, ResetCreditsRequest, CreditLogOut,
     CreateRedeemKeysBatchRequest, RedeemKeyBatchOut, RedeemKeyOut, UpdateRedeemKeyStatusRequest,
-    AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut,
+    AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut, AnalyticsRedeemRevenueOut,
 )
 from app.schemas.feedback import (
     FeedbackDetail,
@@ -23,7 +23,7 @@ from app.services.business_id_service import get_user_by_business_id
 from app.services.admin_service import (
     create_user, list_users, update_user_status, update_user_role,
     update_user_whitelist, reset_user_password, get_stats, allocate_credits, reset_user_credits, get_credit_logs,
-    get_analytics_summary, get_analytics_timeseries, get_analytics_breakdown,
+    get_analytics_summary, get_analytics_timeseries, get_analytics_breakdown, get_analytics_redeem_revenue,
 )
 from app.services.credit_redeem_service import create_redeem_key_batch, list_redeem_keys, update_redeem_key_status
 from app.services.feedback_service import (
@@ -274,6 +274,22 @@ def admin_analytics_breakdown(
         model=model,
         mode=mode,
         status_filter=status,
+    )
+
+
+@router.get("/analytics/redeem-revenue", response_model=AnalyticsRedeemRevenueOut)
+def admin_analytics_redeem_revenue(
+    granularity: str = Query("day", pattern="^(day|week|month)$"),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return get_analytics_redeem_revenue(
+        db,
+        granularity=granularity,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 

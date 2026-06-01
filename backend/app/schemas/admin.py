@@ -154,3 +154,17 @@ class AnalyticsBreakdownOut(BaseModel):
     model_breakdown: list[AnalyticsBreakdownItemOut]
     top_users_by_tasks: list[AnalyticsBreakdownItemOut]
     top_users_by_credit: list[AnalyticsBreakdownItemOut]
+
+
+class AnalyticsRedeemRevenueItemOut(BaseModel):
+    credit_amount: int
+    unit_price: float
+    used_count: int
+    total_amount: float
+
+
+class AnalyticsRedeemRevenueOut(BaseModel):
+    range_label: str
+    items: list[AnalyticsRedeemRevenueItemOut]
+    total_used_count: int
+    total_amount: float

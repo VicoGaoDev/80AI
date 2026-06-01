@@ -458,6 +458,20 @@ export interface AdminAnalyticsBreakdown {
   top_users_by_credit: AdminAnalyticsBreakdownItem[];
 }
 
+export interface AdminAnalyticsRedeemRevenueItem {
+  credit_amount: number;
+  unit_price: number;
+  used_count: number;
+  total_amount: number;
+}
+
+export interface AdminAnalyticsRedeemRevenue {
+  range_label: string;
+  items: AdminAnalyticsRedeemRevenueItem[];
+  total_used_count: number;
+  total_amount: number;
+}
+
 export interface AdminConfig {
   id: number;
   contact_qr_image: string;

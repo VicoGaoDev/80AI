@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from app.models.user import User
 from app.models.task import Task
 from app.models.credit_log import CreditLog
+from app.models.credit_redeem_key import CreditRedeemKey
 from app.services.business_id_service import get_user_by_business_id, task_external_id, user_external_id
 from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION,
@@ -1031,4 +1032,79 @@ def get_analytics_breakdown(
         "model_breakdown": _sorted_breakdown(model_breakdown, limit=8),
         "top_users_by_tasks": top_users_by_tasks,
         "top_users_by_credit": top_users_by_credit[:8],
+    }
+
+
+REDEEM_UNIT_PRICES: dict[int, float] = {
+    30: 1.45,
+    50: 3.50,
+    70: 2.00,
+    300: 18.50,
+    500: 34.00,
+    1000: 65.00,
+    2000: 120.00,
+    6000: 300.00,
+}
+
+
+def get_analytics_redeem_revenue(
+    db: Session,
+    *,
+    granularity: str = "day",
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> dict:
+    current_start, current_end = _align_range(granularity, start_date, end_date)
+
+    rows = (
+        db.query(
+            CreditRedeemKey.credit_amount,
+            func.count(CreditRedeemKey.id).label("used_count"),
+        )
+        .filter(
+            CreditRedeemKey.used_at.isnot(None),
+            CreditRedeemKey.used_at >= current_start,
+            CreditRedeemKey.used_at <= current_end,
+        )
+        .group_by(CreditRedeemKey.credit_amount)
+        .all()
+    )
+    count_map = {int(row.credit_amount): int(row.used_count) for row in rows}
+
+    items: list[dict] = []
+    total_used_count = 0
+    total_amount = 0.0
+
+    for credit_amount in sorted(REDEEM_UNIT_PRICES):
+        used_count = count_map.pop(credit_amount, 0)
+        unit_price = REDEEM_UNIT_PRICES[credit_amount]
+        subtotal = round(used_count * unit_price, 2)
+        items.append(
+            {
+                "credit_amount": credit_amount,
+                "unit_price": unit_price,
+                "used_count": used_count,
+                "total_amount": subtotal,
+            }
+        )
+        total_used_count += used_count
+        total_amount += subtotal
+
+    for credit_amount in sorted(count_map):
+        used_count = count_map[credit_amount]
+        items.append(
+            {
+                "credit_amount": credit_amount,
+                "unit_price": 0.0,
+                "used_count": used_count,
+                "total_amount": 0.0,
+            }
+        )
+        total_used_count += used_count
+
+    return {
+        "range_label": _format_range_label(current_start, current_end),
+        "items": items,
+        "total_used_count": total_used_count,
+        "total_amount": round(total_amount, 2),
     }
