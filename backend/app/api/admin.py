@@ -9,7 +9,7 @@ from app.models.user import User
 from app.schemas.admin import (
     CreateUserRequest, UserOut, UpdateStatusRequest, UpdateRoleRequest,
     UpdateWhitelistRequest, ResetPasswordRequest, StatsOut, AllocateCreditsRequest, ResetCreditsRequest, CreditLogOut,
-    CreateRedeemKeysBatchRequest, RedeemKeyBatchOut, RedeemKeyOut, UpdateRedeemKeyStatusRequest,
+    CreateRedeemKeysBatchRequest, RedeemKeyBatchOut, RedeemKeyOut, UpdateRedeemKeyStatusRequest, PaymentOrderAdminOut,
     AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut, AnalyticsRedeemRevenueOut,
 )
 from app.schemas.feedback import (
@@ -23,7 +23,9 @@ from app.services.business_id_service import get_user_by_business_id
 from app.services.admin_service import (
     create_user, list_users, update_user_status, update_user_role,
     update_user_whitelist, reset_user_password, get_stats, allocate_credits, reset_user_credits, get_credit_logs,
+    list_payment_orders,
     get_analytics_summary, get_analytics_timeseries, get_analytics_breakdown, get_analytics_redeem_revenue,
+    get_analytics_payment_revenue,
 )
 from app.services.credit_redeem_service import create_redeem_key_batch, list_redeem_keys, update_redeem_key_status
 from app.services.feedback_service import (
@@ -188,6 +190,28 @@ def admin_credit_logs(
                            start_date=start_date, end_date=end_date, direction=direction, mode=mode)
 
 
+@router.get("/payment-orders", response_model=dict)
+def admin_payment_orders(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status", pattern="^(created|pending_pay|paid|credited|closed|failed)$"),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return list_payment_orders(
+        db,
+        page=page,
+        page_size=page_size,
+        user_keyword=user,
+        status_filter=status_filter,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
 @router.get("/stats", response_model=StatsOut)
 def admin_stats(
     _user: User = Depends(require_admin),
@@ -286,6 +310,22 @@ def admin_analytics_redeem_revenue(
     db: Session = Depends(get_db),
 ):
     return get_analytics_redeem_revenue(
+        db,
+        granularity=granularity,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+@router.get("/analytics/payment-revenue", response_model=AnalyticsRedeemRevenueOut)
+def admin_analytics_payment_revenue(
+    granularity: str = Query("day", pattern="^(day|week|month)$"),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return get_analytics_payment_revenue(
         db,
         granularity=granularity,
         start_date=start_date,

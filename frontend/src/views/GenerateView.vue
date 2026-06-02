@@ -59,7 +59,7 @@ import type { GenerationModelOption, ImageResult, PromptHistoryItem, SceneOption
 const auth = useAuthStore();
 const router = useRouter();
 const loginModalVisible = inject<Ref<boolean>>("loginModalVisible")!;
-const openCreditsContact = inject<() => void>("openCreditsContact");
+const openPurchaseEntry = inject<() => void>("openPurchaseEntry");
 const COMPLETED_UNREAD_FEEDBACK_NOTIFICATION_KEY = "user-completed-unread-feedback";
 
 function isInsufficientCreditsError(err: any) {
@@ -67,11 +67,11 @@ function isInsufficientCreditsError(err: any) {
   return detail.includes("积分不足");
 }
 
-function showInsufficientCreditsContact(detail?: string) {
+function showInsufficientCreditsPurchase(detail?: string) {
   if (detail) {
     message.warning(detail);
   }
-  openCreditsContact?.();
+  openPurchaseEntry?.();
 }
 
 type GenerateMode = "textGenerate" | "imageEdit" | "inpaint" | "promptReverse";
@@ -1142,7 +1142,7 @@ async function handlePromptReverse() {
     return;
   }
   if (!isSuperAdmin.value && userCredits.value < promptReverseCreditCost.value) {
-    showInsufficientCreditsContact(`积分不足，需要 ${promptReverseCreditCost.value} 积分，当前余额 ${userCredits.value}`);
+    showInsufficientCreditsPurchase(`积分不足，需要 ${promptReverseCreditCost.value} 积分，当前余额 ${userCredits.value}`);
     return;
   }
 
@@ -1155,7 +1155,7 @@ async function handlePromptReverse() {
   } catch (err: any) {
     const detail = err.response?.data?.detail || "";
     if (isInsufficientCreditsError(err)) {
-      showInsufficientCreditsContact(detail);
+      showInsufficientCreditsPurchase(detail);
       return;
     }
     message.error(detail || "提示词反推失败");
@@ -1202,7 +1202,7 @@ async function handleGenerate() {
     return;
   }
   if (!isSuperAdmin.value && userCredits.value < actualSubmitCreditCost.value) {
-    showInsufficientCreditsContact(`积分不足，需要 ${actualSubmitCreditCost.value} 积分，当前余额 ${userCredits.value}`);
+    showInsufficientCreditsPurchase(`积分不足，需要 ${actualSubmitCreditCost.value} 积分，当前余额 ${userCredits.value}`);
     return;
   }
 
@@ -1280,7 +1280,7 @@ async function handleGenerate() {
   } catch (err: any) {
     const detail = err.response?.data?.detail || "";
     if (isInsufficientCreditsError(err)) {
-      showInsufficientCreditsContact(detail);
+      showInsufficientCreditsPurchase(detail);
       return;
     }
     message.error(formatGenerationErrorMessage(detail, "创建任务失败"));
@@ -1380,7 +1380,7 @@ async function handleRegenerate(task: GeneratedTaskItem) {
   }
   const regenerateCost = getTaskDraftCreditCost(task, 1);
   if (!isSuperAdmin.value && userCredits.value < regenerateCost) {
-    showInsufficientCreditsContact(`积分不足，需要 ${regenerateCost} 积分，当前余额 ${userCredits.value}`);
+    showInsufficientCreditsPurchase(`积分不足，需要 ${regenerateCost} 积分，当前余额 ${userCredits.value}`);
     return;
   }
   try {
@@ -1400,7 +1400,7 @@ async function handleRegenerate(task: GeneratedTaskItem) {
   } catch (err: any) {
     const detail = err.response?.data?.detail || "";
     if (isInsufficientCreditsError(err)) {
-      showInsufficientCreditsContact(detail);
+      showInsufficientCreditsPurchase(detail);
       return;
     }
     message.error(formatGenerationErrorMessage(detail, "重新生成失败"));

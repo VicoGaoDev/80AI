@@ -503,6 +503,30 @@ export interface AdminAnalyticsRedeemRevenue {
   total_amount: number;
 }
 
+export interface AdminPaymentOrder {
+  id: number;
+  order_no: string;
+  out_trade_no: string;
+  alipay_trade_no: string;
+  user_id: string;
+  username: string;
+  user_email: string;
+  plan_key: string;
+  subject: string;
+  amount_fen: number;
+  amount_yuan: number;
+  credits: number;
+  status: "created" | "pending_pay" | "paid" | "credited" | "closed" | "failed";
+  trade_status: string;
+  buyer_id: string;
+  paid_at?: string | null;
+  credited_at?: string | null;
+  closed_at?: string | null;
+  failed_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface AdminConfig {
   id: number;
   contact_qr_image: string;

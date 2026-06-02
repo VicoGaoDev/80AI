@@ -4,7 +4,7 @@ import { message } from "ant-design-vue";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
 import { AccountBookOutlined, ThunderboltOutlined } from "@ant-design/icons-vue";
-import { getAdminAnalyticsRedeemRevenue } from "@/api/admin";
+import { getAdminAnalyticsPaymentRevenue, getAdminAnalyticsRedeemRevenue } from "@/api/admin";
 import { isSessionExpiredError } from "@/lib/authError";
 import RedeemRevenueTable from "@/components/admin/RedeemRevenueTable.vue";
 import type { AdminAnalyticsRedeemRevenue } from "@/types";
@@ -15,6 +15,7 @@ const loading = ref(false);
 const preset = ref<DatePreset | undefined>("today");
 const dateRange = ref<[Dayjs, Dayjs] | null>(null);
 const redeemRevenue = ref<AdminAnalyticsRedeemRevenue | null>(null);
+const paymentRevenue = ref<AdminAnalyticsRedeemRevenue | null>(null);
 const openPurchaseEntry = inject<() => void>("openPurchaseEntry");
 
 function formatQueryDate(value?: Dayjs) {
@@ -66,11 +67,17 @@ async function load() {
   }
   loading.value = true;
   try {
-    redeemRevenue.value = await getAdminAnalyticsRedeemRevenue({
+    const query = {
       granularity: "day",
       start_date: formatQueryDate(dateRange.value[0].startOf("day")),
       end_date: formatQueryDate(dateRange.value[1].endOf("day")),
-    });
+    } as const;
+    const [redeemResult, paymentResult] = await Promise.all([
+      getAdminAnalyticsRedeemRevenue(query),
+      getAdminAnalyticsPaymentRevenue(query),
+    ]);
+    redeemRevenue.value = redeemResult;
+    paymentRevenue.value = paymentResult;
   } catch (err: unknown) {
     if (isSessionExpiredError(err)) return;
     message.error("获取营业额数据失败");
@@ -94,7 +101,7 @@ onMounted(() => {
         </div>
         <div>
           <div class="warm-page-title">营业额</div>
-          <div class="warm-page-desc">按积分兑换码面值统计已兑换数量与对应售价金额，支持按时间区间筛选。</div>
+          <div class="warm-page-desc">统计在线购买与积分兑换码营业额，支持按时间区间筛选。</div>
         </div>
       </div>
       <a-button type="primary" class="revenue-purchase-entry" @click="handleOpenPurchase">
@@ -129,7 +136,20 @@ onMounted(() => {
       </div>
     </div>
 
-    <RedeemRevenueTable :data="redeemRevenue" :loading="loading" :show-title="false" />
+    <div class="revenue-section-stack">
+      <RedeemRevenueTable
+        :data="paymentRevenue"
+        :loading="loading"
+        title="在线购买营业额"
+        count-label="购买"
+      />
+      <RedeemRevenueTable
+        :data="redeemRevenue"
+        :loading="loading"
+        title="兑换码营业额"
+        count-label="兑换"
+      />
+    </div>
   </div>
 </template>
 
@@ -140,6 +160,11 @@ onMounted(() => {
 
 .revenue-purchase-entry {
   height: 42px;
+}
+
+.revenue-section-stack {
+  display: grid;
+  gap: 16px;
 }
 
 @media (max-width: 768px) {

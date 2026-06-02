@@ -77,6 +77,30 @@ class CreditLogOut(BaseModel):
     created_at: datetime | None = None
 
 
+class PaymentOrderAdminOut(BaseModel):
+    id: int
+    order_no: str
+    out_trade_no: str
+    alipay_trade_no: str = ""
+    user_id: str
+    username: str = ""
+    user_email: str = ""
+    plan_key: str = ""
+    subject: str = ""
+    amount_fen: int
+    amount_yuan: float
+    credits: int
+    status: str
+    trade_status: str = ""
+    buyer_id: str = ""
+    paid_at: datetime | None = None
+    credited_at: datetime | None = None
+    closed_at: datetime | None = None
+    failed_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class UpdateStatusRequest(BaseModel):
     status: str  # "active" | "disabled"
 

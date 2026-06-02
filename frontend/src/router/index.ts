@@ -119,6 +119,12 @@ const router = createRouter({
           component: () => import("@/views/admin/RevenueView.vue"),
         },
         {
+          path: "admin/payment-orders",
+          name: "AdminPaymentOrders",
+          meta: { requiresAdmin: true },
+          component: () => import("@/views/admin/PaymentOrderManageView.vue"),
+        },
+        {
           path: "admin/dashboard",
           name: "Dashboard",
           meta: { requiresAdmin: true },

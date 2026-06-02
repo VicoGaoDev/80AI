@@ -16,6 +16,14 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  title: {
+    type: String,
+    default: "兑换码营业额",
+  },
+  countLabel: {
+    type: String,
+    default: "兑换",
+  },
 });
 
 const columns = [
@@ -41,12 +49,12 @@ function rowKey(record: AdminAnalyticsRedeemRevenueItem) {
     <div class="redeem-revenue-card warm-card motion-card-lift motion-fade-up" style="--motion-delay: 280ms">
       <div class="redeem-revenue-head">
         <div v-if="showTitle">
-          <div class="redeem-revenue-title">兑换码营业额</div>
+          <div class="redeem-revenue-title">{{ title }}</div>
           <div v-if="data?.range_label" class="redeem-revenue-range">{{ data.range_label }}</div>
         </div>
         <div v-else-if="data?.range_label" class="redeem-revenue-range-only">{{ data.range_label }}</div>
         <div v-if="data" class="redeem-revenue-summary">
-          <span class="redeem-revenue-chip">兑换 {{ data.total_used_count }} 次</span>
+          <span class="redeem-revenue-chip">{{ countLabel }} {{ data.total_used_count }} 次</span>
           <span class="redeem-revenue-chip redeem-revenue-chip-strong">合计 ¥{{ formatMoney(data.total_amount) }}</span>
         </div>
       </div>

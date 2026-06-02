@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.task import Task
 from app.models.credit_log import CreditLog
 from app.models.credit_redeem_key import CreditRedeemKey
+from app.models.payment_order import PaymentOrder
 from app.services.business_id_service import get_user_by_business_id, task_external_id, user_external_id
 from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION,
@@ -372,6 +373,73 @@ def get_credit_logs(
             "task_id": task_external_id(task_cache.get(log.task_id)) if log.task_id else None,
             "created_at": log.created_at,
         })
+    return {"total": total, "items": items}
+
+
+def list_payment_orders(
+    db: Session,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    user_keyword: str | None = None,
+    status_filter: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> dict:
+    query = db.query(PaymentOrder, User).join(User, User.id == PaymentOrder.user_id)
+    keyword = (user_keyword or "").strip()
+    if keyword:
+        like = f"%{keyword}%"
+        query = query.filter(
+            (User.username.ilike(like))
+            | (User.email.ilike(like))
+            | (User.business_id.ilike(like))
+            | (PaymentOrder.order_no.ilike(like))
+            | (PaymentOrder.alipay_trade_no.ilike(like))
+        )
+    if status_filter:
+        query = query.filter(PaymentOrder.status == status_filter)
+    if start_date:
+        query = query.filter(PaymentOrder.created_at >= start_date)
+    if end_date:
+        query = query.filter(PaymentOrder.created_at <= end_date)
+
+    total = query.count()
+    rows = (
+        query
+        .order_by(PaymentOrder.created_at.desc(), PaymentOrder.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    items = []
+    for order, user in rows:
+        items.append(
+            {
+                "id": order.id,
+                "order_no": order.order_no,
+                "out_trade_no": order.out_trade_no,
+                "alipay_trade_no": order.alipay_trade_no or "",
+                "user_id": user_external_id(user),
+                "username": user.username,
+                "user_email": user.email or "",
+                "plan_key": order.plan_key,
+                "subject": order.subject,
+                "amount_fen": int(order.amount_fen or 0),
+                "amount_yuan": round(int(order.amount_fen or 0) / 100, 2),
+                "credits": int(order.credits or 0),
+                "status": order.status,
+                "trade_status": order.trade_status or "",
+                "buyer_id": order.buyer_id or "",
+                "paid_at": order.paid_at,
+                "credited_at": order.credited_at,
+                "closed_at": order.closed_at,
+                "failed_at": order.failed_at,
+                "created_at": order.created_at,
+                "updated_at": order.updated_at,
+            }
+        )
     return {"total": total, "items": items}
 
 
@@ -1103,6 +1171,58 @@ def get_analytics_redeem_revenue(
             }
         )
         total_used_count += used_count
+
+    return {
+        "range_label": _format_range_label(current_start, current_end),
+        "items": items,
+        "total_used_count": total_used_count,
+        "total_amount": round(total_amount, 2),
+    }
+
+
+def get_analytics_payment_revenue(
+    db: Session,
+    *,
+    granularity: str = "day",
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> dict:
+    current_start, current_end = _align_range(granularity, start_date, end_date)
+
+    rows = (
+        db.query(
+            PaymentOrder.credits,
+            PaymentOrder.amount_fen,
+            func.count(PaymentOrder.id).label("paid_count"),
+            func.coalesce(func.sum(PaymentOrder.amount_fen), 0).label("total_amount_fen"),
+        )
+        .filter(
+            PaymentOrder.status.in_(("paid", "credited")),
+            PaymentOrder.paid_at.isnot(None),
+            PaymentOrder.paid_at >= current_start,
+            PaymentOrder.paid_at <= current_end,
+        )
+        .group_by(PaymentOrder.credits, PaymentOrder.amount_fen)
+        .order_by(PaymentOrder.amount_fen.asc(), PaymentOrder.credits.asc())
+        .all()
+    )
+
+    items: list[dict] = []
+    total_used_count = 0
+    total_amount = 0.0
+    for row in rows:
+        paid_count = int(row.paid_count or 0)
+        total_amount_yuan = round(int(row.total_amount_fen or 0) / 100, 2)
+        items.append(
+            {
+                "credit_amount": int(row.credits or 0),
+                "unit_price": round(int(row.amount_fen or 0) / 100, 2),
+                "used_count": paid_count,
+                "total_amount": total_amount_yuan,
+            }
+        )
+        total_used_count += paid_count
+        total_amount += total_amount_yuan
 
     return {
         "range_label": _format_range_label(current_start, current_end),

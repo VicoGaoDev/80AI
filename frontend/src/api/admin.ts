@@ -9,6 +9,7 @@ import type {
   AdminConfig,
   CosConfig,
   AdminUser,
+  AdminPaymentOrder,
   CreditLog,
   AdminRedeemKey,
   AdminRedeemKeyBatchResult,
@@ -93,6 +94,17 @@ export function getCreditLogs(
   if (direction) params.direction = direction;
   if (mode) params.mode = mode;
   return client.get("/admin/credit-logs", { params });
+}
+
+export function listPaymentOrders(params: {
+  page?: number;
+  page_size?: number;
+  user?: string;
+  status?: AdminPaymentOrder["status"];
+  start_date?: string;
+  end_date?: string;
+}): Promise<{ total: number; items: AdminPaymentOrder[] }> {
+  return client.get("/admin/payment-orders", { params });
 }
 
 export function createRedeemKeysBatch(count: number, creditAmount: number): Promise<AdminRedeemKeyBatchResult> {
@@ -216,6 +228,16 @@ export function getAdminAnalyticsBreakdown(query: AdminAnalyticsQuery): Promise<
 
 export function getAdminAnalyticsRedeemRevenue(query: AdminAnalyticsQuery): Promise<AdminAnalyticsRedeemRevenue> {
   return client.get("/admin/analytics/redeem-revenue", {
+    params: {
+      granularity: query.granularity,
+      start_date: query.start_date,
+      end_date: query.end_date,
+    },
+  });
+}
+
+export function getAdminAnalyticsPaymentRevenue(query: AdminAnalyticsQuery): Promise<AdminAnalyticsRedeemRevenue> {
+  return client.get("/admin/analytics/payment-revenue", {
     params: {
       granularity: query.granularity,
       start_date: query.start_date,

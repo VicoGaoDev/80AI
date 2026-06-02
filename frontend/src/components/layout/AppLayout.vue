@@ -84,14 +84,15 @@ const routeOrder = new Map<string, number>([
   ["/admin/users", 13],
   ["/admin/redeem-keys", 14],
   ["/admin/revenue", 15],
-  ["/admin/dashboard", 16],
-  ["/admin/user-tasks", 17],
-  ["/admin/feedbacks", 18],
-  ["/admin/feedbacks/:feedbackId", 19],
-  ["/admin/system-messages", 20],
-  ["/admin/api-key", 21],
-  ["/admin/cos-config", 22],
-  ["/admin/external-api-configs", 23],
+  ["/admin/payment-orders", 16],
+  ["/admin/dashboard", 17],
+  ["/admin/user-tasks", 18],
+  ["/admin/feedbacks", 19],
+  ["/admin/feedbacks/:feedbackId", 20],
+  ["/admin/system-messages", 21],
+  ["/admin/api-key", 22],
+  ["/admin/cos-config", 23],
+  ["/admin/external-api-configs", 24],
 ]);
 
 const currentTheme = ref<AppThemeName>(getCurrentTheme());
@@ -129,6 +130,7 @@ const adminMenuItems = computed(() =>
     { key: "/admin/user-tasks", label: "用户任务", icon: PictureOutlined, superAdminOnly: false },
     { key: "/admin/redeem-keys", label: "兑换码管理", icon: GiftOutlined, superAdminOnly: false },
     { key: "/admin/revenue", label: "营业额", icon: AccountBookOutlined, superAdminOnly: false },
+    { key: "/admin/payment-orders", label: "购买订单", icon: AccountBookOutlined, superAdminOnly: false },
     { key: "/admin/feedbacks", label: "用户反馈", icon: MessageOutlined, superAdminOnly: false },
     { key: "/admin/system-messages", label: "系统邮件", icon: MailOutlined, superAdminOnly: false },
     { key: "/admin/cos-config", label: "COS 配置", icon: CloudUploadOutlined, superAdminOnly: true },
@@ -136,7 +138,7 @@ const adminMenuItems = computed(() =>
   ].filter((item) => !item.superAdminOnly || isSuperAdmin.value)
 );
 const adminMenuBaseItems = computed(() =>
-  adminMenuItems.value.filter((item) => ["/admin/templates", "/admin/users", "/admin/dashboard", "/admin/user-tasks", "/admin/redeem-keys", "/admin/revenue"].includes(item.key))
+  adminMenuItems.value.filter((item) => ["/admin/templates", "/admin/users", "/admin/dashboard", "/admin/user-tasks", "/admin/redeem-keys", "/admin/revenue", "/admin/payment-orders"].includes(item.key))
 );
 const adminMenuNoticeItems = computed(() =>
   adminMenuItems.value.filter((item) => ["/admin/feedbacks", "/admin/system-messages"].includes(item.key))
@@ -985,6 +987,9 @@ watch(purchaseDialogOpen, (open) => {
         </a-menu>
 
         <div class="header-actions">
+          <a-button type="text" class="top-link-btn" @click="openPurchaseEntry">
+            购买积分
+          </a-button>
           <a-button type="text" class="top-link-btn" @click="openRedeemEntry">
             兑换积分
           </a-button>
@@ -1143,6 +1148,10 @@ watch(purchaseDialogOpen, (open) => {
         <div class="mobile-drawer-section">
           <div class="mobile-drawer-section-title">积分服务</div>
           <div class="mobile-drawer-credit-actions">
+            <a-button block class="mobile-drawer-action-btn" @click="openPurchaseEntry">
+              <template #icon><ThunderboltOutlined /></template>
+              购买积分
+            </a-button>
             <a-button block class="mobile-drawer-action-btn" @click="openRedeemEntry">
               <template #icon><GiftOutlined /></template>
               兑换积分
