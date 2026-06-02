@@ -1,6 +1,6 @@
-# Banana Flutter App
+# 80AI Flutter App
 
-这是 Banana 面向用户侧的 Flutter 移动端工程骨架。
+这是 80AI 面向用户侧的 Flutter 移动端工程骨架。
 
 ## 当前范围
 

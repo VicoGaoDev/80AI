@@ -1,7 +1,7 @@
-# Banana Flutter App 前端 PRD
+# 80AI Flutter App 前端 PRD
 
 > 面向 iOS / Android 的 Flutter App 前端规划文档
-> 目标：复用现有 Banana Web 后端能力，快速落地一个移动端精简版 App
+> 目标：复用现有 80AI 后端能力，快速落地一个移动端精简版 App
 > 最后更新：2026-04-26
 
 ---
@@ -747,7 +747,7 @@ App 应关注以下字段：
 建议在仓库根目录新增：
 
 ```text
-BananaWeb/
+80AI/
 ├── backend/                  # 现有 FastAPI 后端
 ├── frontend/                 # 现有 Web 前端
 ├── prd-miniapp-frontend.md   # 小程序前端 PRD

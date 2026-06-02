@@ -1,7 +1,7 @@
-# Banana 小程序前端 PRD
+# 80AI 小程序前端 PRD
 
 > 面向微信小程序的 `uni-app` 前端落地规划文档
-> 目标：复用现有 Banana Web 后端能力，快速上线用户侧微信小程序
+> 目标：复用现有 80AI 后端能力，快速上线用户侧微信小程序
 > 最后更新：2026-04-25
 
 ---
@@ -112,7 +112,7 @@
 在仓库根目录下新增独立目录：
 
 ```text
-BananaWeb/
+80AI/
 ├── frontend/                 # 现有 Web 前端
 ├── backend/                  # 现有 FastAPI 后端
 ├── prd.md                    # 现有系统 PRD
@@ -122,7 +122,7 @@ BananaWeb/
 后续建议新增：
 
 ```text
-BananaWeb/
+80AI/
 └── uniapp/                   # 微信小程序前端项目
 ```
 
