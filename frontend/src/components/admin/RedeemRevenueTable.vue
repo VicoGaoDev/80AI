@@ -53,9 +53,14 @@ function rowKey(record: AdminAnalyticsRedeemRevenueItem) {
           <div v-if="data?.range_label" class="redeem-revenue-range">{{ data.range_label }}</div>
         </div>
         <div v-else-if="data?.range_label" class="redeem-revenue-range-only">{{ data.range_label }}</div>
-        <div v-if="data" class="redeem-revenue-summary">
-          <span class="redeem-revenue-chip">{{ countLabel }} {{ data.total_used_count }} 次</span>
-          <span class="redeem-revenue-chip redeem-revenue-chip-strong">合计 ¥{{ formatMoney(data.total_amount) }}</span>
+        <div class="redeem-revenue-head-right">
+          <div v-if="$slots['header-extra']" class="redeem-revenue-extra">
+            <slot name="header-extra" />
+          </div>
+          <div v-if="data" class="redeem-revenue-summary">
+            <span class="redeem-revenue-chip">{{ countLabel }} {{ data.total_used_count }} 次</span>
+            <span class="redeem-revenue-chip redeem-revenue-chip-strong">合计 ¥{{ formatMoney(data.total_amount) }}</span>
+          </div>
         </div>
       </div>
 
@@ -130,6 +135,19 @@ function rowKey(record: AdminAnalyticsRedeemRevenueItem) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.redeem-revenue-head-right {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.redeem-revenue-extra {
+  display: flex;
+  align-items: center;
 }
 
 .redeem-revenue-chip {

@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { message } from "ant-design-vue";
+import { h, onMounted, ref } from "vue";
+import { message, Modal } from "ant-design-vue";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
-import { AccountBookOutlined } from "@ant-design/icons-vue";
-import { getAdminAnalyticsPaymentRevenue, getAdminAnalyticsRedeemRevenue } from "@/api/admin";
+import { AccountBookOutlined, BellOutlined } from "@ant-design/icons-vue";
+import { getAdminAnalyticsPaymentRevenue, getAdminAnalyticsRedeemRevenue, testAdminDailyReportNotify } from "@/api/admin";
 import { isSessionExpiredError } from "@/lib/authError";
+import { useAuthStore } from "@/stores/auth";
 import RedeemRevenueTable from "@/components/admin/RedeemRevenueTable.vue";
 import type { AdminAnalyticsRedeemRevenue } from "@/types";
 
 type DatePreset = "today" | "3d" | "7d" | "30d";
 
+const auth = useAuthStore();
 const loading = ref(false);
+const sendingDailyReport = ref(false);
 const preset = ref<DatePreset | undefined>("today");
 const dateRange = ref<[Dayjs, Dayjs] | null>(null);
 const redeemRevenue = ref<AdminAnalyticsRedeemRevenue | null>(null);
@@ -54,6 +57,37 @@ function handleDateRangeChange() {
 function handleReset() {
   applyPreset("today");
   load();
+}
+
+async function handleSendDailyReport() {
+  sendingDailyReport.value = true;
+  try {
+    const result = await testAdminDailyReportNotify();
+    message.success(result.sent ? "日报发送成功" : "日报未发送，请检查企业微信配置");
+    Modal.info({
+      title: "日报发送结果",
+      width: 560,
+      okText: "知道了",
+      content: h("div", { class: "daily-report-result" }, [
+        h("p", null, `发送状态：${result.sent ? "成功" : "未发送"}`),
+        h("p", null, `报表日期：${result.report_date}`),
+        h("p", null, `统计区间：${result.range_start} ~ ${result.range_end}`),
+        h("p", null, `在线支付营业额：¥${Number(result.revenue_yuan || 0).toFixed(2)}`),
+        h("p", null, `支付成功订单数：${result.paid_order_count}`),
+        h("p", null, `兑换码营业额：¥${Number(result.redeem_revenue_yuan || 0).toFixed(2)}`),
+        h("p", null, `兑换码使用次数：${result.redeem_used_count}`),
+        h("p", null, `任务总数：${result.task_total_count}`),
+        h("p", null, `成功任务数：${result.task_success_count}`),
+        h("p", null, `失败任务数：${result.task_failed_count}`),
+        h("p", null, `积分消耗：${result.credit_consumed}`),
+      ]),
+    });
+  } catch (err: unknown) {
+    if (isSessionExpiredError(err)) return;
+    message.error((err as any)?.response?.data?.detail || "发送日报失败");
+  } finally {
+    sendingDailyReport.value = false;
+  }
 }
 
 async function load() {
@@ -99,6 +133,16 @@ onMounted(() => {
           <div class="warm-page-desc">统计在线购买与积分兑换码营业额，支持按时间区间筛选。</div>
         </div>
       </div>
+      <a-button
+        v-if="auth.isSuperAdmin"
+        type="primary"
+        class="warm-primary-btn revenue-header-btn"
+        :loading="sendingDailyReport"
+        @click="handleSendDailyReport"
+      >
+        <template #icon><BellOutlined /></template>
+        发送日报到企业微信
+      </a-button>
     </div>
 
     <div class="analytics-filter warm-card motion-fade-up motion-card-lift" style="--motion-delay: 120ms">
@@ -154,6 +198,23 @@ onMounted(() => {
   gap: 16px;
 }
 
+.revenue-header-btn {
+  min-width: 180px;
+  margin-left: auto;
+}
+
+:deep(.daily-report-result) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--theme-text);
+
+  p {
+    margin: 0;
+    line-height: 1.7;
+  }
+}
+
 @media (max-width: 768px) {
   .analytics-filter-row {
     align-items: stretch;
@@ -162,6 +223,11 @@ onMounted(() => {
   .analytics-filter-date,
   .analytics-action-btn {
     width: 100%;
+  }
+
+  .revenue-header-btn {
+    width: 100%;
+    margin-left: 0;
   }
 }
 </style>
