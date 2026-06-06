@@ -294,6 +294,10 @@ function handleDownload(item: UserHistoryCard) {
               </a-button>
             </div>
             <div class="detail-prompt">{{ item.prompt || "-" }}</div>
+            <div v-if="item.error_message" class="detail-error-block">
+              <div class="detail-error-label">错误信息</div>
+              <div class="detail-error-message">{{ item.error_message }}</div>
+            </div>
           </div>
         </div>
         <div v-if="showActions" class="detail-floating-actions">
@@ -450,6 +454,28 @@ function handleDownload(item: UserHistoryCard) {
   max-height: 210px;
   overflow-y: auto;
   scrollbar-width: thin;
+}
+
+.detail-error-block {
+  margin-top: 12px;
+}
+
+.detail-error-label {
+  margin-bottom: 8px;
+  color: #b85d47;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.detail-error-message {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(207, 63, 54, 0.16);
+  background: rgba(255, 242, 239, 0.92);
+  color: #b85d47;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .detail-thumb-row {

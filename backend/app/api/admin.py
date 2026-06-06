@@ -10,7 +10,7 @@ from app.schemas.admin import (
     CreateUserRequest, UserOut, UpdateStatusRequest, UpdateRoleRequest,
     UpdateWhitelistRequest, ResetPasswordRequest, StatsOut, AllocateCreditsRequest, ResetCreditsRequest, CreditLogOut,
     CreateRedeemKeysBatchRequest, RedeemKeyBatchOut, RedeemKeyOut, UpdateRedeemKeyStatusRequest, PaymentOrderAdminOut,
-    AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut, AnalyticsRedeemRevenueOut, DailyReportTestOut,
+    AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut, AnalyticsRedeemRevenueOut, ErrorAnalyticsOut, DailyReportTestOut,
 )
 from app.schemas.feedback import (
     FeedbackDetail,
@@ -25,7 +25,7 @@ from app.services.admin_service import (
     update_user_whitelist, reset_user_password, get_stats, allocate_credits, reset_user_credits, get_credit_logs,
     list_payment_orders,
     get_analytics_summary, get_analytics_timeseries, get_analytics_breakdown, get_analytics_redeem_revenue,
-    get_analytics_payment_revenue,
+    get_analytics_payment_revenue, get_error_analytics,
 )
 from app.services.credit_redeem_service import create_redeem_key_batch, list_redeem_keys, update_redeem_key_status
 from app.services.feedback_service import (
@@ -331,6 +331,22 @@ def admin_analytics_payment_revenue(
         granularity=granularity,
         start_date=start_date,
         end_date=end_date,
+    )
+
+
+@router.get("/analytics/errors", response_model=ErrorAnalyticsOut)
+def admin_error_analytics(
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    model: Optional[str] = Query(None),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return get_error_analytics(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        model=model,
     )
 
 

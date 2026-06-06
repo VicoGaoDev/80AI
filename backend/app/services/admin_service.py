@@ -1230,3 +1230,46 @@ def get_analytics_payment_revenue(
         "total_used_count": total_used_count,
         "total_amount": round(total_amount, 2),
     }
+
+
+def get_error_analytics(
+    db: Session,
+    *,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    model: str | None = None,
+) -> dict:
+    current_start, current_end = _align_range("day", start_date, end_date)
+    query = (
+        db.query(Task.error_message)
+        .join(User, User.id == Task.user_id)
+        .filter(
+            Task.created_at >= _to_db_datetime(current_start),
+            Task.created_at <= _to_db_datetime(current_end),
+            Task.status == "failed",
+            User.role != "superadmin",
+            _non_whitelisted_user_filter(),
+        )
+    )
+    if model:
+        query = query.filter(Task.model == model)
+    rows = query.all()
+
+    error_count_map: dict[str, int] = defaultdict(int)
+    for row in rows:
+        normalized_message = (row.error_message or "").strip() or "未知错误"
+        error_count_map[normalized_message] += 1
+
+    items = [
+        {"error_message": error_message, "count": count}
+        for error_message, count in sorted(
+            error_count_map.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+    ]
+    return {
+        "range_label": _format_range_label(current_start, current_end),
+        "total_failed_tasks": len(rows),
+        "distinct_error_messages": len(items),
+        "items": items,
+    }

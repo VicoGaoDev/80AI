@@ -138,6 +138,12 @@ const router = createRouter({
           component: () => import("@/views/admin/DashboardView.vue"),
         },
         {
+          path: "admin/error-analytics",
+          name: "AdminErrorAnalytics",
+          meta: { requiresAdmin: true },
+          component: () => import("@/views/admin/ErrorAnalyticsView.vue"),
+        },
+        {
           path: "admin/general-settings",
           name: "AdminGeneralSettings",
           meta: { requiresAdmin: true },

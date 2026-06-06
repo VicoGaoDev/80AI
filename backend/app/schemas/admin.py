@@ -194,6 +194,18 @@ class AnalyticsRedeemRevenueOut(BaseModel):
     total_amount: float
 
 
+class ErrorAnalyticsItemOut(BaseModel):
+    error_message: str
+    count: int = 0
+
+
+class ErrorAnalyticsOut(BaseModel):
+    range_label: str
+    total_failed_tasks: int
+    distinct_error_messages: int
+    items: list[ErrorAnalyticsItemOut]
+
+
 class DailyReportTestOut(BaseModel):
     sent: bool
     report_date: str

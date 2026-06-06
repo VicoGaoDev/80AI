@@ -2,6 +2,7 @@ import client from "./client";
 import type {
   AdminStats,
   AdminAnalyticsBreakdown,
+  AdminErrorAnalytics,
   AdminAnalyticsQuery,
   AdminAnalyticsRedeemRevenue,
   AdminAnalyticsSummary,
@@ -245,6 +246,14 @@ export function getAdminAnalyticsPaymentRevenue(query: AdminAnalyticsQuery): Pro
       end_date: query.end_date,
     },
   });
+}
+
+export function getAdminErrorAnalytics(params: {
+  start_date?: string;
+  end_date?: string;
+  model?: string;
+}): Promise<AdminErrorAnalytics> {
+  return client.get("/admin/analytics/errors", { params });
 }
 
 export function getAdminConfig(): Promise<AdminConfig | null> {

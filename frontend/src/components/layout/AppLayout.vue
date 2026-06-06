@@ -42,6 +42,7 @@ import {
   SettingOutlined,
   TeamOutlined,
   BarChartOutlined,
+  BugOutlined,
   KeyOutlined,
   CloudUploadOutlined,
   LogoutOutlined,
@@ -84,15 +85,16 @@ const routeOrder = new Map<string, number>([
   ["/admin/users", 13],
   ["/admin/user-tasks", 14],
   ["/admin/dashboard", 15],
-  ["/admin/general-settings", 16],
-  ["/admin/redeem-keys", 17],
-  ["/admin/revenue", 18],
-  ["/admin/payment-orders", 19],
-  ["/admin/feedbacks", 20],
-  ["/admin/feedbacks/:feedbackId", 21],
-  ["/admin/system-messages", 22],
-  ["/admin/cos-config", 23],
-  ["/admin/external-api-configs", 24],
+  ["/admin/error-analytics", 16],
+  ["/admin/general-settings", 17],
+  ["/admin/redeem-keys", 18],
+  ["/admin/revenue", 19],
+  ["/admin/payment-orders", 20],
+  ["/admin/feedbacks", 21],
+  ["/admin/feedbacks/:feedbackId", 22],
+  ["/admin/system-messages", 23],
+  ["/admin/cos-config", 24],
+  ["/admin/external-api-configs", 25],
 ]);
 
 const currentTheme = ref<AppThemeName>(getCurrentTheme());
@@ -128,6 +130,7 @@ const adminMenuItems = computed(() =>
     { key: "/admin/users", label: "用户管理", icon: TeamOutlined, superAdminOnly: false },
     { key: "/admin/user-tasks", label: "用户任务", icon: PictureOutlined, superAdminOnly: false },
     { key: "/admin/dashboard", label: "数据统计", icon: BarChartOutlined, superAdminOnly: false },
+    { key: "/admin/error-analytics", label: "错误统计", icon: BugOutlined, superAdminOnly: false },
     { key: "/admin/general-settings", label: "通用设置", icon: SettingOutlined, superAdminOnly: false },
     { key: "/admin/redeem-keys", label: "兑换码", icon: GiftOutlined, superAdminOnly: false },
     { key: "/admin/revenue", label: "营业额", icon: AccountBookOutlined, superAdminOnly: false },
@@ -139,7 +142,14 @@ const adminMenuItems = computed(() =>
   ].filter((item) => !item.superAdminOnly || isSuperAdmin.value)
 );
 const adminMenuBaseItems = computed(() =>
-  adminMenuItems.value.filter((item) => ["/admin/templates", "/admin/users", "/admin/user-tasks", "/admin/dashboard", "/admin/general-settings"].includes(item.key))
+  adminMenuItems.value.filter((item) => [
+    "/admin/templates",
+    "/admin/users",
+    "/admin/user-tasks",
+    "/admin/dashboard",
+    "/admin/error-analytics",
+    "/admin/general-settings",
+  ].includes(item.key))
 );
 const adminMenuBusinessItems = computed(() =>
   adminMenuItems.value.filter((item) => ["/admin/redeem-keys", "/admin/revenue", "/admin/payment-orders"].includes(item.key))

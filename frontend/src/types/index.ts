@@ -521,6 +521,18 @@ export interface AdminAnalyticsRedeemRevenue {
   total_amount: number;
 }
 
+export interface AdminErrorAnalyticsItem {
+  error_message: string;
+  count: number;
+}
+
+export interface AdminErrorAnalytics {
+  range_label: string;
+  total_failed_tasks: number;
+  distinct_error_messages: number;
+  items: AdminErrorAnalyticsItem[];
+}
+
 export interface AdminPaymentOrder {
   id: number;
   order_no: string;
