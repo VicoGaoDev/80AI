@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlencode
 
@@ -68,6 +69,7 @@ STARTER_PLAN_KEY = "starter"
 SUCCESSFUL_PURCHASE_STATUSES = {PAYMENT_STATUS_PAID, PAYMENT_STATUS_CREDITED}
 ACTIVE_PURCHASE_STATUSES = {PAYMENT_STATUS_CREATED, PAYMENT_STATUS_PENDING_PAY, PAYMENT_STATUS_PAID, PAYMENT_STATUS_CREDITED}
 ALIPAY_QUERYABLE_STATUSES = {PAYMENT_STATUS_PENDING_PAY, PAYMENT_STATUS_PAID}
+ALIPAY_TIMEOUT_PATTERN = re.compile(r"^\s*(\d+)\s*([mhd])\s*$", re.IGNORECASE)
 
 
 def _serialize_payment_plan(plan: PaymentPlan) -> dict:
@@ -107,6 +109,101 @@ def _has_active_plan_order(db: Session, *, user_id: int, plan_key: str) -> bool:
         .first()
         is not None
     )
+
+
+def parse_alipay_timeout_express(value: str) -> timedelta:
+    match = ALIPAY_TIMEOUT_PATTERN.match(value or "")
+    if not match:
+        return timedelta(minutes=15)
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+    if unit == "h":
+        return timedelta(hours=amount)
+    if unit == "d":
+        return timedelta(days=amount)
+    return timedelta(minutes=amount)
+
+
+def close_expired_unpaid_starter_orders(
+    db: Session,
+    *,
+    user: User,
+    timeout_express: str,
+    alipay_app_id: str,
+    gateway: str,
+    private_key: str,
+    sign_type: str,
+    alipay_public_key: str,
+) -> None:
+    timeout_delta = parse_alipay_timeout_express(timeout_express)
+    expired_before = now_local() - timeout_delta
+    expired_orders = (
+        db.query(PaymentOrder)
+        .filter(
+            PaymentOrder.user_id == user.id,
+            PaymentOrder.plan_key == STARTER_PLAN_KEY,
+            PaymentOrder.status.in_((PAYMENT_STATUS_CREATED, PAYMENT_STATUS_PENDING_PAY)),
+            PaymentOrder.created_at <= expired_before,
+        )
+        .all()
+    )
+    if not expired_orders:
+        return
+
+    for order in expired_orders:
+        alipay_query_configured = all(
+            (
+                (alipay_app_id or "").strip(),
+                (gateway or "").strip(),
+                (private_key or "").strip(),
+                (sign_type or "").strip(),
+                (alipay_public_key or "").strip(),
+            )
+        )
+        if order.status == PAYMENT_STATUS_PENDING_PAY and alipay_query_configured:
+            try:
+                query_result = query_alipay_trade_status(
+                    app_id=alipay_app_id,
+                    gateway=gateway,
+                    out_trade_no=order.out_trade_no,
+                    private_key=private_key,
+                    sign_type=sign_type,
+                )
+            except HTTPException as exc:
+                if exc.status_code != status.HTTP_502_BAD_GATEWAY:
+                    raise
+                query_result = None
+
+            if query_result and query_result.trade_status == ALIPAY_TRADE_WAITING_STATUS:
+                order.trade_status = query_result.trade_status
+                order.alipay_trade_no = query_result.trade_no or order.alipay_trade_no
+                order.buyer_id = query_result.buyer_id or order.buyer_id
+                db.add(order)
+                continue
+            if query_result and query_result.trade_status:
+                payload = {
+                    "app_id": alipay_app_id,
+                    "out_trade_no": order.out_trade_no,
+                    "trade_no": query_result.trade_no,
+                    "trade_status": query_result.trade_status,
+                    "total_amount": query_result.total_amount,
+                    "buyer_id": query_result.buyer_id,
+                    "query_source": "alipay.trade.query",
+                }
+                process_alipay_notification(
+                    db,
+                    payload=payload,
+                    alipay_public_key=alipay_public_key,
+                    alipay_app_id=alipay_app_id,
+                    skip_signature_verify=True,
+                )
+                continue
+
+        order.status = PAYMENT_STATUS_CLOSED
+        order.trade_status = order.trade_status or ALIPAY_TRADE_CLOSED_STATUS
+        order.closed_at = order.closed_at or now_local()
+        db.add(order)
+    db.flush()
 
 
 def list_payment_plans(db: Session, *, user: User) -> list[dict]:
