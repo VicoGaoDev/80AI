@@ -241,6 +241,19 @@ class AdminPromoReferralItemOut(BaseModel):
     registered_at: datetime | None = None
 
 
+class AdminPromoReferralActivityItemOut(BaseModel):
+    user_id: str
+    username: str
+    email_masked: str = "-"
+    activity_type: str
+    credits: int = 0
+    amount_fen: int | None = None
+    amount_yuan: float | None = None
+    redeem_key: str = ""
+    order_no: str = ""
+    occurred_at: datetime | None = None
+
+
 class AdminPromoSummaryOut(BaseModel):
     total_referrals: int = 0
     used_code_count: int = 0
@@ -253,3 +266,4 @@ class AdminUserPromoDashboardOut(BaseModel):
     summary: AdminPromoSummaryOut
     promo_codes: list[AdminPromoCodeItemOut]
     referrals: list[AdminPromoReferralItemOut]
+    activities: list[AdminPromoReferralActivityItemOut] = []

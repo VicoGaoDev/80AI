@@ -27,6 +27,7 @@ const form = reactive({ username: "", password: "", role: "user" });
 const filters = reactive({
   username: "",
   status: undefined as "active" | "disabled" | undefined,
+  whitelist: undefined as boolean | undefined,
   sort: "created_at_desc" as "created_at_desc" | "credits_desc" | "consumed_credits_desc",
 });
 
@@ -66,7 +67,8 @@ const filteredUsers = computed(() => {
       || user.username.toLowerCase().includes(keyword)
       || (user.email || "").toLowerCase().includes(keyword);
     const matchStatus = !filters.status || user.status === filters.status;
-    return matchUsername && matchStatus;
+    const matchWhitelist = filters.whitelist === undefined || user.is_whitelisted === filters.whitelist;
+    return matchUsername && matchStatus && matchWhitelist;
   });
 
   return [...list].sort((a, b) => {
@@ -119,7 +121,7 @@ async function load() {
 }
 onMounted(load);
 
-watch(() => [filters.username, filters.status, filters.sort], () => {
+watch(() => [filters.username, filters.status, filters.whitelist, filters.sort], () => {
   currentPage.value = 1;
 });
 
@@ -279,6 +281,7 @@ function isFirstAdmin(u: AdminUser) {
 function resetFilters() {
   filters.username = "";
   filters.status = undefined;
+  filters.whitelist = undefined;
   filters.sort = "created_at_desc";
   currentPage.value = 1;
 }
@@ -303,6 +306,16 @@ async function copyUserId(id: string) {
 }
 
 function fmtTime(t: string) { return t ? new Date(t).toLocaleString("zh-CN") : "-"; }
+
+function promoActivityRowKey(record: {
+  user_id: string;
+  activity_type: string;
+  occurred_at?: string | null;
+  order_no?: string;
+  redeem_key?: string;
+}) {
+  return `${record.user_id}-${record.activity_type}-${record.occurred_at || ""}-${record.order_no || record.redeem_key || ""}`;
+}
 </script>
 
 <template>
@@ -345,6 +358,15 @@ function fmtTime(t: string) { return t ? new Date(t).toLocaleString("zh-CN") : "
       >
         <a-select-option value="active">正常</a-select-option>
         <a-select-option value="disabled">禁用</a-select-option>
+      </a-select>
+      <a-select
+        v-model:value="filters.whitelist"
+        allow-clear
+        placeholder="白名单筛选"
+        class="filter-select warm-select"
+      >
+        <a-select-option :value="true">白名单用户</a-select-option>
+        <a-select-option :value="false">非白名单用户</a-select-option>
       </a-select>
       <a-select
         v-model:value="filters.sort"
@@ -611,7 +633,7 @@ function fmtTime(t: string) { return t ? new Date(t).toLocaleString("zh-CN") : "
       :title="`推广数据 - ${promoDashboard?.username || ''}`"
       :footer="null"
       centered
-      :width="960"
+      :width="1020"
     >
       <a-spin :spinning="promoDashboardLoading">
         <div v-if="promoDashboard" class="promo-dashboard">
@@ -668,6 +690,48 @@ function fmtTime(t: string) { return t ? new Date(t).toLocaleString("zh-CN") : "
               <a-table-column title="注册时间" data-index="registered_at" width="180">
                 <template #default="{ record }">
                   {{ fmtTime(record.registered_at) }}
+                </template>
+              </a-table-column>
+            </a-table>
+          </div>
+
+          <div class="promo-dashboard-section">
+            <div class="promo-dashboard-title">推广用户积分记录</div>
+            <a-table
+              :data-source="promoDashboard.activities"
+              :pagination="false"
+              :row-key="promoActivityRowKey"
+              size="small"
+              table-layout="fixed"
+              class="promo-dashboard-activity-table"
+            >
+              <a-table-column title="用户" key="user" width="22%">
+                <template #default="{ record }">
+                  <div class="promo-user-cell">
+                    <span class="promo-user-name">{{ record.username || "-" }}</span>
+                    <span v-if="record.email_masked" class="promo-user-email">{{ record.email_masked }}</span>
+                  </div>
+                </template>
+              </a-table-column>
+              <a-table-column title="类型" data-index="activity_type" width="100">
+                <template #default="{ record }">
+                  {{ record.activity_type === "purchase" ? "购买订单" : "兑换码兑换" }}
+                </template>
+              </a-table-column>
+              <a-table-column title="积分" data-index="credits" width="72" />
+              <a-table-column title="金额" data-index="amount_yuan" width="96">
+                <template #default="{ record }">
+                  {{ record.amount_yuan != null ? `¥${record.amount_yuan.toFixed(2)}` : "-" }}
+                </template>
+              </a-table-column>
+              <a-table-column title="订单号/兑换码" ellipsis>
+                <template #default="{ record }">
+                  {{ record.order_no || record.redeem_key || "-" }}
+                </template>
+              </a-table-column>
+              <a-table-column title="发生时间" data-index="occurred_at" width="168">
+                <template #default="{ record }">
+                  {{ fmtTime(record.occurred_at) }}
                 </template>
               </a-table-column>
             </a-table>
@@ -870,6 +934,35 @@ function fmtTime(t: string) { return t ? new Date(t).toLocaleString("zh-CN") : "
 .promo-dashboard-section {
   display: grid;
   gap: 12px;
+}
+
+.promo-user-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.promo-user-name {
+  color: #4c341a;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.promo-user-email {
+  color: #8c7458;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.promo-dashboard-activity-table {
+  :deep(.ant-table) {
+    table-layout: fixed;
+  }
 }
 
 .promo-dashboard-title {

@@ -316,6 +316,7 @@ export interface AdminUserPromoDashboard {
   summary: PromoCodeSummary;
   promo_codes: PromoCodeItem[];
   referrals: PromoReferralItem[];
+  activities: PromoReferralActivityItem[];
 }
 
 export interface CreditLog {

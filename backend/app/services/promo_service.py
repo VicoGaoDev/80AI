@@ -258,19 +258,18 @@ def get_my_promo_referrals(
     )
 
 
-def get_my_promo_referral_activities(
+def _build_promo_referral_activities_payload(
     db: Session,
-    user: User,
+    owner: User,
     *,
     keyword: str | None = None,
     platform_name: str | None = None,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
 ) -> dict:
-    ensure_promo_access(user)
     referred_rows = _get_referred_user_rows(
         db,
-        user,
+        owner,
         keyword=keyword,
         platform_name=platform_name,
         start_date=start_date,
@@ -336,13 +335,35 @@ def get_my_promo_referral_activities(
     return {"total": len(items), "items": items}
 
 
+def get_my_promo_referral_activities(
+    db: Session,
+    user: User,
+    *,
+    keyword: str | None = None,
+    platform_name: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> dict:
+    ensure_promo_access(user)
+    return _build_promo_referral_activities_payload(
+        db,
+        user,
+        keyword=keyword,
+        platform_name=platform_name,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
 def get_user_promo_dashboard_for_admin(db: Session, owner: User) -> dict:
     if not owner.is_whitelisted:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该用户不是白名单用户")
+    promo_payload = _build_promo_codes_payload(db, owner)
     return {
         "user_id": user_external_id(owner),
         "username": owner.username,
-        "summary": _build_promo_codes_payload(db, owner)["summary"],
-        "promo_codes": _build_promo_codes_payload(db, owner)["items"],
+        "summary": promo_payload["summary"],
+        "promo_codes": promo_payload["items"],
         "referrals": _build_promo_referrals_payload(db, owner)["items"],
+        "activities": _build_promo_referral_activities_payload(db, owner)["items"],
     }
