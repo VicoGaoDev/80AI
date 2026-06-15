@@ -10,7 +10,7 @@ from app.models.user import User
 from app.models.credit_log import CreditLog
 from app.models.prompt_history import PromptHistory
 from app.services.business_id_service import task_external_id, user_external_id
-from app.services.distributed_lock_service import acquire_redis_lock, release_redis_lock
+from app.services.distributed_lock_service import RedisLockHandle, acquire_redis_lock, release_redis_lock
 from app.services.external_api_config_service import SCENE_INPAINT, get_scene_credit_cost
 from app.services.user_credit_service import apply_user_credit_delta, get_user_credit_account
 from app.utils.datetime_utils import now_local
@@ -24,6 +24,7 @@ DAILY_TASK_FAILURE_REFUND_LIMIT = 10
 TASK_SUBMISSION_LOCK_PREFIX = "banana:tasks:submission:user"
 TASK_SUBMISSION_LOCK_TIMEOUT_SECONDS = 30
 TASK_SUBMISSION_LOCK_BLOCKING_TIMEOUT_SECONDS = 5
+TASK_SUBMISSION_LOCK_SLOTS_PER_USER = max(int(settings.MAX_ACTIVE_TASKS_PER_USER or 0), 1)
 PROCESSING_TASK_TIMEOUT_DESCRIPTION = "任务处理超时，已自动关闭"
 task_logger = logging.getLogger("app.task")
 
@@ -180,8 +181,27 @@ def _validate_task_create_payload(
     return mode, num_images
 
 
-def _task_submission_lock_name(user_id: int) -> str:
-    return f"{TASK_SUBMISSION_LOCK_PREFIX}:{int(user_id)}"
+def _task_submission_lock_name(user_id: int, slot_index: int) -> str:
+    return f"{TASK_SUBMISSION_LOCK_PREFIX}:{int(user_id)}:{int(slot_index)}"
+
+
+def _acquire_task_submission_lock(user_id: int) -> RedisLockHandle:
+    saw_unavailable = False
+    for slot_index in range(TASK_SUBMISSION_LOCK_SLOTS_PER_USER):
+        handle = acquire_redis_lock(
+            _task_submission_lock_name(user_id, slot_index),
+            timeout_seconds=TASK_SUBMISSION_LOCK_TIMEOUT_SECONDS,
+            blocking_timeout_seconds=0,
+        )
+        if handle.status == "acquired":
+            return handle
+        if handle.status == "unavailable":
+            saw_unavailable = True
+
+    if saw_unavailable:
+        return RedisLockHandle(status="unavailable")
+
+    return RedisLockHandle(status="contended")
 
 
 def _expire_stale_processing_tasks(
@@ -260,11 +280,7 @@ def create_tasks(
         source_image=source_image,
         mask_image=mask_image,
     )
-    submission_lock = acquire_redis_lock(
-        _task_submission_lock_name(user_id),
-        timeout_seconds=TASK_SUBMISSION_LOCK_TIMEOUT_SECONDS,
-        blocking_timeout_seconds=TASK_SUBMISSION_LOCK_BLOCKING_TIMEOUT_SECONDS,
-    )
+    submission_lock = _acquire_task_submission_lock(user_id)
     if submission_lock.status == "contended":
         task_logger.warning(
             "task submission rejected by submission lock",

@@ -16,7 +16,7 @@ import {
 } from "@ant-design/icons-vue";
 import { getMe } from "@/api/auth";
 import { getTaskScenes } from "@/api/config";
-import { fetchHistory } from "@/api/history";
+import { deleteHistoryTask, fetchHistory } from "@/api/history";
 import { deleteImage, getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl, resolveImageUrl } from "@/api/images";
 import { createTask, getTasks } from "@/api/tasks";
 import { uploadReferenceImage } from "@/api/upload";
@@ -61,6 +61,7 @@ interface BatchGenerateCard {
   dragActive: boolean;
   dragCounter: number;
   highlighted: boolean;
+  cancelRequested: boolean;
 }
 
 interface GlobalBatchSettings {
@@ -161,7 +162,7 @@ const draftHydrationReady = ref(false);
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
-let submissionInFlight = false;
+let submissionInFlightCount = 0;
 let unbindGlobalReferenceDragHandlers: (() => void) | null = null;
 const unbindCardReferenceDragHandlers = new Map<string, () => void>();
 
@@ -241,6 +242,7 @@ function hydrateCardFromDraft(draft: BatchGenerateDraftCard): BatchGenerateCard 
     dragActive: false,
     dragCounter: 0,
     highlighted: false,
+    cancelRequested: false,
   };
   normalizeCardSelections(card);
   return card;
@@ -276,10 +278,16 @@ function shouldPersistBatchGenerateDraft() {
   return hasMeaningfulGlobalSettings || cards.value.some(isCardMeaningfulForDraft);
 }
 
+function getBatchGenerateDraftStorageKey() {
+  const currentUserId = String(auth.user?.id || "").trim();
+  return currentUserId ? `${BATCH_GENERATE_DRAFT_KEY}:${currentUserId}` : BATCH_GENERATE_DRAFT_KEY;
+}
+
 function persistBatchGenerateDraft() {
   try {
+    const storageKey = getBatchGenerateDraftStorageKey();
     if (!shouldPersistBatchGenerateDraft()) {
-      localStorage.removeItem(BATCH_GENERATE_DRAFT_KEY);
+      localStorage.removeItem(storageKey);
       return;
     }
 
@@ -290,7 +298,7 @@ function persistBatchGenerateDraft() {
         .map((item) => item.remoteUrl),
       cards: cards.value.filter(isCardMeaningfulForDraft).map(serializeCard),
     };
-    localStorage.setItem(BATCH_GENERATE_DRAFT_KEY, JSON.stringify(payload));
+    localStorage.setItem(storageKey, JSON.stringify(payload));
   } catch {
     // ignore storage errors
   }
@@ -298,7 +306,8 @@ function persistBatchGenerateDraft() {
 
 function restoreBatchGenerateDraft() {
   try {
-    const raw = localStorage.getItem(BATCH_GENERATE_DRAFT_KEY);
+    const storageKey = getBatchGenerateDraftStorageKey();
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return false;
     const draft = JSON.parse(raw) as Partial<BatchGenerateDraftState>;
     if (draft.globalSettings) {
@@ -318,7 +327,7 @@ function restoreBatchGenerateDraft() {
       ? draft.cards.slice(0, MAX_BATCH_CARDS).map(hydrateCardFromDraft)
       : [];
     if (!shouldPersistBatchGenerateDraft()) {
-      localStorage.removeItem(BATCH_GENERATE_DRAFT_KEY);
+      localStorage.removeItem(storageKey);
       cards.value = [];
       globalReferenceItems.value = [];
       return false;
@@ -392,6 +401,7 @@ const activeRemoteCardCount = computed(() => cards.value.filter((card) => (
 )).length);
 const queuedLocalCount = computed(() => cards.value.filter((card) => card.status === "queued_local").length);
 const remainingSlots = computed(() => Math.max(MAX_BATCH_CARDS - activeRemoteCardCount.value, 0));
+const remainingSubmissionSlots = computed(() => Math.max(MAX_BATCH_CARDS - submissionInFlightCount, 0));
 const canAddMoreCards = computed(() => cards.value.length < MAX_BATCH_CARDS);
 const hasFinishedCards = computed(() => cards.value.some((card) => ["success", "failed"].includes(card.status)));
 const globalUploading = computed(() => globalReferenceItems.value.some((item) => item.status === "uploading"));
@@ -475,6 +485,7 @@ function createEmptyCard(): BatchGenerateCard {
     dragActive: false,
     dragCounter: 0,
     highlighted: false,
+    cancelRequested: false,
   };
   if (globalSettings.value.prompt.trim()) {
     card.prompt = globalSettings.value.prompt;
@@ -517,6 +528,7 @@ function createCardFromHistoryItem(item: UserHistoryCard): BatchGenerateCard {
     dragActive: false,
     dragCounter: 0,
     highlighted: false,
+    cancelRequested: false,
   };
 
   normalizeCardSelections(card);
@@ -594,6 +606,7 @@ async function loadActiveHistoryCards() {
   if (!auth.isLoggedIn || !generationModels.value.length) return;
 
   try {
+    const currentUserId = String(auth.user?.id || "").trim();
     const seenTaskIds = new Set<string>();
     const activeHistoryItems: UserHistoryCard[] = [];
     let page = 1;
@@ -609,6 +622,7 @@ async function loadActiveHistoryCards() {
 
       res.items.forEach((item) => {
         if (activeHistoryItems.length >= MAX_BATCH_CARDS) return;
+        if (currentUserId && String(item.user_id || "").trim() && String(item.user_id || "").trim() !== currentUserId) return;
         if (item.mode === "promptReverse" || !item.task_id || seenTaskIds.has(item.task_id)) return;
         if (!["pending", "queued", "processing"].includes(item.status)) return;
         seenTaskIds.add(item.task_id);
@@ -874,6 +888,11 @@ function isCardLocked(card: BatchGenerateCard) {
   return ["queued_local", "submitting", "pending", "queued", "processing"].includes(card.status);
 }
 
+function canRemoveCard(card: BatchGenerateCard) {
+  if (!isCardLocked(card)) return true;
+  return card.status === "queued_local" || (card.status === "submitting" && !card.taskId);
+}
+
 function buildReferenceUrls(items: UploadPreviewItem[]) {
   return items
     .filter((item) => item.status === "success" && item.remoteUrl)
@@ -1088,7 +1107,8 @@ function addCard() {
 }
 
 function removeCard(card: BatchGenerateCard) {
-  if (isCardLocked(card)) return;
+  if (!canRemoveCard(card)) return;
+  card.cancelRequested = true;
   const doRemove = () => {
     card.referenceItems.forEach((item) => revokeObjectUrl(item.objectUrl));
     cards.value = cards.value.filter((item) => item.id !== card.id);
@@ -1177,6 +1197,13 @@ function getStatusLabel(status: BatchCardStatus) {
   if (status === "processing") return "生成中";
   if (status === "success") return "已完成";
   return "失败";
+}
+
+function getCardCloseButtonTitle(card: BatchGenerateCard) {
+  if (card.status === "queued_local" || (card.status === "submitting" && !card.taskId)) {
+    return "取消提交";
+  }
+  return "删除卡片";
 }
 
 function getStatusColor(status: BatchCardStatus) {
@@ -1310,6 +1337,7 @@ function duplicateCard(card: BatchGenerateCard) {
     dragActive: false,
     dragCounter: 0,
     highlighted: false,
+    cancelRequested: false,
   };
   normalizeCardSelections(nextCard);
   const cardIndex = cards.value.findIndex((item) => item.id === card.id);
@@ -1452,12 +1480,23 @@ async function submitCard(card: BatchGenerateCard) {
   card.status = "submitting";
   card.errorMessage = "";
   card.images = createPendingImages(1);
+  card.cancelRequested = false;
 
   try {
     const res = await createTask(buildCreateTaskPayload(card));
     const taskId = res.task_id || res.task_ids?.[0];
     if (!taskId) {
       throw new Error("服务端没有返回任务 ID");
+    }
+
+    if (card.cancelRequested) {
+      try {
+        await deleteHistoryTask(taskId);
+      } catch {
+        // local cancellation already applied; ignore backend cleanup failure
+      }
+      void refreshCurrentUser();
+      return;
     }
 
     card.taskId = taskId;
@@ -1490,20 +1529,28 @@ async function submitCard(card: BatchGenerateCard) {
 }
 
 async function pumpQueue() {
-  if (submissionInFlight) return;
-  if (remainingSlots.value <= 0) return;
+  if (remainingSlots.value <= 0 || remainingSubmissionSlots.value <= 0) return;
 
-  const nextCard = cards.value.find((card) => card.status === "queued_local");
-  if (!nextCard) return;
+  const capacity = Math.min(remainingSlots.value, remainingSubmissionSlots.value);
+  if (capacity <= 0) return;
 
-  submissionInFlight = true;
+  const nextCards = cards.value
+    .filter((card) => card.status === "queued_local")
+    .slice(0, capacity);
+  if (!nextCards.length) return;
+
+  submissionInFlightCount += nextCards.length;
   try {
-    await submitCard(nextCard);
+    await Promise.all(nextCards.map((card) => submitCard(card)));
   } finally {
-    submissionInFlight = false;
+    submissionInFlightCount = Math.max(0, submissionInFlightCount - nextCards.length);
   }
 
-  if (cards.value.some((card) => card.status === "queued_local") && remainingSlots.value > 0) {
+  if (
+    cards.value.some((card) => card.status === "queued_local")
+    && remainingSlots.value > 0
+    && remainingSubmissionSlots.value > 0
+  ) {
     scheduleQueuePump(350);
   }
 }
@@ -1651,6 +1698,7 @@ async function loadTaskScenes() {
 
 onMounted(async () => {
   await loadTaskScenes();
+  localStorage.removeItem(BATCH_GENERATE_DRAFT_KEY);
   restoreBatchGenerateDraft();
   normalizeGlobalSelections();
   cards.value.forEach((card) => normalizeCardSelections(card));
@@ -1858,7 +1906,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="batch-task-card-list">
+    <TransitionGroup name="batch-card" tag="div" class="batch-task-card-list">
       <a-card
         v-for="(card, index) in cards"
         :key="card.id"
@@ -1880,9 +1928,11 @@ onBeforeUnmount(() => {
               :disabled="isCardLocked(card)"
               @update:value="handleCardSceneTypeChange(card, $event as BatchSceneMode)"
             />
-            <a-button type="text" danger class="card-close-btn" :disabled="isCardLocked(card)" @click="removeCard(card)">
-              <template #icon><CloseOutlined /></template>
-            </a-button>
+            <a-tooltip :title="getCardCloseButtonTitle(card)">
+              <a-button type="text" danger class="card-close-btn" :disabled="!canRemoveCard(card)" @click="removeCard(card)">
+                <template #icon><CloseOutlined /></template>
+              </a-button>
+            </a-tooltip>
           </div>
         </template>
 
@@ -2157,7 +2207,7 @@ onBeforeUnmount(() => {
         <span class="batch-add-placeholder-icon">+</span>
         <span class="batch-add-placeholder-text">添加新任务</span>
       </button>
-    </div>
+    </TransitionGroup>
 
     <a-modal v-model:open="previewVisible" title="图片预览" :footer="null" width="880px">
       <img :src="previewCurrent" alt="预览图" class="preview-modal-image" />
@@ -2187,6 +2237,30 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
+.batch-card {
+  transform-origin: center top;
+  transition:
+    transform var(--motion-duration-fast) var(--motion-ease-soft),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-soft),
+    border-color var(--motion-duration-fast) var(--motion-ease-soft),
+    background-color var(--motion-duration-fast) var(--motion-ease-soft);
+  will-change: transform, box-shadow;
+}
+
+.batch-card:hover,
+.batch-card:focus-within {
+  transform: translateY(-3px);
+  border-color: rgba(255, 184, 77, 0.56);
+  box-shadow:
+    0 12px 28px rgba(34, 22, 10, 0.08),
+    0 4px 12px rgba(245, 158, 11, 0.08);
+}
+
+.batch-card.batch-card-move:hover,
+.batch-card.batch-card-move:focus-within {
+  transform: none;
+}
+
 .batch-card-highlighted {
   border-color: rgba(255, 172, 38, 0.72);
   box-shadow:
@@ -2214,6 +2288,42 @@ onBeforeUnmount(() => {
       0 0 0 0 rgba(255, 172, 38, 0),
       0 0 0 rgba(245, 158, 11, 0);
   }
+}
+
+.batch-card-enter-active,
+.batch-card-leave-active {
+  transition:
+    opacity var(--motion-duration-reveal-slower) var(--motion-ease-enter),
+    transform var(--motion-duration-reveal-slower) var(--motion-ease-enter),
+    filter var(--motion-duration-reveal-slower) var(--motion-ease-enter);
+}
+
+.batch-card-move {
+  transition: transform var(--motion-duration-reveal) var(--motion-ease-soft);
+}
+
+.batch-add-placeholder.batch-card-move,
+.batch-card.batch-card-move {
+  transition: transform var(--motion-duration-reveal) var(--motion-ease-soft) !important;
+}
+
+.batch-card-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(4px);
+}
+
+.batch-card-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.985);
+  filter: blur(3px);
+}
+
+.batch-card-leave-active {
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+  width: calc((100% - 36px) / 4);
 }
 
 .panel-title-row {
@@ -3393,6 +3503,10 @@ onBeforeUnmount(() => {
   .batch-task-card-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .batch-card-leave-active {
+    width: calc((100% - 12px) / 2);
+  }
 }
 
 @media (max-width: 900px) {
@@ -3449,6 +3563,10 @@ onBeforeUnmount(() => {
 
   .batch-task-card-list {
     grid-template-columns: repeat(auto-fit, minmax(100%, 1fr));
+  }
+
+  .batch-card-leave-active {
+    width: 100%;
   }
 
   .batch-generate-page {
