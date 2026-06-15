@@ -73,20 +73,20 @@ def admin_list_users(
 def admin_update_status(
     user_id: str,
     body: UpdateStatusRequest,
-    _user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
 ):
-    return update_user_status(db, user_id, body.status)
+    return update_user_status(db, user_id, body.status, user)
 
 
 @router.put("/users/{user_id}/role", response_model=UserOut)
 def admin_update_role(
     user_id: str,
     body: UpdateRoleRequest,
-    _user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
 ):
-    return update_user_role(db, user_id, body.role)
+    return update_user_role(db, user_id, body.role, user)
 
 
 @router.put("/users/{user_id}/whitelist", response_model=UserOut)
@@ -103,10 +103,10 @@ def admin_update_whitelist(
 def admin_reset_password(
     user_id: str,
     body: ResetPasswordRequest,
-    _user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
 ):
-    return reset_user_password(db, user_id, body.new_password)
+    return reset_user_password(db, user_id, body.new_password, user)
 
 
 @router.post("/users/{user_id}/credits", response_model=UserOut)
@@ -116,7 +116,7 @@ def admin_allocate_credits(
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return allocate_credits(db, user_id, body.amount, body.description, admin.id)
+    return allocate_credits(db, user_id, body.amount, body.description, admin)
 
 
 @router.post("/users/{user_id}/credits/reset", response_model=UserOut)
@@ -126,7 +126,7 @@ def admin_reset_credits(
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return reset_user_credits(db, user_id, body.description, admin.id)
+    return reset_user_credits(db, user_id, body.description, admin)
 
 
 @router.get("/users/{user_id}/promo-dashboard", response_model=AdminUserPromoDashboardOut)

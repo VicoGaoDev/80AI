@@ -31,9 +31,11 @@ from app.services.task_type_service import (
 from app.services.user_credit_service import (
     change_user_credit_balance,
     create_default_credit_account,
+    get_user_credit_account,
     get_user_credit_balance,
     get_user_credits_map,
 )
+from app.services.wecom_notify_service import send_wecom_markdown
 from app.utils.datetime_utils import LOCAL_TZ, now_local, to_local_naive
 from app.utils.security import hash_password
 
@@ -193,6 +195,61 @@ def _serialize_user_with_balance(user: User, balance: int, consumed_credits: int
     }
 
 
+def _format_user_label(user: User | None) -> str:
+    if not user:
+        return "-"
+    username = (user.username or "").strip() or f"ID {user.id}"
+    email = (user.email or "").strip()
+    return f"{username} ({email})" if email else username
+
+
+def _status_label(value: str) -> str:
+    if value == "active":
+        return "启用"
+    if value == "disabled":
+        return "禁用"
+    return value or "-"
+
+
+def _role_label(value: str) -> str:
+    if value == "admin":
+        return "管理员"
+    if value == "user":
+        return "普通用户"
+    if value == "superadmin":
+        return "超级管理员"
+    return value or "-"
+
+
+def _credit_snapshot(db: Session, user_id: int) -> tuple[int, int]:
+    account = get_user_credit_account(db, user_id, create_if_missing=False)
+    if not account:
+        return 0, 0
+    return int(account.remain_credit or 0), int(account.used_credit or 0)
+
+
+def _send_user_admin_action_notification(
+    db: Session,
+    *,
+    operator: User,
+    target_user: User,
+    action_type: str,
+    detail_lines: list[str] | None = None,
+) -> None:
+    details = [line for line in (detail_lines or []) if line]
+    content = (
+        "## 👤 用户管理操作通知\n"
+        f"> 🙋 操作人: **{_format_user_label(operator)}**\n"
+        f"> 🎯 操作对象: **{_format_user_label(target_user)}**\n"
+        f"> 🧾 用户ID: `{user_external_id(target_user)}`\n"
+        f"> 🛠️ 操作类型: **{action_type}**\n"
+    )
+    if details:
+        content += "\n".join(details) + "\n"
+    content += f"> ⏰ 操作时间: {now_local().strftime('%Y-%m-%d %H:%M:%S')}"
+    send_wecom_markdown(content)
+
+
 def _yuan_to_fen(amount_yuan: Decimal | int | float | str) -> int:
     try:
         normalized = Decimal(str(amount_yuan)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -222,7 +279,7 @@ def _serialize_offline_order(order: OfflineOrder, user: User | None, creator: Us
     }
 
 
-def update_user_status(db: Session, user_id: str, new_status: str) -> dict:
+def update_user_status(db: Session, user_id: str, new_status: str, operator: User) -> dict:
     if new_status not in ("active", "disabled"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="状态必须是 active 或 disabled")
 
@@ -234,13 +291,21 @@ def update_user_status(db: Session, user_id: str, new_status: str) -> dict:
     if user.id == _get_first_admin_id(db) and new_status == "disabled":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="初始管理员不允许被禁用")
 
+    previous_status = user.status or "active"
     user.status = new_status
     db.commit()
     db.refresh(user)
+    _send_user_admin_action_notification(
+        db,
+        operator=operator,
+        target_user=user,
+        action_type="用户状态变更",
+        detail_lines=[f"> 🔁 状态变更: **{_status_label(previous_status)} -> {_status_label(new_status)}**"],
+    )
     return _serialize_user(user)
 
 
-def update_user_role(db: Session, user_id: str, new_role: str) -> dict:
+def update_user_role(db: Session, user_id: str, new_role: str, operator: User) -> dict:
     if new_role not in ("user", "admin"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色必须是 user 或 admin")
 
@@ -252,9 +317,17 @@ def update_user_role(db: Session, user_id: str, new_role: str) -> dict:
     if user.id == _get_first_admin_id(db) and new_role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="初始管理员不允许被降级")
 
+    previous_role = user.role or "user"
     user.role = new_role
     db.commit()
     db.refresh(user)
+    _send_user_admin_action_notification(
+        db,
+        operator=operator,
+        target_user=user,
+        action_type="用户角色变更",
+        detail_lines=[f"> 🔁 角色变更: **{_role_label(previous_role)} -> {_role_label(new_role)}**"],
+    )
     return _serialize_user(user)
 
 
@@ -271,7 +344,7 @@ def update_user_whitelist(db: Session, user_id: str, is_whitelisted: bool) -> di
     return _serialize_user(user)
 
 
-def reset_user_password(db: Session, user_id: str, new_password: str) -> dict:
+def reset_user_password(db: Session, user_id: str, new_password: str, operator: User) -> dict:
     if len(new_password) < 6:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码至少6位")
 
@@ -284,33 +357,54 @@ def reset_user_password(db: Session, user_id: str, new_password: str) -> dict:
     user.password_hash = hash_password(new_password)
     db.commit()
     db.refresh(user)
+    _send_user_admin_action_notification(
+        db,
+        operator=operator,
+        target_user=user,
+        action_type="重置用户密码",
+    )
     return _serialize_user(user)
 
 
-def allocate_credits(db: Session, user_id: str, amount: int, description: str, operator_id: int) -> dict:
+def allocate_credits(db: Session, user_id: str, amount: int, description: str, operator: User) -> dict:
     if amount == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="积分数量不能为 0")
     user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    before_remain_credit, before_used_credit = _credit_snapshot(db, user.id)
     change_user_credit_balance(
         db,
         user.id,
         delta=amount,
         log_type="allocate",
         description=description or ("管理员充值" if amount > 0 else "管理员扣减"),
-        operator_id=operator_id,
+        operator_id=operator.id,
     )
     db.commit()
     db.refresh(user)
+    after_remain_credit, after_used_credit = _credit_snapshot(db, user.id)
+    _send_user_admin_action_notification(
+        db,
+        operator=operator,
+        target_user=user,
+        action_type="分配积分" if amount > 0 else "扣减积分",
+        detail_lines=[
+            f"> ⚡ 本次积分变更: **{amount:+d}**",
+            f"> ⚡ 剩余积分: **{before_remain_credit} -> {after_remain_credit}**",
+            f"> ⚡ 已使用积分: **{before_used_credit} -> {after_used_credit}**",
+            f"> 📝 备注: {description.strip() if (description or '').strip() else '-'}",
+        ],
+    )
     return _serialize_user(user)
 
 
-def reset_user_credits(db: Session, user_id: str, description: str, operator_id: int) -> dict:
+def reset_user_credits(db: Session, user_id: str, description: str, operator: User) -> dict:
     user = get_user_by_business_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    current_balance = get_user_credit_balance(db, user.id)
+    before_remain_credit, before_used_credit = _credit_snapshot(db, user.id)
+    current_balance = before_remain_credit
     if current_balance <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前积分已为 0，无需清零")
 
@@ -321,10 +415,23 @@ def reset_user_credits(db: Session, user_id: str, description: str, operator_id:
         delta=-deducted_amount,
         log_type="allocate",
         description=description or f"管理员积分清零（原余额 {deducted_amount}）",
-        operator_id=operator_id,
+        operator_id=operator.id,
     )
     db.commit()
     db.refresh(user)
+    after_remain_credit, after_used_credit = _credit_snapshot(db, user.id)
+    _send_user_admin_action_notification(
+        db,
+        operator=operator,
+        target_user=user,
+        action_type="积分清零",
+        detail_lines=[
+            f"> ⚡ 本次积分变更: **-{deducted_amount}**",
+            f"> ⚡ 剩余积分: **{before_remain_credit} -> {after_remain_credit}**",
+            f"> ⚡ 已使用积分: **{before_used_credit} -> {after_used_credit}**",
+            f"> 📝 备注: {description.strip() if (description or '').strip() else '-'}",
+        ],
+    )
     return _serialize_user(user)
 
 
