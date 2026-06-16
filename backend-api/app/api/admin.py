@@ -198,7 +198,7 @@ def admin_stats(
 
 @router.get("/analytics/summary", response_model=AnalyticsSummaryOut)
 def admin_analytics_summary(
-    granularity: str = Query("3hour", pattern="^(3hour|day|week|month)$"),
+    granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     user_id: Optional[str] = Query(None),
@@ -225,7 +225,7 @@ def admin_analytics_summary(
 
 @router.get("/analytics/timeseries", response_model=AnalyticsTimeseriesOut)
 def admin_analytics_timeseries(
-    granularity: str = Query("3hour", pattern="^(3hour|day|week|month)$"),
+    granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     user_id: Optional[str] = Query(None),
@@ -252,7 +252,7 @@ def admin_analytics_timeseries(
 
 @router.get("/analytics/breakdown", response_model=AnalyticsBreakdownOut)
 def admin_analytics_breakdown(
-    granularity: str = Query("3hour", pattern="^(3hour|day|week|month)$"),
+    granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     user_id: Optional[str] = Query(None),
@@ -279,7 +279,7 @@ def admin_analytics_breakdown(
 
 @router.get("/analytics/redeem-revenue", response_model=AnalyticsRedeemRevenueOut)
 def admin_analytics_redeem_revenue(
-    granularity: str = Query("3hour", pattern="^(3hour|day|week|month)$"),
+    granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     _user: User = Depends(require_admin),

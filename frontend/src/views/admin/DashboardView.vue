@@ -221,6 +221,7 @@ function applyPresetRange(value: string) {
 }
 
 function buildAnalyticsQuery(): AdminAnalyticsQuery {
+  const useBucketRange = granularity.value === "3hour" && preset.value === "custom";
   return {
     granularity: granularity.value,
     status: filters.status,
@@ -228,20 +229,21 @@ function buildAnalyticsQuery(): AdminAnalyticsQuery {
     source: filters.source,
     model: filters.model,
     mode: filters.mode,
-    start_date: formatQueryDate(filters.dateRange?.[0].startOf("day")),
-    end_date: formatQueryDate(filters.dateRange?.[1].endOf("day")),
+    start_date: formatQueryDate(useBucketRange ? filters.dateRange?.[0] : filters.dateRange?.[0].startOf("day")),
+    end_date: formatQueryDate(useBucketRange ? filters.dateRange?.[1] : filters.dateRange?.[1].endOf("day")),
   };
 }
 
 function buildHistoryFilter(): HistoryFilter {
+  const useBucketRange = granularity.value === "3hour" && preset.value === "custom";
   return {
     status: filters.status,
     user_id: filters.user_id,
     source: filters.source,
     model: filters.model,
     mode: filters.mode,
-    start_date: formatQueryDate(filters.dateRange?.[0].startOf("day")),
-    end_date: formatQueryDate(filters.dateRange?.[1].endOf("day")),
+    start_date: formatQueryDate(useBucketRange ? filters.dateRange?.[0] : filters.dateRange?.[0].startOf("day")),
+    end_date: formatQueryDate(useBucketRange ? filters.dateRange?.[1] : filters.dateRange?.[1].endOf("day")),
   };
 }
 
