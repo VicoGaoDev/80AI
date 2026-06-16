@@ -487,7 +487,7 @@ export interface AdminStats {
   active_users: number;
 }
 
-export type AdminAnalyticsGranularity = "day" | "week" | "month";
+export type AdminAnalyticsGranularity = "3hour" | "day" | "week" | "month";
 
 export interface AdminAnalyticsQuery {
   granularity: AdminAnalyticsGranularity;

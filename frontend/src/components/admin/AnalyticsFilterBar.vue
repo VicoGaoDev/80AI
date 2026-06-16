@@ -48,6 +48,14 @@ const emit = defineEmits<{
 }>();
 
 const presetOptions = computed(() => {
+  if (props.granularity === "3hour") {
+    return [
+      { key: "today", label: "今日" },
+      { key: "3d", label: "近 3 天" },
+      { key: "7d", label: "近 7 天" },
+      { key: "30d", label: "近 30 天" },
+    ];
+  }
   if (props.granularity === "week") {
     return [
       { key: "8w", label: "近 8 周" },
@@ -75,10 +83,11 @@ const presetOptions = computed(() => {
       <div class="analytics-filter-panel-compact">
         <a-radio-group
           :value="granularity"
-          class="analytics-segmented-group"
+          class="analytics-segmented-group analytics-granularity-group"
           button-style="solid"
           @update:value="emit('update:granularity', $event)"
         >
+          <a-radio-button value="3hour">每3小时</a-radio-button>
           <a-radio-button value="day">按日</a-radio-button>
           <a-radio-button value="week">按周</a-radio-button>
           <a-radio-button value="month">按月</a-radio-button>
@@ -193,6 +202,10 @@ const presetOptions = computed(() => {
   width: 168px;
 }
 
+:deep(.analytics-granularity-group .ant-radio-button-wrapper) {
+  padding-inline: 14px;
+}
+
 :deep(.analytics-filter-select .ant-select-selector) {
   border-radius: 12px !important;
   border-color: var(--theme-control-border) !important;
@@ -210,6 +223,10 @@ const presetOptions = computed(() => {
   .analytics-filter-model,
   .analytics-filter-date {
     width: 100%;
+  }
+
+  :deep(.analytics-granularity-group .ant-radio-button-wrapper) {
+    padding-inline: 12px;
   }
 }
 </style>

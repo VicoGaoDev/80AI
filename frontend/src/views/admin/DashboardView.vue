@@ -55,7 +55,7 @@ const history = ref<HistoryItem[]>([]);
 const historyTotal = ref(0);
 const historyCreditTotal = ref(0);
 const page = ref(1);
-const granularity = ref<AdminAnalyticsGranularity>("day");
+const granularity = ref<AdminAnalyticsGranularity>("3hour");
 const preset = ref("today");
 const ready = ref(false);
 const detailOpen = ref(false);
@@ -177,6 +177,7 @@ const filterSignature = computed(() => JSON.stringify({
 }));
 
 function defaultPresetByGranularity(value: AdminAnalyticsGranularity) {
+  if (value === "3hour") return "today";
   if (value === "week") return "8w";
   if (value === "month") return "6m";
   return "today";

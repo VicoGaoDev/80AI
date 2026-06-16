@@ -484,6 +484,16 @@ def _end_of_day(value: datetime) -> datetime:
     return value.replace(hour=23, minute=59, second=59, microsecond=999999)
 
 
+def _start_of_3hour(value: datetime) -> datetime:
+    value = _to_local_datetime(value)
+    return value.replace(hour=(value.hour // 3) * 3, minute=0, second=0, microsecond=0)
+
+
+def _end_of_3hour(value: datetime) -> datetime:
+    start = _start_of_3hour(value)
+    return start + timedelta(hours=3) - timedelta(microseconds=1)
+
+
 def _start_of_week(value: datetime) -> datetime:
     value = _start_of_day(value)
     return value - timedelta(days=value.weekday())
@@ -514,6 +524,8 @@ def _end_of_month(value: datetime) -> datetime:
 
 
 def _format_range_label(start: datetime, end: datetime) -> str:
+    if start.date() == end.date():
+        return f"{start.strftime('%Y-%m-%d %H:%M')} ~ {end.strftime('%H:%M')}"
     return f"{start.strftime('%Y-%m-%d')} ~ {end.strftime('%Y-%m-%d')}"
 
 
@@ -524,7 +536,10 @@ def _align_range(
 ) -> tuple[datetime, datetime]:
     now = now_local().replace(tzinfo=LOCAL_TZ)
     if start_date is None or end_date is None:
-        if granularity == "day":
+        if granularity == "3hour":
+            end = _end_of_3hour(now)
+            start = _start_of_day(now)
+        elif granularity == "day":
             end = _end_of_day(now)
             start = _start_of_day(now - timedelta(days=6))
         elif granularity == "week":
@@ -535,7 +550,10 @@ def _align_range(
             start = _start_of_month(_shift_months(now, -5))
         return start, end
 
-    if granularity == "day":
+    if granularity == "3hour":
+        start = _start_of_3hour(start_date)
+        end = _end_of_3hour(end_date)
+    elif granularity == "day":
         start = _start_of_day(start_date)
         end = _end_of_day(end_date)
     elif granularity == "week":
@@ -555,7 +573,9 @@ def _iter_bucket_starts(start: datetime, end: datetime, granularity: str) -> lis
     cursor = start
     while cursor <= end:
         buckets.append(cursor)
-        if granularity == "day":
+        if granularity == "3hour":
+            cursor += timedelta(hours=3)
+        elif granularity == "day":
             cursor += timedelta(days=1)
         elif granularity == "week":
             cursor += timedelta(weeks=1)
@@ -566,7 +586,9 @@ def _iter_bucket_starts(start: datetime, end: datetime, granularity: str) -> lis
 
 def _previous_range(start: datetime, end: datetime, granularity: str) -> tuple[datetime, datetime]:
     bucket_count = len(_iter_bucket_starts(start, end, granularity))
-    if granularity == "day":
+    if granularity == "3hour":
+        previous_start = start - timedelta(hours=3 * bucket_count)
+    elif granularity == "day":
         previous_start = start - timedelta(days=bucket_count)
     elif granularity == "week":
         previous_start = start - timedelta(weeks=bucket_count)
@@ -577,6 +599,8 @@ def _previous_range(start: datetime, end: datetime, granularity: str) -> tuple[d
 
 
 def _bucket_start(value: datetime, granularity: str) -> datetime:
+    if granularity == "3hour":
+        return _start_of_3hour(value)
     if granularity == "day":
         return _start_of_day(value)
     if granularity == "week":
@@ -585,6 +609,8 @@ def _bucket_start(value: datetime, granularity: str) -> datetime:
 
 
 def _bucket_end(value: datetime, granularity: str) -> datetime:
+    if granularity == "3hour":
+        return _end_of_3hour(value)
     if granularity == "day":
         return _end_of_day(value)
     if granularity == "week":
@@ -593,6 +619,8 @@ def _bucket_end(value: datetime, granularity: str) -> datetime:
 
 
 def _bucket_label(value: datetime, granularity: str) -> str:
+    if granularity == "3hour":
+        return value.strftime("%m-%d %H:%M")
     if granularity == "day":
         return value.strftime("%m-%d")
     if granularity == "week":

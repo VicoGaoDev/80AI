@@ -291,7 +291,7 @@ export function getAdminErrorAnalytics(params: {
 }
 
 export function getAdminErrorCategoryTimeseries(query: {
-  granularity: "day" | "week" | "month";
+  granularity: "3hour" | "day" | "week" | "month";
   start_date?: string;
   end_date?: string;
   model?: string;
