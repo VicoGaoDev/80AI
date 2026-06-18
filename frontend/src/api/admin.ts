@@ -27,6 +27,7 @@ import type {
   ExternalApiConfigStatus,
   ExternalApiConfigTestResult,
   AdminDailyReportTestResult,
+  AdminDailyReportRangePayload,
   FeedbackDetail,
   FeedbackListResponse,
   FeedbackUnresolvedCountResponse,
@@ -329,6 +330,10 @@ export function deleteAdminConfig(): Promise<void> {
 
 export function testAdminDailyReportNotify(): Promise<AdminDailyReportTestResult> {
   return client.post("/admin/notify/daily-report/test");
+}
+
+export function sendAdminDailyReportRange(payload: AdminDailyReportRangePayload): Promise<AdminDailyReportTestResult> {
+  return client.post("/admin/notify/daily-report/range", payload);
 }
 
 export function getExternalApiSecrets(): Promise<ExternalApiSecretConfig | null> {

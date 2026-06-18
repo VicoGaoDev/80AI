@@ -553,6 +553,7 @@ export interface AdminDailyReportTestResult {
   range_end: string;
   revenue_fen: number;
   revenue_yuan: number;
+  total_revenue_yuan: number;
   paid_order_count: number;
   offline_order_revenue_fen: number;
   offline_order_revenue_yuan: number;
@@ -563,6 +564,11 @@ export interface AdminDailyReportTestResult {
   task_success_count: number;
   task_failed_count: number;
   credit_consumed: number;
+}
+
+export interface AdminDailyReportRangePayload {
+  start_date: string;
+  end_date: string;
 }
 
 export interface AdminAnalyticsBreakdown {

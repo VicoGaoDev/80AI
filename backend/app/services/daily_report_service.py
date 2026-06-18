@@ -33,6 +33,14 @@ class DailyReportStats:
     task_failed_count: int
     credit_consumed: int
 
+    @property
+    def total_revenue_yuan(self) -> float:
+        return round(
+            (self.revenue_fen + self.offline_order_revenue_fen) / 100
+            + self.redeem_revenue_yuan,
+            2,
+        )
+
 
 @dataclass(frozen=True)
 class DailyReportSendResult:
@@ -156,6 +164,7 @@ def build_daily_report_markdown(stats: DailyReportStats) -> str:
         f"## 📊 每日经营数据日报\n"
         f"> 📅 日期: **{report_date}**\n"
         f"> 🕒 统计区间: {stats.start_at.strftime('%Y-%m-%d %H:%M')} ~ {stats.end_at.strftime('%Y-%m-%d %H:%M')}\n"
+        f"> 💰 总营业额: <font color=\"warning\">¥{stats.total_revenue_yuan:.2f}</font>\n"
         f"> 💵 在线支付营业额: <font color=\"warning\">¥{revenue_yuan}</font>\n"
         f"> ✅ 支付成功订单数: **{stats.paid_order_count}**\n"
         f"> 🧾 线下订单营业额: <font color=\"warning\">¥{offline_order_revenue_yuan}</font>\n"
@@ -175,6 +184,15 @@ def send_previous_day_report(
     reference_time: datetime | None = None,
 ) -> DailyReportSendResult:
     start_at, end_at = get_previous_day_window(reference_time)
+    return send_range_report(db, start_at=start_at, end_at=end_at)
+
+
+def send_range_report(
+    db: Session,
+    *,
+    start_at: datetime,
+    end_at: datetime,
+) -> DailyReportSendResult:
     stats = collect_daily_report_stats(db, start_at=start_at, end_at=end_at)
     sent = False
     if is_wecom_notify_enabled():

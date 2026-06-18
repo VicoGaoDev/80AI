@@ -283,6 +283,7 @@ class DailyReportTestOut(BaseModel):
     range_end: datetime
     revenue_fen: int
     revenue_yuan: float
+    total_revenue_yuan: float
     paid_order_count: int
     offline_order_revenue_fen: int
     offline_order_revenue_yuan: float
@@ -293,6 +294,11 @@ class DailyReportTestOut(BaseModel):
     task_success_count: int
     task_failed_count: int
     credit_consumed: int
+
+
+class DailyReportRangeRequest(BaseModel):
+    start_date: datetime
+    end_date: datetime
 
 
 class AdminPromoCodeItemOut(BaseModel):

@@ -11,7 +11,7 @@ from app.schemas.admin import (
     UpdateWhitelistRequest, ResetPasswordRequest, StatsOut, AllocateCreditsRequest, ResetCreditsRequest, CreditLogOut,
     CreateRedeemKeysBatchRequest, RedeemKeyBatchOut, RedeemKeyOut, UpdateRedeemKeyStatusRequest, PaymentOrderAdminOut,
     CreateOfflineOrderRequest, OfflineOrderOut,
-    AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut, AnalyticsRedeemRevenueOut, ErrorAnalyticsOut, ErrorCategoryTimeseriesOut, ErrorTaskListOut, DailyReportTestOut,
+    AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut, AnalyticsRedeemRevenueOut, ErrorAnalyticsOut, ErrorCategoryTimeseriesOut, ErrorTaskListOut, DailyReportTestOut, DailyReportRangeRequest,
     AdminUserPromoDashboardOut,
 )
 from app.schemas.feedback import (
@@ -38,7 +38,7 @@ from app.services.feedback_service import (
     update_feedback,
 )
 from app.services.history_service import get_admin_history_cards, get_admin_history_detail, get_all_history
-from app.services.daily_report_service import send_previous_day_report
+from app.services.daily_report_service import DailyReportSendResult, send_previous_day_report, send_range_report
 
 router = APIRouter(prefix="/api/admin", tags=["管理员"])
 
@@ -50,6 +50,29 @@ def _resolve_optional_user_id(db: Session, user_id: str | None) -> int | None:
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     return user.id
+
+
+def _format_daily_report_result(result: DailyReportSendResult) -> dict:
+    stats = result.stats
+    return {
+        "sent": result.sent,
+        "report_date": stats.start_at.strftime("%Y-%m-%d"),
+        "range_start": stats.start_at,
+        "range_end": stats.end_at,
+        "revenue_fen": stats.revenue_fen,
+        "revenue_yuan": stats.revenue_fen / 100,
+        "total_revenue_yuan": stats.total_revenue_yuan,
+        "paid_order_count": stats.paid_order_count,
+        "offline_order_revenue_fen": stats.offline_order_revenue_fen,
+        "offline_order_revenue_yuan": stats.offline_order_revenue_fen / 100,
+        "offline_order_count": stats.offline_order_count,
+        "redeem_revenue_yuan": stats.redeem_revenue_yuan,
+        "redeem_used_count": stats.redeem_used_count,
+        "task_total_count": stats.task_total_count,
+        "task_success_count": stats.task_success_count,
+        "task_failed_count": stats.task_failed_count,
+        "credit_consumed": stats.credit_consumed,
+    }
 
 
 @router.post("/users", response_model=UserOut)
@@ -600,23 +623,17 @@ def admin_test_daily_report_notify(
     _user: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
 ):
-    result = send_previous_day_report(db)
-    stats = result.stats
-    return {
-        "sent": result.sent,
-        "report_date": stats.start_at.strftime("%Y-%m-%d"),
-        "range_start": stats.start_at,
-        "range_end": stats.end_at,
-        "revenue_fen": stats.revenue_fen,
-        "revenue_yuan": stats.revenue_fen / 100,
-        "paid_order_count": stats.paid_order_count,
-        "offline_order_revenue_fen": stats.offline_order_revenue_fen,
-        "offline_order_revenue_yuan": stats.offline_order_revenue_fen / 100,
-        "offline_order_count": stats.offline_order_count,
-        "redeem_revenue_yuan": stats.redeem_revenue_yuan,
-        "redeem_used_count": stats.redeem_used_count,
-        "task_total_count": stats.task_total_count,
-        "task_success_count": stats.task_success_count,
-        "task_failed_count": stats.task_failed_count,
-        "credit_consumed": stats.credit_consumed,
-    }
+    return _format_daily_report_result(send_previous_day_report(db))
+
+
+@router.post("/notify/daily-report/range", response_model=DailyReportTestOut)
+def admin_send_daily_report_range(
+    body: DailyReportRangeRequest,
+    _user: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    if body.end_date <= body.start_date:
+        raise HTTPException(status_code=400, detail="结束日期必须晚于开始日期")
+    return _format_daily_report_result(
+        send_range_report(db, start_at=body.start_date, end_at=body.end_date)
+    )
