@@ -155,6 +155,14 @@ function openPreview(url: string) {
   previewVisible.value = true;
 }
 
+function handleDetailImageError(event: Event) {
+  const image = event.target as HTMLImageElement;
+  if (image.dataset.expiredFallback === "true") return;
+  image.dataset.expiredFallback = "true";
+  image.classList.add("detail-expired-image");
+  image.src = expiredResultAsset;
+}
+
 async function copyPrompt(text?: string) {
   if (!text?.trim()) return;
   try {
@@ -203,6 +211,7 @@ function handleDownload(item: UserHistoryCard) {
                   :src="isHistoryItemExpired(item) ? expiredResultAsset : resolveImageUrl(item.source_image_thumb || item.source_image)"
                   alt="提示词反推原图"
                   loading="lazy"
+                  @error="handleDetailImageError"
                 />
               </div>
             </div>
@@ -225,6 +234,7 @@ function handleDownload(item: UserHistoryCard) {
                   :alt="img.status === 'failed' ? '生成失败' : '结果图'"
                   :class="{ 'failed-result-image': img.status === 'failed' }"
                   loading="lazy"
+                  @error="handleDetailImageError"
                 />
                 <div v-if="img.status === 'failed'" class="detail-failure-message">
                   {{ getDetailFailureMessage(item, img) }}
@@ -265,6 +275,7 @@ function handleDownload(item: UserHistoryCard) {
                   :src="isHistoryItemExpired(item) ? expiredResultAsset : resolveImageUrl(item.source_image_thumb || item.source_image)"
                   alt="局部重绘原图"
                   loading="lazy"
+                  @error="handleDetailImageError"
                 />
               </div>
             </div>
@@ -282,7 +293,12 @@ function handleDownload(item: UserHistoryCard) {
                 class="detail-thumb"
                 @click="openPreview(resolveImageUrl(ref))"
               >
-                <img :src="resolveImageUrl(item.reference_image_thumbs[index] || ref)" alt="参考图" loading="lazy" />
+                <img
+                  :src="resolveImageUrl(item.reference_image_thumbs[index] || ref)"
+                  alt="参考图"
+                  loading="lazy"
+                  @error="handleDetailImageError"
+                />
               </div>
             </div>
           </div>
@@ -603,6 +619,12 @@ function handleDownload(item: UserHistoryCard) {
   padding: 28px;
   background: linear-gradient(180deg, #fff2ef, #ffdcd5);
   opacity: 0.96;
+}
+
+.detail-expired-image {
+  object-fit: contain !important;
+  padding: 28px;
+  background: #fff8ee;
 }
 
 .detail-failure-message {

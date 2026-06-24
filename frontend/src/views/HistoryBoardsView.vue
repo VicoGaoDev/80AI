@@ -25,6 +25,26 @@ const renameDialogOpen = ref(false);
 const renameSaving = ref(false);
 const renameTarget = ref<UserBoardSummary | null>(null);
 const renameName = ref("");
+const expiredPreviewAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 960 960">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff8ee"/>
+      <stop offset="100%" stop-color="#ffe6c8"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="960" rx="56" fill="url(#bg)"/>
+  <rect x="74" y="74" width="812" height="812" rx="42" fill="none" stroke="#efc784" stroke-dasharray="18 16" stroke-width="10"/>
+  <g fill="none" stroke="#d08a24" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="282" y="248" width="396" height="286" rx="28" stroke-width="18"/>
+    <path d="M326 490l110-108 92 88 72-66 76 86" stroke-width="18"/>
+    <circle cx="400" cy="330" r="34" fill="#ffd585" stroke-width="12"/>
+  </g>
+  <text x="480" y="654" text-anchor="middle" font-size="54" font-weight="700" fill="#8c5a16">原图已过期</text>
+  <text x="480" y="726" text-anchor="middle" font-size="34" fill="#a9742e">服务器仅保留 15 天原图</text>
+  <text x="480" y="776" text-anchor="middle" font-size="34" fill="#a9742e">请在有效期内查看或下载</text>
+</svg>
+`)}`;
 
 const userBoards = computed(() => boards.value.filter((board) => !board.is_default));
 const filteredBoards = computed(() => {
@@ -154,6 +174,14 @@ function lockBoardCardLeaveSize(el: Element) {
   element.style.height = `${height}px`;
 }
 
+function handleBoardPreviewError(event: Event) {
+  const image = event.target as HTMLImageElement;
+  if (image.dataset.expiredFallback === "true") return;
+  image.dataset.expiredFallback = "true";
+  image.classList.add("board-preview-expired");
+  image.src = expiredPreviewAsset;
+}
+
 onMounted(loadBoards);
 </script>
 
@@ -215,10 +243,10 @@ onMounted(loadBoards);
         >
           <div class="board-preview" :class="{ empty: !board.preview_urls.length }">
             <template v-if="board.preview_urls.length">
-              <img class="board-preview-main" :src="board.preview_urls[0]" alt="" />
+              <img class="board-preview-main" :src="board.preview_urls[0]" alt="" @error="handleBoardPreviewError" />
               <div class="board-preview-side">
-                <img v-if="board.preview_urls[1]" :src="board.preview_urls[1]" alt="" />
-                <img v-if="board.preview_urls[2]" :src="board.preview_urls[2]" alt="" />
+                <img v-if="board.preview_urls[1]" :src="board.preview_urls[1]" alt="" @error="handleBoardPreviewError" />
+                <img v-if="board.preview_urls[2]" :src="board.preview_urls[2]" alt="" @error="handleBoardPreviewError" />
               </div>
             </template>
             <template v-else>
@@ -437,6 +465,12 @@ onMounted(loadBoards);
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.board-preview img.board-preview-expired {
+  object-fit: contain;
+  padding: 12px;
+  background: #fff8ee;
 }
 
 .board-preview-side {

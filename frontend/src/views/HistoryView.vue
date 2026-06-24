@@ -467,6 +467,14 @@ function getHistoryCardMedia(item: UserHistoryCard) {
   return getHistoryImageSrc(item);
 }
 
+function handleHistoryImageError(event: Event) {
+  const image = event.target as HTMLImageElement;
+  if (image.dataset.expiredFallback === "true") return;
+  image.dataset.expiredFallback = "true";
+  image.classList.add("history-expired-image");
+  image.src = expiredResultAsset;
+}
+
 function getHistoryCardPreview(item: UserHistoryCard) {
   if (isHistoryItemExpired(item)) {
     return "";
@@ -1106,6 +1114,7 @@ function handleEditImage(item: UserHistoryCard) {
               :alt="item.mode === 'promptReverse' ? '提示词反推原图' : item.status === 'failed' ? '生成失败' : '历史结果图'"
               :class="{ 'failed-result-image': item.status === 'failed' }"
               loading="lazy"
+              @error="handleHistoryImageError"
             />
             <div v-else class="result-card-placeholder">
               <template v-if="isHistoryItemPending(item.status)">
@@ -2097,6 +2106,13 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .history-page .result-card
   background: linear-gradient(180deg, #fff2ef, #ffdcd5);
   border-radius: calc(var(--media-radius, 18px) - 2px);
   opacity: 0.96;
+}
+
+.history-expired-image {
+  object-fit: contain !important;
+  padding: 28px;
+  background: #fff8ee;
+  border-radius: calc(var(--media-radius, 18px) - 2px);
 }
 
 .history-overlay-actions {
