@@ -3160,6 +3160,8 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   grid-template-columns: 35fr 65fr;
   gap: 20px;
   align-items: stretch;
+  width: 100%;
+  min-width: 0;
   min-height: 100%;
   height: 100%;
   animation: generate-fade-up var(--motion-duration-reveal) var(--motion-ease-enter) 0.04s both;
@@ -3174,7 +3176,9 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
 .left-col {
   display: flex;
   flex-direction: column;
+  width: 100%;
   min-height: 0;
+  min-width: 0;
   animation: generate-slide-left-in var(--motion-duration-stage) var(--motion-ease-enter) 0.08s both;
 }
 
@@ -3182,7 +3186,9 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   display: flex;
   flex: 1;
   flex-direction: column;
+  width: 100%;
   min-height: 0;
+  min-width: 0;
 }
 
 .generate-mode-switch {
@@ -3367,7 +3373,10 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
 .settings-panel {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
+  min-width: 0;
   height: 100%;
   overflow: hidden;
 }
@@ -3704,6 +3713,9 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
 
 /* --- Card panel --- */
 .work-panel {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   background: var(--theme-modal-bg);
   border: 1px solid var(--theme-panel-border);
   border-radius: 24px;
@@ -5355,12 +5367,26 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-mor
 
 @media (max-width: 960px) {
   .generate-page {
+    width: 100%;
+    overflow-x: hidden;
     height: auto;
   }
 
   .generate-workbench {
     grid-template-columns: 1fr;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: auto;
+  }
+
+  .left-col,
+  .generate-mode-shell,
+  .settings-panel,
+  .work-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .result-panel {
