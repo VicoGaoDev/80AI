@@ -3165,7 +3165,7 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   animation: generate-fade-up var(--motion-duration-reveal) var(--motion-ease-enter) 0.04s both;
 }
 
-@media (min-width: 1200px) {
+@media (min-width: 1200px) and (hover: hover) and (pointer: fine) {
   .generate-workbench {
     grid-template-columns: 31.5fr 68.5fr;
   }
