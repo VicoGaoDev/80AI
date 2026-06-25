@@ -100,7 +100,7 @@ const DEFAULT_SCENE_COSTS: Record<string, number> = {
   inpaint: 4,
 };
 
-const generateMode = ref<GenerateMode>("textGenerate");
+const generateMode = ref<GenerateMode>("imageEdit");
 const failedResultAsset = withBaseUrl("failed-result.svg");
 const generateEmptyStateAsset = withBaseUrl("generate-task-card.svg");
 const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
@@ -214,8 +214,7 @@ const feedbackTarget = ref<{
   prompt: string;
   createdAt: string;
 } | null>(null);
-const viewportWidth = ref(typeof window === "undefined" ? 1200 : window.innerWidth);
-const RESULT_COLUMN_OPTIONS = [2, 3, 4] as const;
+const RESULT_COLUMN_OPTIONS = [3, 4, 5, 6, 7, 8] as const;
 type ResultColumnOption = typeof RESULT_COLUMN_OPTIONS[number];
 const DEFAULT_RESULT_COLUMN_COUNT: ResultColumnOption = 3;
 
@@ -533,8 +532,6 @@ const resultItems = computed(() => (
 ));
 
 const resultColumnCount = computed(() => {
-  if (viewportWidth.value <= 640) return 1;
-  if (viewportWidth.value <= 960) return Math.min(2, preferredResultColumnCount.value);
   return preferredResultColumnCount.value;
 });
 
@@ -566,10 +563,6 @@ const resultColumns = computed(() => {
   });
   return columns;
 });
-
-function syncViewportWidth() {
-  viewportWidth.value = window.innerWidth;
-}
 
 function updateGeneratedTask(localId: string, updater: (task: GeneratedTaskItem) => GeneratedTaskItem) {
   generatedTasks.value = generatedTasks.value.map((task) => (
@@ -1860,8 +1853,6 @@ async function notifyCompletedUnreadFeedbacks() {
 }
 
 onMounted(async () => {
-  syncViewportWidth();
-  window.addEventListener("resize", syncViewportWidth);
   await Promise.all([loadTaskSceneConfigs(), loadBoardsForGenerate()]);
   await Promise.all([loadRecentGeneratedTasks(), loadGlobalActiveGenerationStatus(), notifyCompletedUnreadFeedbacks()]);
   applyDraft(
@@ -1886,7 +1877,6 @@ onActivated(async () => {
 onBeforeUnmount(() => {
   stopAllTaskPolling();
   stopGlobalActiveStatusPolling();
-  window.removeEventListener("resize", syncViewportWidth);
   unbindReferenceDragHandlers?.();
   unbindReferenceDragHandlers = null;
   referenceItems.value.forEach((item) => revokeObjectUrl(item.objectUrl));
@@ -2841,9 +2831,13 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
               placeholder="每行列数"
               class="history-filter-control history-filter-columns"
             >
-              <a-select-option :value="2">2 列</a-select-option>
-              <a-select-option :value="3">3 列</a-select-option>
-              <a-select-option :value="4">4 列</a-select-option>
+              <a-select-option
+                v-for="columnCount in RESULT_COLUMN_OPTIONS"
+                :key="columnCount"
+                :value="columnCount"
+              >
+                {{ columnCount }} 列
+              </a-select-option>
             </a-select>
             <div class="result-retain-badge">
               <ExclamationCircleFilled class="result-retain-icon" />
@@ -3087,6 +3081,9 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   --config-title-gap: 8px;
   --config-title-color: #5e4524;
   --config-section-gap: 17px;
+  --generate-config-min-width: 320px;
+  --generate-config-fluid-width: 31vw;
+  --generate-config-max-width: 470px;
   animation: generate-page-enter var(--motion-duration-reveal-soft) ease both;
 }
 
@@ -3157,7 +3154,13 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
 
 .generate-workbench {
   display: grid;
-  grid-template-columns: 35fr 65fr;
+  grid-template-columns:
+    clamp(
+      var(--generate-config-min-width),
+      var(--generate-config-fluid-width),
+      var(--generate-config-max-width)
+    )
+    minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
   width: 100%;
@@ -3169,7 +3172,9 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
 
 @media (min-width: 1200px) and (hover: hover) and (pointer: fine) {
   .generate-workbench {
-    grid-template-columns: 31.5fr 68.5fr;
+    --generate-config-min-width: 340px;
+    --generate-config-fluid-width: 28vw;
+    --generate-config-max-width: 520px;
   }
 }
 
@@ -3178,7 +3183,8 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   flex-direction: column;
   width: 100%;
   min-height: 0;
-  min-width: 0;
+  min-width: var(--generate-config-min-width);
+  max-width: var(--generate-config-max-width);
   animation: generate-slide-left-in var(--motion-duration-stage) var(--motion-ease-enter) 0.08s both;
 }
 
@@ -4615,7 +4621,7 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
 }
 
 .result-head-meta :deep(.history-filter-columns) {
-  width: 70px;
+  width: 76px;
 }
 
 .result-head-meta :deep(.history-filter-board) {
@@ -5387,6 +5393,11 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-mor
     width: 100%;
     max-width: 100%;
     min-width: 0;
+  }
+
+  .left-col {
+    min-width: var(--generate-config-min-width);
+    max-width: 100%;
   }
 
   .result-panel {

@@ -1808,8 +1808,6 @@ watch(purchaseDialogOpen, (open) => {
 }
 
 .header-inner {
-  max-width: 1400px;
-  margin: 0 auto;
   width: 100%;
   position: relative;
   display: flex;
@@ -2895,8 +2893,7 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
 }
 
 .content-inner {
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
   position: relative;
   z-index: 1;
 }

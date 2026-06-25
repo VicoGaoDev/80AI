@@ -21,9 +21,14 @@ const templates = ref<CreativeTemplate[]>([]);
 const generationModels = ref<GenerationModelOption[]>([]);
 const tags = ref<TemplateTag[]>([]);
 const activeTagId = ref<number | null>(null);
+const masonryRef = ref<HTMLElement | null>(null);
 const loadMoreAnchor = ref<HTMLElement | null>(null);
+let masonryResizeObserver: ResizeObserver | null = null;
 let loadMoreObserver: IntersectionObserver | null = null;
 const masonryColumnCount = ref(5);
+const MASONRY_MIN_COLUMN_WIDTH = 220;
+const MASONRY_GAP = 10;
+const MASONRY_MAX_COLUMN_COUNT = 12;
 
 const detailOpen = ref(false);
 const detailLoading = ref(false);
@@ -89,8 +94,22 @@ async function loadNextTemplatePage() {
 
 function syncMasonryColumnCount() {
   if (typeof window === "undefined") return;
-  const width = window.innerWidth;
-  masonryColumnCount.value = width <= 420 ? 1 : width <= 640 ? 2 : width <= 900 ? 3 : 5;
+  const width = masonryRef.value?.clientWidth || window.innerWidth;
+  const columnCount = Math.floor((width + MASONRY_GAP) / (MASONRY_MIN_COLUMN_WIDTH + MASONRY_GAP));
+  masonryColumnCount.value = Math.min(MASONRY_MAX_COLUMN_COUNT, Math.max(1, columnCount));
+}
+
+function setupMasonryResizeObserver(target: HTMLElement | null) {
+  masonryResizeObserver?.disconnect();
+  masonryResizeObserver = null;
+  if (!target || typeof ResizeObserver === "undefined") {
+    syncMasonryColumnCount();
+    return;
+  }
+
+  masonryResizeObserver = new ResizeObserver(syncMasonryColumnCount);
+  masonryResizeObserver.observe(target);
+  syncMasonryColumnCount();
 }
 
 function setupLoadMoreObserver(target: HTMLElement | null) {
@@ -152,9 +171,15 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  masonryResizeObserver?.disconnect();
+  masonryResizeObserver = null;
   loadMoreObserver?.disconnect();
   loadMoreObserver = null;
   window.removeEventListener("resize", syncMasonryColumnCount);
+});
+
+watch(masonryRef, (target) => {
+  setupMasonryResizeObserver(target);
 });
 
 watch(loadMoreAnchor, (target) => {
@@ -217,6 +242,7 @@ watch(loadMoreAnchor, (target) => {
 
       <div
         v-else
+        ref="masonryRef"
         class="masonry"
         :style="{ '--masonry-columns': String(masonryColumnCount) }"
       >
