@@ -85,7 +85,7 @@ function showInsufficientCreditsPurchase(detail?: string) {
 }
 
 type GenerateMode = "textGenerate" | "imageEdit" | "inpaint" | "promptReverse";
-const MAX_RECENT_GENERATED_TASKS = 20;
+const MAX_RECENT_GENERATED_TASKS = 40;
 const MAX_ACTIVE_GENERATION_IMAGES = 8;
 const DEFAULT_SCENE_COSTS: Record<string, number> = {
   banana: 4,
@@ -119,7 +119,7 @@ const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponen
     <circle cx="400" cy="330" r="34" fill="#ffd585" stroke-width="12"/>
   </g>
   <text x="480" y="654" text-anchor="middle" font-size="54" font-weight="700" fill="#8c5a16">原图已过期</text>
-  <text x="480" y="726" text-anchor="middle" font-size="34" fill="#a9742e">服务器仅保留 15 天原图</text>
+  <text x="480" y="726" text-anchor="middle" font-size="34" fill="#a9742e">服务器只保留原图15天</text>
   <text x="480" y="776" text-anchor="middle" font-size="34" fill="#a9742e">请在有效期内查看或下载</text>
 </svg>
 `)}`;
@@ -214,6 +214,7 @@ const feedbackTarget = ref<{
   prompt: string;
   createdAt: string;
 } | null>(null);
+const viewportWidth = ref(typeof window === "undefined" ? 1200 : window.innerWidth);
 const RESULT_COLUMN_OPTIONS = [3, 4, 5, 6, 7, 8] as const;
 type ResultColumnOption = typeof RESULT_COLUMN_OPTIONS[number];
 const DEFAULT_RESULT_COLUMN_COUNT: ResultColumnOption = 3;
@@ -311,7 +312,7 @@ const resultEmptyTitle = computed(() => (
 const resultEmptyDesc = computed(() => (
   generateMode.value === "promptReverse"
     ? "上传图片后点击「开始反推」，即可得到适合 AI 绘画的中文提示词"
-    : "在左侧设置提示词和参数后发起任务，右侧会展示最近 20 个生图任务结果"
+    : "在左侧设置提示词和参数后发起任务，右侧会展示最近 40 个生图任务结果"
 ));
 const referenceUrls = computed(() => (
   referenceItems.value
@@ -532,6 +533,8 @@ const resultItems = computed(() => (
 ));
 
 const resultColumnCount = computed(() => {
+  if (viewportWidth.value <= 640) return 1;
+  if (viewportWidth.value <= 960) return Math.min(2, preferredResultColumnCount.value);
   return preferredResultColumnCount.value;
 });
 
@@ -563,6 +566,10 @@ const resultColumns = computed(() => {
   });
   return columns;
 });
+
+function syncViewportWidth() {
+  viewportWidth.value = window.innerWidth;
+}
 
 function updateGeneratedTask(localId: string, updater: (task: GeneratedTaskItem) => GeneratedTaskItem) {
   generatedTasks.value = generatedTasks.value.map((task) => (
@@ -1853,6 +1860,8 @@ async function notifyCompletedUnreadFeedbacks() {
 }
 
 onMounted(async () => {
+  syncViewportWidth();
+  window.addEventListener("resize", syncViewportWidth);
   await Promise.all([loadTaskSceneConfigs(), loadBoardsForGenerate()]);
   await Promise.all([loadRecentGeneratedTasks(), loadGlobalActiveGenerationStatus(), notifyCompletedUnreadFeedbacks()]);
   applyDraft(
@@ -1877,6 +1886,7 @@ onActivated(async () => {
 onBeforeUnmount(() => {
   stopAllTaskPolling();
   stopGlobalActiveStatusPolling();
+  window.removeEventListener("resize", syncViewportWidth);
   unbindReferenceDragHandlers?.();
   unbindReferenceDragHandlers = null;
   referenceItems.value.forEach((item) => revokeObjectUrl(item.objectUrl));
@@ -2779,15 +2789,6 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
       <section class="work-panel result-panel">
         <div class="result-head">
           <div class="result-head-main">
-            <div class="result-tips">
-              <div class="result-tip-line">
-                每日前 10 次失败任务不扣积分，所有任务可在
-                <router-link to="/history" class="result-tip-link">历史图片</router-link>
-                中查看
-              </div>
-            </div>
-          </div>
-          <div class="result-head-meta">
             <a-select
               v-if="auth.isLoggedIn"
               v-model:value="selectedBoardKey"
@@ -2826,6 +2827,13 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
                 {{ board.name }}
               </a-select-option>
             </a-select>
+            <div class="result-tips">
+              <div class="result-tip-line">
+                每日前 10 次失败任务不扣积分
+              </div>
+            </div>
+          </div>
+          <div class="result-head-meta">
             <a-select
               v-model:value="preferredResultColumnCount"
               placeholder="每行列数"
@@ -2969,7 +2977,7 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
             </div>
 
             <div class="result-list-footnote">
-              当前仅展示最近 20 个生图任务。若需查看更早记录、完整参数或全部结果，请前往
+              当前仅展示最近 40 个生图任务。若需查看更早记录、完整参数或全部结果，请前往
               <router-link to="/history" class="result-tip-link">历史图片</router-link>
               查看。
             </div>
@@ -4589,6 +4597,7 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
 .result-panel-head {
@@ -4620,12 +4629,13 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   min-width: 0;
 }
 
-.result-head-meta :deep(.history-filter-columns) {
-  width: 76px;
+.result-head-main :deep(.history-filter-board) {
+  width: 148px;
+  flex: 0 0 auto;
 }
 
-.result-head-meta :deep(.history-filter-board) {
-  width: 148px;
+.result-head-meta :deep(.history-filter-columns) {
+  width: 76px;
 }
 
 .generate-board-dropdown-actions {
@@ -5524,6 +5534,12 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-mor
 
   .result-head-meta {
     align-self: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .result-retain-badge {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .result-head {

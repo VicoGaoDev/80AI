@@ -1796,7 +1796,7 @@ watch(purchaseDialogOpen, (open) => {
 .app-header {
   background: var(--theme-header-bg) !important;
   box-shadow: 0 16px 32px var(--theme-header-shadow);
-  padding: 0 24px !important;
+  padding: 0 50px !important;
   height: 74px;
   line-height: normal;
   position: sticky;
@@ -2873,7 +2873,7 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
 
 .app-content {
   position: relative;
-  padding: 22px 24px 28px;
+  padding: 22px 50px 28px;
 
   &::before {
     content: "";
