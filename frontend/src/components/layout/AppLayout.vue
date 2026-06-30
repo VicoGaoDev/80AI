@@ -42,6 +42,7 @@ import {
   PictureOutlined,
   SettingOutlined,
   TeamOutlined,
+  NumberOutlined,
   BarChartOutlined,
   BugOutlined,
   KeyOutlined,
@@ -53,12 +54,12 @@ import {
   UserAddOutlined,
   ThunderboltOutlined,
   ThunderboltFilled,
+  PayCircleFilled,
   MenuOutlined,
   MailOutlined,
   MessageOutlined,
   GiftOutlined,
   AccountBookOutlined,
-  AppstoreOutlined,
   BulbOutlined,
   CheckOutlined,
   ClockCircleOutlined,
@@ -76,7 +77,7 @@ const showDesktopSideNav = computed(() => !hideTopMenu.value || (isWorkbenchLayo
 const mobileDrawerOpen = ref(false);
 const routeTransitionName = ref("route-page-forward");
 const canManagePromoCodes = computed(() => auth.user?.is_whitelisted === true);
-const canAccessCanvasMenu = computed(() => auth.isLoggedIn && (auth.isAdmin || auth.user?.is_whitelisted === true));
+const canAccessCanvasMenu = computed(() => auth.isLoggedIn);
 
 const routeOrder = new Map<string, number>([
   ["/", 0],
@@ -132,9 +133,9 @@ type PrimaryMenuItem = {
 };
 
 const primaryMenuItems = computed<PrimaryMenuItem[]>(() => [
-  { key: "templates", label: "创意模版", iconSrc: withBaseUrl("nav-templates.svg"), icon: AppstoreOutlined },
-  { key: "generate", label: "AI 生图", iconSrc: withBaseUrl("nav-generate.svg"), icon: BulbOutlined },
-  ...(canAccessCanvasMenu.value ? [{ key: "canvas", label: "无限画布", iconSrc: withBaseUrl("nav-canvas.svg") }] : []),
+  { key: "templates", label: "创意模版", iconSrc: withBaseUrl("nav-templates.svg"), icon: BulbOutlined },
+  { key: "generate", label: "AI 生图", iconSrc: withBaseUrl("nav-generate.svg"), icon: ThunderboltFilled },
+  ...(canAccessCanvasMenu.value ? [{ key: "canvas", label: "无限画布", iconSrc: withBaseUrl("nav-canvas.svg"), icon: NumberOutlined }] : []),
   { key: "history", label: "历史图片", iconSrc: withBaseUrl("nav-history.svg"), icon: ClockCircleOutlined },
 ]);
 
@@ -1149,7 +1150,7 @@ watch(purchaseDialogOpen, (open) => {
         <div class="header-actions">
           <a-button type="text" class="top-link-btn" @click="openPurchaseEntry">
             <span class="purchase-credit-content">
-              <ThunderboltFilled class="purchase-credit-icon" />
+              <PayCircleFilled class="purchase-credit-icon" />
               <span>购买积分</span>
             </span>
           </a-button>
@@ -1263,7 +1264,7 @@ watch(purchaseDialogOpen, (open) => {
 
       <div class="canvas-side-nav-actions">
         <button type="button" class="canvas-side-nav-item canvas-side-nav-action" @click="openPurchaseEntry">
-          <ThunderboltFilled />
+          <PayCircleFilled />
           <span>购买积分</span>
         </button>
         <button type="button" class="canvas-side-nav-item canvas-side-nav-action" @click="openRedeemEntry">
@@ -1484,7 +1485,7 @@ watch(purchaseDialogOpen, (open) => {
           <div class="mobile-drawer-credit-actions">
             <a-button block class="mobile-drawer-action-btn" @click="openPurchaseEntry">
               <span class="purchase-credit-content">
-                <ThunderboltFilled class="purchase-credit-icon" />
+                <PayCircleFilled class="purchase-credit-icon" />
                 <span>购买积分</span>
               </span>
             </a-button>
