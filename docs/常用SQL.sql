@@ -1,5 +1,5 @@
-# Web实时任务情况
-select u.username,t.model,t.status,t.size,TIMESTAMPDIFF(SECOND, t.created_at, t.request_finished_at) as run_time,
+# web实时任务情况 
+select u.username,t.model,t.size,t.resolution,t.status,TIMESTAMPDIFF(SECOND, t.created_at, t.updated_at) as run_time,
         TIMESTAMPDIFF(SECOND, t.request_started_at, t.request_finished_at) as request_time,
         t.created_at,t.error_message 
     from tasks t
@@ -7,15 +7,23 @@ select u.username,t.model,t.status,t.size,TIMESTAMPDIFF(SECOND, t.created_at, t.
     where t.source = 'web'
     order by t.created_at desc limit 30;
     
-    
-# API实时任务情况
-select u.username,t.model,t.source,t.status,TIMESTAMPDIFF(SECOND, t.created_at, t.request_finished_at) as run_time,
+# API实时任务情况 
+select u.username,t.model,t.size,t.resolution,t.status,TIMESTAMPDIFF(SECOND, t.created_at, t.updated_at) as run_time,
         TIMESTAMPDIFF(SECOND, t.request_started_at, t.request_finished_at) as request_time,
         t.created_at,t.error_message 
     from tasks t
     join users u on t.user_id = u.id
     where t.source = 'api'
-    order by t.created_at desc limit 50;
+    order by t.created_at desc limit 30;
+    
+# API实时任务情况 
+select u.username,t.model,t.size,t.resolution,t.status,TIMESTAMPDIFF(SECOND, t.created_at, t.updated_at) as run_time,
+        TIMESTAMPDIFF(SECOND, t.request_started_at, t.request_finished_at) as request_time,
+        t.created_at,t.error_message 
+    from tasks t
+    join users u on t.user_id = u.id
+    where t.source = 'web' and t.error_message like '%参考图片最多 5 张，当前%'
+    order by t.created_at desc limit 100;
     
     
 # 最近7天，每天任务数量和消耗积分
@@ -150,14 +158,30 @@ HAVING COUNT(*) >= 2
 ORDER BY redeem_count DESC, total_redeem_credits DESC;
 
 
+select * from payment_orders;
+select * from user_api_key order by created_at desc limit 50; 
+select * from users where id = 579;
 
-# 数据库连接池有问题的进程查找
-SELECT GROUP_CONCAT(CONCAT('KILL ', ID, ';') SEPARATOR ' ') AS kill_sql
-FROM information_schema.PROCESSLIST
-WHERE DB = '80ai'
-  AND STATE = 'Waiting for table metadata lock'
-  AND ID <> CONNECTION_ID();
 
-# 一键释放杀掉卡住的进程
-KILL 563192; KILL 563240; KILL 563193; KILL 563195; KILL 563196; KILL 563188; KILL 563189; KILL 563165; KILL 563190; KILL 563182; KILL 563183;
+# 统计所有用户剩余积分总和的sql
+SELECT COALESCE(SUM(uc.remain_credit), 0) AS total_remaining_credits
+FROM user_credits uc
+JOIN users u ON u.id = uc.user_id
+WHERE uc.type = 0
+  AND uc.status = 1
+  AND u.is_whitelisted = 0
+  AND u.role NOT IN ('admin', 'superadmin');
+
+# user_boards
+select * from user_boards;
+
+
+# 用户canvas
+select c.created_at,u.username,c.project_id,c.name
+    from user_canvas c
+    join users u on c.user_id = u.id
+    order by c.created_at desc limit 30;
+    
+    
+select * from user_api_key order by created_at desc;
 

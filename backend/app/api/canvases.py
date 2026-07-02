@@ -12,9 +12,12 @@ from app.schemas.canvas import (
     CanvasEdgeOut,
     CanvasEdgeUpdate,
     CanvasFreeNodeCreate,
+    CanvasGroupAssignNodesRequest,
+    CanvasGroupAssignNodesResponse,
     CanvasGroupCreate,
     CanvasGroupCreateResponse,
     CanvasGroupOut,
+    CanvasGroupRemoveNodesResponse,
     CanvasGroupUpdate,
     CanvasListResponse,
     CanvasNodeBatchUpdate,
@@ -29,6 +32,7 @@ from app.schemas.canvas import (
 )
 from app.services.business_id_service import task_external_id, user_external_id
 from app.services.canvas_service import (
+    assign_nodes_to_canvas_group,
     create_canvas_generation_tasks,
     create_canvas_group,
     create_canvas_free_node,
@@ -38,6 +42,7 @@ from app.services.canvas_service import (
     delete_user_canvas,
     get_canvas_detail,
     list_user_canvases,
+    remove_nodes_from_canvas_groups,
     update_canvas_node,
     update_canvas_nodes_batch,
     update_canvas_group,
@@ -206,6 +211,38 @@ def update_group(
         width=body.width,
         height=body.height,
         z_index=body.z_index,
+    )
+
+
+@router.post("/{project_id}/groups/{group_id}/nodes", response_model=CanvasGroupAssignNodesResponse)
+def assign_group_nodes(
+    project_id: str,
+    group_id: int,
+    body: CanvasGroupAssignNodesRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return assign_nodes_to_canvas_group(
+        db,
+        user.id,
+        project_id,
+        group_id,
+        node_updates=body.nodes,
+    )
+
+
+@router.post("/{project_id}/groups/nodes/remove", response_model=CanvasGroupRemoveNodesResponse)
+def remove_group_nodes(
+    project_id: str,
+    body: CanvasGroupAssignNodesRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return remove_nodes_from_canvas_groups(
+        db,
+        user.id,
+        project_id,
+        node_updates=body.nodes,
     )
 
 

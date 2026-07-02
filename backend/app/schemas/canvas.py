@@ -98,6 +98,10 @@ class CanvasGroupUpdate(BaseModel):
     z_index: int | None = Field(default=None, ge=1)
 
 
+class CanvasGroupAssignNodesRequest(BaseModel):
+    nodes: list[CanvasGroupNodeUpdate] = Field(default_factory=list, min_length=1, max_length=100)
+
+
 class CanvasSummary(BaseModel):
     id: int
     project_id: str
@@ -182,6 +186,19 @@ class CanvasNodeBatchUpdateResponse(BaseModel):
 class CanvasGroupCreateResponse(BaseModel):
     group: CanvasGroupOut
     nodes: list[CanvasNodeOut] = []
+
+
+class CanvasGroupAssignNodesResponse(BaseModel):
+    group: CanvasGroupOut
+    groups: list[CanvasGroupOut] = []
+    nodes: list[CanvasNodeOut] = []
+    deleted_group_ids: list[int] = []
+
+
+class CanvasGroupRemoveNodesResponse(BaseModel):
+    groups: list[CanvasGroupOut] = []
+    nodes: list[CanvasNodeOut] = []
+    deleted_group_ids: list[int] = []
 
 
 class CanvasTaskCreateResponse(BaseModel):

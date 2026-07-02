@@ -21,6 +21,8 @@ DEFAULT_NODE_WIDTH = 320
 DEFAULT_NODE_HEIGHT = 420
 NODE_X_SPACING = 360
 DEFAULT_CANVAS_PREVIEW_LIMIT = 3
+CANVAS_GROUP_PADDING = 24
+CANVAS_GROUP_TITLE_HEIGHT = 40
 CANVAS_PROJECT_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{16}$")
 
 
@@ -107,6 +109,70 @@ def _serialize_group(group: CanvasGroup, node_ids: list[int] | None = None) -> d
         "created_at": group.created_at,
         "updated_at": group.updated_at,
     }
+
+
+def _delete_empty_groups(db: Session, canvas_id: int, group_ids: list[int] | None) -> set[int]:
+    normalized_group_ids = list(dict.fromkeys(int(group_id) for group_id in (group_ids or []) if group_id))
+    if not normalized_group_ids:
+        return set()
+
+    remaining_group_ids = {
+        int(group_id)
+        for (group_id,) in db.query(CanvasNode.group_id)
+        .filter(
+            CanvasNode.canvas_id == canvas_id,
+            CanvasNode.group_id.in_(normalized_group_ids),
+        )
+        .distinct()
+        .all()
+        if group_id is not None
+    }
+    empty_group_ids = [group_id for group_id in normalized_group_ids if group_id not in remaining_group_ids]
+    if empty_group_ids:
+        db.query(CanvasGroup).filter(
+            CanvasGroup.canvas_id == canvas_id,
+            CanvasGroup.id.in_(empty_group_ids),
+        ).delete(synchronize_session=False)
+    return set(empty_group_ids)
+
+
+def _get_group_frame_from_nodes(nodes: list[CanvasNode]) -> dict | None:
+    if not nodes:
+        return None
+    min_x = min(float(node.x or 0) for node in nodes)
+    min_y = min(float(node.y or 0) for node in nodes)
+    max_x = max(float(node.x or 0) + float(node.width or DEFAULT_NODE_WIDTH) for node in nodes)
+    max_y = max(float(node.y or 0) + float(node.height or DEFAULT_NODE_HEIGHT) for node in nodes)
+    return {
+        "x": round(min_x - CANVAS_GROUP_PADDING),
+        "y": round(min_y - CANVAS_GROUP_PADDING - CANVAS_GROUP_TITLE_HEIGHT),
+        "width": round(max_x - min_x + CANVAS_GROUP_PADDING * 2),
+        "height": round(max_y - min_y + CANVAS_GROUP_PADDING * 2 + CANVAS_GROUP_TITLE_HEIGHT),
+    }
+
+
+def _sync_group_layout(db: Session, canvas_id: int, group_id: int) -> dict | None:
+    group = (
+        db.query(CanvasGroup)
+        .filter(CanvasGroup.id == group_id, CanvasGroup.canvas_id == canvas_id)
+        .first()
+    )
+    if not group:
+        return None
+    nodes = (
+        db.query(CanvasNode)
+        .filter(CanvasNode.canvas_id == canvas_id, CanvasNode.group_id == group_id)
+        .order_by(CanvasNode.z_index.asc(), CanvasNode.id.asc())
+        .all()
+    )
+    frame = _get_group_frame_from_nodes(nodes)
+    if not frame:
+        return None
+    group.x = frame["x"]
+    group.y = frame["y"]
+    group.width = frame["width"]
+    group.height = frame["height"]
+    return _serialize_group(group, [node.id for node in nodes])
 
 
 def _serialize_edge(edge: CanvasEdge) -> dict:
@@ -482,6 +548,7 @@ def create_canvas_group(
     node_map = {node.id: node for node in nodes}
     if len(node_map) != len(normalized_node_ids):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部分画布节点不存在")
+    source_group_ids = [int(node.group_id) for node in nodes if node.group_id is not None]
 
     group = CanvasGroup(
         canvas_id=canvas.id,
@@ -509,6 +576,7 @@ def create_canvas_group(
                 node.z_index = update.z_index
         node.group_id = group.id
 
+    _delete_empty_groups(db, canvas.id, source_group_ids)
     canvas.updated_at = now_local()
     db.commit()
     db.refresh(group)
@@ -563,6 +631,142 @@ def update_canvas_group(
     db.refresh(group)
     node_ids = [node_id for (node_id,) in db.query(CanvasNode.id).filter(CanvasNode.group_id == group.id).all()]
     return _serialize_group(group, node_ids)
+
+
+def assign_nodes_to_canvas_group(
+    db: Session,
+    user_id: int,
+    project_id: str,
+    group_id: int,
+    *,
+    node_updates: list,
+) -> dict:
+    canvas = get_user_canvas_or_404(db, user_id, project_id)
+    group = (
+        db.query(CanvasGroup)
+        .filter(CanvasGroup.id == group_id, CanvasGroup.canvas_id == canvas.id)
+        .first()
+    )
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="画布分组不存在")
+    if not node_updates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一个节点")
+
+    node_ids = list(dict.fromkeys(int(item.id) for item in node_updates if int(item.id) > 0))
+    nodes = (
+        db.query(CanvasNode)
+        .outerjoin(Task, Task.id == CanvasNode.task_id)
+        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .filter(
+            CanvasNode.id.in_(node_ids),
+            CanvasNode.canvas_id == canvas.id,
+            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+        )
+        .all()
+    )
+    node_map = {node.id: node for node in nodes}
+    if len(node_map) != len(node_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部分画布节点不存在")
+
+    source_group_ids = [int(node.group_id) for node in nodes if node.group_id is not None and int(node.group_id) != group.id]
+    update_map = {int(item.id): item for item in node_updates}
+    for node_id in node_ids:
+        node = node_map[node_id]
+        update = update_map.get(node_id)
+        if update:
+            if update.x is not None:
+                node.x = update.x
+            if update.y is not None:
+                node.y = update.y
+            if update.z_index is not None:
+                node.z_index = update.z_index
+        node.group_id = group.id
+
+    deleted_group_ids = _delete_empty_groups(db, canvas.id, source_group_ids)
+    affected_group_ids = [group.id, *source_group_ids]
+    updated_groups = [
+        serialized_group
+        for affected_group_id in dict.fromkeys(affected_group_ids)
+        if affected_group_id not in deleted_group_ids
+        for serialized_group in [_sync_group_layout(db, canvas.id, affected_group_id)]
+        if serialized_group
+    ]
+    canvas.updated_at = now_local()
+    db.commit()
+    db.refresh(group)
+    for node in nodes:
+        db.refresh(node)
+    cos_config = get_optional_cos_config(db)
+    ordered_nodes = [node_map[node_id] for node_id in node_ids]
+    target_group = next((item for item in updated_groups if item["id"] == group.id), _serialize_group(group, node_ids))
+    return {
+        "group": target_group,
+        "groups": updated_groups,
+        "nodes": [_serialize_node(node, cos_config=cos_config) for node in ordered_nodes],
+        "deleted_group_ids": sorted(deleted_group_ids),
+    }
+
+
+def remove_nodes_from_canvas_groups(
+    db: Session,
+    user_id: int,
+    project_id: str,
+    *,
+    node_updates: list,
+) -> dict:
+    canvas = get_user_canvas_or_404(db, user_id, project_id)
+    if not node_updates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一个节点")
+
+    node_ids = list(dict.fromkeys(int(item.id) for item in node_updates if int(item.id) > 0))
+    nodes = (
+        db.query(CanvasNode)
+        .outerjoin(Task, Task.id == CanvasNode.task_id)
+        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .filter(
+            CanvasNode.id.in_(node_ids),
+            CanvasNode.canvas_id == canvas.id,
+            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+        )
+        .all()
+    )
+    node_map = {node.id: node for node in nodes}
+    if len(node_map) != len(node_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部分画布节点不存在")
+
+    source_group_ids = [int(node.group_id) for node in nodes if node.group_id is not None]
+    update_map = {int(item.id): item for item in node_updates}
+    for node_id in node_ids:
+        node = node_map[node_id]
+        update = update_map.get(node_id)
+        if update:
+            if update.x is not None:
+                node.x = update.x
+            if update.y is not None:
+                node.y = update.y
+            if update.z_index is not None:
+                node.z_index = update.z_index
+        node.group_id = None
+
+    deleted_group_ids = _delete_empty_groups(db, canvas.id, source_group_ids)
+    updated_groups = [
+        serialized_group
+        for affected_group_id in dict.fromkeys(source_group_ids)
+        if affected_group_id not in deleted_group_ids
+        for serialized_group in [_sync_group_layout(db, canvas.id, affected_group_id)]
+        if serialized_group
+    ]
+    canvas.updated_at = now_local()
+    db.commit()
+    for node in nodes:
+        db.refresh(node)
+    cos_config = get_optional_cos_config(db)
+    ordered_nodes = [node_map[node_id] for node_id in node_ids]
+    return {
+        "groups": updated_groups,
+        "nodes": [_serialize_node(node, cos_config=cos_config) for node in ordered_nodes],
+        "deleted_group_ids": sorted(deleted_group_ids),
+    }
 
 
 def delete_canvas_group(db: Session, user_id: int, project_id: str, group_id: int) -> None:

@@ -22,7 +22,7 @@ import {
   ThunderboltOutlined,
   UploadOutlined,
 } from "@ant-design/icons-vue";
-import { createCanvas, createCanvasGroup, createCanvasNode, createCanvasTask, deleteCanvasGroup, deleteCanvasNode, getCanvas, listCanvases, updateCanvas, updateCanvasEdge, updateCanvasGroup, updateCanvasNode, updateCanvasNodesBatch, updateCanvasViewport } from "@/api/canvases";
+import { assignCanvasNodesToGroup, createCanvas, createCanvasGroup, createCanvasNode, createCanvasTask, deleteCanvasGroup, deleteCanvasNode, getCanvas, listCanvases, removeCanvasNodesFromGroups, updateCanvas, updateCanvasEdge, updateCanvasGroup, updateCanvasNode, updateCanvasNodesBatch, updateCanvasViewport } from "@/api/canvases";
 import { listUsers } from "@/api/admin";
 import { getMe } from "@/api/auth";
 import { getTaskScenes } from "@/api/config";
@@ -78,6 +78,13 @@ type CanvasWorkbenchNode = CanvasNode & {
   localObjectUrl?: string;
   uploadError?: string;
 };
+
+interface PendingGroupAssignment {
+  projectId: string;
+  targetGroup: CanvasGroup;
+  movedNodeIds: number[];
+  nodeOrigins: Array<{ id: number; x: number; y: number }>;
+}
 
 const DEFAULT_ASPECT_RATIO_OPTIONS = [
   { label: "1:1", value: "1:1" },
@@ -199,6 +206,7 @@ const previewCurrent = ref("");
 const selectedNodeId = ref<number | null>(null);
 const selectedNodeIds = ref<Set<number>>(new Set());
 const selectedGroupId = ref<number | null>(null);
+const highlightedGroupId = ref<number | null>(null);
 const selectedGroupName = ref("");
 const selectedGroupRenaming = ref(false);
 const detailOpen = ref(false);
@@ -210,6 +218,7 @@ const nodeSearchOpen = ref(false);
 const nodeSearchKeyword = ref("");
 const nodeSearchQuery = ref("");
 const textNodeEditSaving = ref(false);
+const groupArrangeSaving = ref(false);
 const textNodeEditTarget = ref<CanvasNode | null>(null);
 const textNodeEditContent = ref("");
 const loadedWebpImageUrls = ref<Set<string>>(new Set());
@@ -220,6 +229,9 @@ const canvasBackgroundMode = ref<CanvasBackgroundMode>(
 );
 const canvasInteractionMode = ref<CanvasInteractionMode>("pan");
 const selectionBox = ref<SelectionBoxState | null>(null);
+const assignGroupDialogOpen = ref(false);
+const assignGroupDialogLoading = ref(false);
+const pendingGroupAssignment = ref<PendingGroupAssignment | null>(null);
 
 const isImageEditMode = computed(() => canvasMode.value === "imageEdit");
 const hasComposerDraftContent = computed(() => !!prompt.value.trim() || referenceItems.value.length > 0);
@@ -454,6 +466,7 @@ let resizeState: {
   originWidth: number;
   originHeight: number;
 } | null = null;
+let lastGroupPointerDown: { groupId: number; time: number } | null = null;
 let lastNodePointerDown: { nodeId: number; time: number } | null = null;
 let lastNodeClick: { nodeId: number; time: number } | null = null;
 let lastTextNodePointerDown: { nodeId: number; time: number } | null = null;
@@ -732,6 +745,13 @@ function startGroupDrag(event: PointerEvent, group: CanvasGroup) {
   if (event.button !== 0) return;
   event.stopPropagation();
   event.preventDefault();
+  const now = Date.now();
+  if (lastGroupPointerDown?.groupId === group.id && now - lastGroupPointerDown.time < 500) {
+    lastGroupPointerDown = null;
+    focusCanvasGroup(group);
+    return;
+  }
+  lastGroupPointerDown = { groupId: group.id, time: now };
   if (canvasReadOnly.value) {
     selectCanvasGroup(group);
     return;
@@ -855,12 +875,305 @@ async function ungroupSelectedGroup() {
 }
 
 function removeNodeIdsFromLocalGroups(nodeIds: Set<number>) {
-  groups.value = groups.value
+  replaceLocalGroups(groups.value
     .map((group) => ({
       ...group,
       node_ids: (group.node_ids || []).filter((nodeId) => !nodeIds.has(nodeId)),
     }))
-    .filter((group) => group.node_ids.length);
+    .filter((group) => group.node_ids.length));
+}
+
+function replaceLocalGroups(nextGroups: CanvasGroup[]) {
+  groups.value = [...nextGroups].sort((a, b) => Number(a.z_index || 0) - Number(b.z_index || 0) || a.id - b.id);
+  const currentSelectedGroup = selectedGroupId.value
+    ? groups.value.find((group) => group.id === selectedGroupId.value) || null
+    : null;
+  if (!currentSelectedGroup) {
+    selectedGroupId.value = null;
+    selectedGroupName.value = "";
+    selectedGroupRenaming.value = false;
+    return;
+  }
+  if (!selectedGroupRenaming.value) {
+    selectedGroupName.value = currentSelectedGroup.name || "未命名分组";
+  }
+}
+
+function mergeLocalGroups(updatedGroups: CanvasGroup[], deletedGroupIds: Iterable<number> = []) {
+  const deletedIds = new Set(deletedGroupIds);
+  const updatedMap = new Map(updatedGroups.map((group) => [group.id, group]));
+  replaceLocalGroups([
+    ...groups.value.filter((group) => !deletedIds.has(group.id) && !updatedMap.has(group.id)),
+    ...updatedGroups,
+  ]);
+}
+
+function mergeLocalGroupsAfterAssignment(
+  targetGroupId: number,
+  movedNodeIds: number[],
+  updatedGroups: CanvasGroup[],
+  deletedGroupIds: Iterable<number> = []
+) {
+  const deletedIds = new Set(deletedGroupIds);
+  const movedIds = new Set(movedNodeIds);
+  const updatedMap = new Map(updatedGroups.map((group) => [group.id, group]));
+  const seenGroupIds = new Set<number>();
+  const nextGroups: CanvasGroup[] = [];
+
+  groups.value.forEach((group) => {
+    if (deletedIds.has(group.id)) return;
+    const base = updatedMap.get(group.id) || group;
+    let nextNodeIds = [...(base.node_ids || [])];
+    if (group.id === targetGroupId) {
+      nextNodeIds = Array.from(new Set([...nextNodeIds, ...movedNodeIds]));
+    } else {
+      nextNodeIds = nextNodeIds.filter((nodeId) => !movedIds.has(nodeId));
+    }
+    if (nextNodeIds.length) {
+      nextGroups.push({ ...base, node_ids: nextNodeIds });
+      seenGroupIds.add(group.id);
+    }
+  });
+
+  updatedGroups.forEach((group) => {
+    if (deletedIds.has(group.id) || seenGroupIds.has(group.id)) return;
+    const nextNodeIds = group.id === targetGroupId
+      ? Array.from(new Set([...(group.node_ids || []), ...movedNodeIds]))
+      : [...(group.node_ids || [])];
+    if (nextNodeIds.length) {
+      nextGroups.push({ ...group, node_ids: nextNodeIds });
+    }
+  });
+
+  replaceLocalGroups(nextGroups);
+}
+
+function recalculateLocalGroupFrames(groupIds: Iterable<number>) {
+  const targetIds = new Set(Array.from(groupIds));
+  const updatedGroups: CanvasGroup[] = [];
+  if (!targetIds.size) return updatedGroups;
+  groups.value = groups.value.map((group) => {
+    if (!targetIds.has(group.id)) return group;
+    const groupNodes = nodes.value.filter((node) => node.group_id === group.id);
+    const bounds = getNodesBounds(groupNodes);
+    if (!bounds) return group;
+    const nextGroup = {
+      ...group,
+      ...getGroupFrameFromBounds(bounds),
+    };
+    updatedGroups.push(nextGroup);
+    return nextGroup;
+  });
+  return updatedGroups;
+}
+
+async function syncGroupFramesWithCurrentNodes(projectId: string, groupIds: Iterable<number>) {
+  const updatedGroups = recalculateLocalGroupFrames(groupIds);
+  if (!updatedGroups.length) return;
+  const savedGroups = await Promise.all(updatedGroups.map((group) => updateCanvasGroup(projectId, group.id, {
+    x: group.x,
+    y: group.y,
+    width: group.width,
+    height: group.height,
+  })));
+  mergeLocalGroups(savedGroups);
+}
+
+function getGroupDropTarget(sourceNodes: CanvasNode[]) {
+  const bounds = getNodesBounds(sourceNodes);
+  if (!bounds) return null;
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  return [...groups.value]
+    .filter((group) => (group.node_ids || []).length)
+    .filter((group) => centerX >= group.x && centerX <= group.x + group.width && centerY >= group.y && centerY <= group.y + group.height)
+    .sort((a, b) => Number(b.z_index || 0) - Number(a.z_index || 0) || (a.width * a.height) - (b.width * b.height))[0] || null;
+}
+
+function isNodeOutsideGroup(node: CanvasNode, group: CanvasGroup) {
+  const nodeX = Number(node.x || 0);
+  const nodeY = Number(node.y || 0);
+  const nodeWidth = Number(node.width || DEFAULT_NODE_WIDTH);
+  const nodeHeight = getNodeCardHeight(node);
+  return nodeX < group.x
+    || nodeX + nodeWidth > group.x + group.width
+    || nodeY < group.y
+    || nodeY + nodeHeight > group.y + group.height;
+}
+
+function getNodesOutsideOwnGroups(sourceNodes: CanvasNode[]) {
+  return sourceNodes.filter((node) => {
+    if (!node.group_id) return false;
+    const group = groups.value.find((item) => item.id === node.group_id);
+    if (!group) return false;
+    return isNodeOutsideGroup(node, group);
+  });
+}
+
+function updateHighlightedGroup(sourceNodes: CanvasNode[]) {
+  const targetGroup = getGroupDropTarget(sourceNodes);
+  highlightedGroupId.value = targetGroup && sourceNodes.some((node) => node.group_id !== targetGroup.id)
+    ? targetGroup.id
+    : null;
+}
+
+function restoreNodePositions(nodeOrigins: Array<{ id: number; x: number; y: number }>) {
+  const originMap = new Map(nodeOrigins.map((node) => [node.id, node]));
+  nodes.value = nodes.value.map((node) => {
+    const origin = originMap.get(node.id);
+    return origin ? {
+      ...node,
+      x: origin.x,
+      y: origin.y,
+    } : node;
+  });
+}
+
+async function persistMovedSelectionNodes(projectId: string, movedNodes: CanvasNode[]) {
+  const updatedNodes = await updateCanvasNodesBatch(projectId, movedNodes.map((node) => ({ id: node.id, x: node.x, y: node.y })));
+  nodes.value = nodes.value.map((node) => updatedNodes.nodes.find((item) => item.id === node.id) || node);
+}
+
+function getPendingAssignmentNodes() {
+  const pending = pendingGroupAssignment.value;
+  if (!pending) return [];
+  const movedNodeIds = new Set(pending.movedNodeIds);
+  return nodes.value.filter((node) => movedNodeIds.has(node.id));
+}
+
+const assignGroupDialogDescription = computed(() => {
+  const pending = pendingGroupAssignment.value;
+  if (!pending) return "";
+  const movedNodes = getPendingAssignmentNodes();
+  const migratingCount = movedNodes.filter((node) => node.group_id && node.group_id !== pending.targetGroup.id).length;
+  return migratingCount
+    ? `将这 ${movedNodes.length} 个节点加入「${pending.targetGroup.name || "未命名分组"}」？其中 ${migratingCount} 个节点会从原分组迁移到该分组。`
+    : `将这 ${movedNodes.length} 个节点加入「${pending.targetGroup.name || "未命名分组"}」？`;
+});
+
+function closeAssignGroupDialog() {
+  assignGroupDialogOpen.value = false;
+  assignGroupDialogLoading.value = false;
+  pendingGroupAssignment.value = null;
+}
+
+function openAssignNodesToGroupDialog(
+  projectId: string,
+  targetGroup: CanvasGroup,
+  movedNodes: CanvasNode[],
+  nodeOrigins: Array<{ id: number; x: number; y: number }>
+) {
+  pendingGroupAssignment.value = {
+    projectId,
+    targetGroup,
+    movedNodeIds: movedNodes.map((node) => node.id),
+    nodeOrigins,
+  };
+  assignGroupDialogOpen.value = true;
+}
+
+async function submitAssignNodesToGroup() {
+  const pending = pendingGroupAssignment.value;
+  if (!pending) return;
+  assignGroupDialogLoading.value = true;
+  try {
+    const movedNodes = getPendingAssignmentNodes();
+    const result = await assignCanvasNodesToGroup(pending.projectId, pending.targetGroup.id, movedNodes.map((node) => ({
+      id: node.id,
+      x: node.x,
+      y: node.y,
+      z_index: node.z_index,
+    })));
+    nodes.value = nodes.value.map((node) => result.nodes.find((item) => item.id === node.id) || node);
+    mergeLocalGroupsAfterAssignment(
+      pending.targetGroup.id,
+      result.nodes.map((node) => node.id),
+      result.groups,
+      result.deleted_group_ids
+    );
+    await syncGroupFramesWithCurrentNodes(pending.projectId, result.groups.map((group) => group.id));
+    selectedNodeIds.value = new Set(result.nodes.map((node) => node.id));
+    selectedNodeId.value = result.nodes.length === 1 ? result.nodes[0].id : null;
+    closeAssignGroupDialog();
+    message.success("节点已加入分组");
+  } catch (err: any) {
+    assignGroupDialogLoading.value = false;
+    message.error(err.response?.data?.detail || "加入分组失败");
+  }
+}
+
+async function keepAssignNodesPositionOnly() {
+  const pending = pendingGroupAssignment.value;
+  if (!pending) return;
+  assignGroupDialogLoading.value = true;
+  try {
+    await persistMovedSelectionNodes(pending.projectId, getPendingAssignmentNodes());
+    closeAssignGroupDialog();
+  } catch {
+    assignGroupDialogLoading.value = false;
+    message.error("保存节点位置失败");
+  }
+}
+
+function restoreSelectedNodeOrigins(nodeOrigins: Array<{ id: number; x: number; y: number }>, nodeIds: Set<number>) {
+  restoreNodePositions(nodeOrigins.filter((node) => nodeIds.has(node.id)));
+}
+
+function confirmRemoveNodesFromGroups(
+  projectId: string,
+  movedNodes: CanvasNode[],
+  removableNodes: CanvasNode[],
+  nodeOrigins: Array<{ id: number; x: number; y: number }>
+) {
+  const removableIds = new Set(removableNodes.map((node) => node.id));
+  const remainingNodes = movedNodes.filter((node) => !removableIds.has(node.id));
+  Modal.confirm({
+    title: "移出分组",
+    wrapClassName: "canvas-themed-confirm-wrap",
+    centered: true,
+    content: `检测到 ${removableNodes.length} 个节点已拖出原分组区域，是否将其移出分组？`,
+    okText: "移出分组",
+    cancelText: "保留在原分组",
+    async onOk() {
+      try {
+        const [removeResult] = await Promise.all([
+          removeCanvasNodesFromGroups(projectId, removableNodes.map((node) => ({
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            z_index: node.z_index,
+          }))),
+          remainingNodes.length ? persistMovedSelectionNodes(projectId, remainingNodes) : Promise.resolve(),
+        ]);
+        nodes.value = nodes.value.map((node) => removeResult.nodes.find((item) => item.id === node.id) || node);
+        removeNodeIdsFromLocalGroups(new Set(removeResult.nodes.map((node) => node.id)));
+        mergeLocalGroups(removeResult.groups, removeResult.deleted_group_ids);
+        await syncGroupFramesWithCurrentNodes(projectId, removeResult.groups.map((group) => group.id));
+        message.success("节点已移出分组");
+      } catch (err: any) {
+        message.error(err.response?.data?.detail || "移出分组失败");
+        return Promise.reject(err);
+      }
+    },
+    onCancel() {
+      restoreSelectedNodeOrigins(nodeOrigins, removableIds);
+      if (remainingNodes.length) {
+        void persistMovedSelectionNodes(projectId, remainingNodes).catch(() => {
+          message.error("保存节点位置失败");
+        });
+      }
+    },
+  });
+}
+
+function cancelAssignNodesToGroup() {
+  const pending = pendingGroupAssignment.value;
+  if (!pending) {
+    closeAssignGroupDialog();
+    return;
+  }
+  restoreNodePositions(pending.nodeOrigins);
+  closeAssignGroupDialog();
 }
 
 function resetViewport() {
@@ -990,6 +1303,7 @@ function handleStagePointerMove(event: PointerEvent) {
         y: Math.round(origin.y + dy),
       } : node;
     });
+    updateHighlightedGroup(nodes.value.filter((node) => originMap.has(node.id)));
     return;
   }
   if (groupDragState?.pointerId === event.pointerId) {
@@ -1064,26 +1378,37 @@ function handleStagePointerMove(event: PointerEvent) {
   if (!targetNode) return;
   targetNode.x = dragState.originX + dx;
   targetNode.y = dragState.originY + dy;
+  updateHighlightedGroup([targetNode]);
 }
 
 function handleStagePointerUp(event: PointerEvent) {
   if (selectionDragState?.pointerId === event.pointerId) {
     const state = selectionDragState;
     selectionDragState = null;
+    highlightedGroupId.value = null;
     const projectId = selectedCanvasProjectId.value;
     if (projectId && !canvasReadOnly.value && state.moved) {
       const movedNodeIds = new Set(state.nodeOrigins.map((node) => node.id));
       const movedNodes = nodes.value.filter((node) => movedNodeIds.has(node.id));
-      void updateCanvasNodesBatch(projectId, movedNodes.map((node) => ({ id: node.id, x: node.x, y: node.y }))).then((updatedNodes) => {
-        nodes.value = nodes.value.map((node) => updatedNodes.nodes.find((item) => item.id === node.id) || node);
-      }).catch(() => {
-        message.error("保存选中节点位置失败");
-      });
+      const targetGroup = getGroupDropTarget(movedNodes);
+      if (targetGroup && movedNodes.some((node) => node.group_id !== targetGroup.id)) {
+        openAssignNodesToGroupDialog(projectId, targetGroup, movedNodes, state.nodeOrigins);
+      } else {
+        const removableNodes = getNodesOutsideOwnGroups(movedNodes);
+        if (removableNodes.length) {
+          confirmRemoveNodesFromGroups(projectId, movedNodes, removableNodes, state.nodeOrigins);
+        } else {
+          void persistMovedSelectionNodes(projectId, movedNodes).catch(() => {
+            message.error("保存选中节点位置失败");
+          });
+        }
+      }
     }
   }
   if (groupDragState?.pointerId === event.pointerId) {
     const state = groupDragState;
     groupDragState = null;
+    highlightedGroupId.value = null;
     const projectId = selectedCanvasProjectId.value;
     const group = groups.value.find((item) => item.id === state.groupId);
     if (state.moved) {
@@ -1110,32 +1435,53 @@ function handleStagePointerUp(event: PointerEvent) {
     const distance = Math.hypot(box.currentX - box.startX, box.currentY - box.startY);
     if (distance < 4) {
       clearCanvasSelection();
-    } else {
+      } else {
       updateSelectionBoxSelection();
     }
     selectionBox.value = null;
   }
   if (panState?.pointerId === event.pointerId) {
     panState = null;
+    highlightedGroupId.value = null;
     scheduleViewportSave();
   }
   if (dragState?.pointerId === event.pointerId) {
     const state = dragState;
     const node = nodes.value.find((item) => item.id === state.nodeId);
     dragState = null;
+    highlightedGroupId.value = null;
     const projectId = selectedCanvasProjectId.value;
     if (node && !state.moved) {
       expandGeneratePanel();
     }
     if (node && projectId && !canvasReadOnly.value && state.moved) {
-      void updateCanvasNode(projectId, node.id, { x: node.x, y: node.y }).catch(() => {
-        message.error("保存节点位置失败");
-      });
+      const targetGroup = getGroupDropTarget([node]);
+      if (targetGroup && node.group_id !== targetGroup.id) {
+        openAssignNodesToGroupDialog(projectId, targetGroup, [node], [{
+          id: state.nodeId,
+          x: state.originX,
+          y: state.originY,
+        }]);
+      } else {
+        const removableNodes = getNodesOutsideOwnGroups([node]);
+        if (removableNodes.length) {
+          confirmRemoveNodesFromGroups(projectId, [node], removableNodes, [{
+            id: state.nodeId,
+            x: state.originX,
+            y: state.originY,
+          }]);
+        } else {
+          void updateCanvasNode(projectId, node.id, { x: node.x, y: node.y }).catch(() => {
+            message.error("保存节点位置失败");
+          });
+        }
+      }
     }
   }
   if (resizeState?.pointerId === event.pointerId) {
     const node = nodes.value.find((item) => item.id === resizeState?.nodeId);
     resizeState = null;
+    highlightedGroupId.value = null;
     const projectId = selectedCanvasProjectId.value;
     if (node && projectId && !canvasReadOnly.value) {
       void updateCanvasNode(projectId, node.id, { width: node.width, height: node.height }).catch(() => {
@@ -1411,10 +1757,10 @@ function handleRenameCanvas(canvas: UserCanvasSummary) {
   let nextName = canvas.name;
   Modal.confirm({
     title: "重命名画布",
-    wrapClassName: "canvas-rename-modal-wrap",
+    wrapClassName: "canvas-themed-confirm-wrap",
     centered: true,
     content: () => h("input", {
-      class: "ant-input canvas-rename-input",
+      class: "ant-input canvas-themed-confirm-input",
       value: nextName,
       maxlength: 100,
       placeholder: "请输入画布名称",
@@ -1860,6 +2206,44 @@ async function arrangeSelectedNodes() {
   }
 }
 
+async function arrangeSelectedGroupNodes() {
+  if (canvasReadOnly.value) {
+    message.warning("只读模式下不能整理分组");
+    return;
+  }
+  if (groupArrangeSaving.value) return;
+  const projectId = selectedCanvasProjectId.value;
+  const group = selectedGroup.value;
+  if (!projectId || !group) return;
+  const targetNodes = getGroupNodes(group);
+  if (!targetNodes.length) return;
+  const { updates, bounds } = buildArrangedNodePositions(targetNodes);
+  if (!updates.length || !bounds) return;
+  const frame = getGroupFrameFromBounds(bounds);
+  nodes.value = nodes.value.map((node) => updates.find((update) => update.id === node.id) ? {
+    ...node,
+    ...updates.find((update) => update.id === node.id),
+  } : node);
+  groups.value = groups.value.map((item) => item.id === group.id ? {
+    ...item,
+    ...frame,
+  } : item);
+  groupArrangeSaving.value = true;
+  try {
+    const [updatedGroup, updatedNodes] = await Promise.all([
+      updateCanvasGroup(projectId, group.id, frame),
+      updateCanvasNodesBatch(projectId, updates),
+    ]);
+    mergeLocalGroups([updatedGroup]);
+    nodes.value = nodes.value.map((node) => updatedNodes.nodes.find((item) => item.id === node.id) || node);
+    message.success("分组内容已自动整理");
+  } catch {
+    message.warning("分组整理保存失败，请稍后重试");
+  } finally {
+    groupArrangeSaving.value = false;
+  }
+}
+
 function getNextGroupColor() {
   return CANVAS_GROUP_COLORS[groups.value.length % CANVAS_GROUP_COLORS.length];
 }
@@ -1875,10 +2259,10 @@ function createGroupFromSelection() {
   let nextName = `分组 ${groups.value.length + 1}`;
   Modal.confirm({
     title: "添加分组",
-    wrapClassName: "canvas-group-modal-wrap",
+    wrapClassName: "canvas-themed-confirm-wrap",
     centered: true,
     content: () => h("input", {
-      class: "ant-input canvas-group-name-input",
+      class: "ant-input canvas-themed-confirm-input",
       value: nextName,
       maxlength: 100,
       placeholder: "请输入分组名称",
@@ -1912,6 +2296,7 @@ function createGroupFromSelection() {
           ...frame,
           z_index: maxGroupZIndex + 1,
         });
+        removeNodeIdsFromLocalGroups(new Set(targetNodes.map((node) => node.id)));
         groups.value = [...groups.value.filter((group) => group.id !== res.group.id), res.group];
         nodes.value = nodes.value.map((node) => res.nodes.find((item) => item.id === node.id) || node);
         selectedNodeIds.value = new Set(res.nodes.map((node) => node.id));
@@ -2648,6 +3033,28 @@ function focusCanvasNode(node: CanvasNode, targetZoom = 1) {
   scheduleViewportSave();
 }
 
+function focusCanvasGroup(group: CanvasGroup) {
+  const rect = canvasStageRef.value?.getBoundingClientRect();
+  if (!rect) return;
+  const padding = 120;
+  const boundsWidth = Math.max(1, Number(group.width || DEFAULT_NODE_WIDTH));
+  const boundsHeight = Math.max(1, Number(group.height || DEFAULT_NODE_HEIGHT));
+  const zoom = clampZoom(Math.min(
+    (rect.width - padding) / boundsWidth,
+    (rect.height - padding) / boundsHeight
+  ));
+  const centerX = Number(group.x || 0) + boundsWidth / 2;
+  const centerY = Number(group.y || 0) + boundsHeight / 2;
+  viewport.value = {
+    zoom,
+    x: rect.width / 2 - centerX * zoom,
+    y: rect.height / 2 - centerY * zoom,
+  };
+  selectCanvasGroup(group);
+  nodeSearchOpen.value = false;
+  scheduleViewportSave();
+}
+
 function focusCanvasNodesAtCurrentZoom(targetNodes: CanvasNode[]) {
   const rect = canvasStageRef.value?.getBoundingClientRect();
   const bounds = getNodesBounds(targetNodes);
@@ -3060,6 +3467,27 @@ onBeforeUnmount(() => {
               <kbd>双击图片</kbd>
               <span>预览大图</span>
             </div>
+            <div class="canvas-guide-section-title">分组操作</div>
+            <div>
+              <kbd>框选后添加分组</kbd>
+              <span>将当前选择节点整理后创建为新分组</span>
+            </div>
+            <div>
+              <kbd>拖入分组区域</kbd>
+              <span>高亮目标分组，松手后可选择加入分组、仅保留位置或恢复原位</span>
+            </div>
+            <div>
+              <kbd>拖出分组边界</kbd>
+              <span>松手后可确认将节点移出分组</span>
+            </div>
+            <div>
+              <kbd>单击分组</kbd>
+              <span>打开分组操作条，可自动整理、重命名、改颜色或删除分组</span>
+            </div>
+            <div>
+              <kbd>双击分组</kbd>
+              <span>缩放到刚好看见整个分组区域</span>
+            </div>
           </div>
         </div>
       </div>
@@ -3395,6 +3823,11 @@ onBeforeUnmount(() => {
           ></button>
         </div>
         <template v-if="!selectedGroupRenaming">
+          <button type="button" class="canvas-group-toolbar-action" :disabled="canvasReadOnly || groupArrangeSaving" @click="arrangeSelectedGroupNodes">
+            <LoadingOutlined v-if="groupArrangeSaving" spin />
+            <ReloadOutlined v-else />
+            <span>自动整理</span>
+          </button>
           <button type="button" class="canvas-group-toolbar-action" :disabled="canvasReadOnly" @click="startSelectedGroupRename">
             <EditOutlined />
             <span>重命名</span>
@@ -3466,10 +3899,11 @@ onBeforeUnmount(() => {
           v-for="group in visibleCanvasGroups"
           :key="group.id"
           class="canvas-persistent-group"
-          :class="{ selected: group.id === selectedGroupId }"
+          :class="{ selected: group.id === selectedGroupId, highlighted: group.id === highlightedGroupId }"
           :style="getCanvasGroupStyle(group)"
           @pointerdown="startGroupDrag($event, group)"
           @click.stop="handleCanvasGroupClick(group)"
+          @dblclick.stop.prevent="focusCanvasGroup(group)"
         >
           <div class="canvas-persistent-group-title">{{ group.name }}</div>
         </div>
@@ -3651,6 +4085,26 @@ onBeforeUnmount(() => {
       :user="selectedReadonlyOwner"
     />
     <a-modal
+      v-model:open="assignGroupDialogOpen"
+      title="加入分组"
+      wrap-class-name="canvas-assign-group-modal-wrap"
+      centered
+      :mask-closable="false"
+      :keyboard="false"
+      @cancel="cancelAssignNodesToGroup"
+    >
+      <div class="canvas-assign-group-dialog">
+        {{ assignGroupDialogDescription }}
+      </div>
+      <template #footer>
+        <div class="canvas-assign-group-footer">
+          <a-button :disabled="assignGroupDialogLoading" @click="cancelAssignNodesToGroup">取消并恢复原位</a-button>
+          <a-button :loading="assignGroupDialogLoading" @click="keepAssignNodesPositionOnly">仅保留位置</a-button>
+          <a-button type="primary" :loading="assignGroupDialogLoading" @click="submitAssignNodesToGroup">加入分组</a-button>
+        </div>
+      </template>
+    </a-modal>
+    <a-modal
       v-model:open="nodeSearchOpen"
       title="搜索节点"
       :footer="null"
@@ -3715,6 +4169,18 @@ onBeforeUnmount(() => {
 .node-search-dialog {
   display: grid;
   gap: 10px;
+}
+
+.canvas-assign-group-dialog {
+  color: var(--theme-text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.canvas-assign-group-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .node-search-summary {
@@ -5210,12 +5676,19 @@ onBeforeUnmount(() => {
 }
 
 .canvas-persistent-group:hover,
-.canvas-persistent-group.selected {
+.canvas-persistent-group.selected,
+.canvas-persistent-group.highlighted {
   border-color: color-mix(in srgb, var(--canvas-group-color) 78%, #fff 22%);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.18),
     0 20px 52px rgba(0, 0, 0, 0.18),
     0 0 0 3px color-mix(in srgb, var(--canvas-group-color) 18%, transparent);
+}
+
+.canvas-persistent-group.highlighted {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--canvas-group-color) 20%, transparent), transparent 46%),
+    color-mix(in srgb, var(--canvas-group-color) 16%, rgba(20, 20, 20, 0.26));
 }
 
 .canvas-persistent-group:active {
@@ -6026,7 +6499,7 @@ onBeforeUnmount(() => {
   }
 }
 
-.canvas-rename-modal-wrap {
+.canvas-themed-confirm-wrap {
   .ant-modal-confirm .ant-modal-body {
     padding: 20px 22px;
   }
@@ -6057,7 +6530,7 @@ onBeforeUnmount(() => {
     font-weight: 700;
   }
 
-  .canvas-rename-input.ant-input {
+  .canvas-themed-confirm-input.ant-input {
     width: 100%;
     height: 36px;
     margin-top: 2px;
@@ -6081,8 +6554,8 @@ onBeforeUnmount(() => {
       background 0.2s ease;
   }
 
-  .canvas-rename-input.ant-input:hover,
-  .canvas-rename-input.ant-input:focus {
+  .canvas-themed-confirm-input.ant-input:hover,
+  .canvas-themed-confirm-input.ant-input:focus {
     border-color: var(--theme-border-strong) !important;
     background: var(--theme-panel-bg) !important;
     box-shadow:
@@ -6090,8 +6563,45 @@ onBeforeUnmount(() => {
       0 8px 18px var(--theme-card-shadow) !important;
   }
 
-  .canvas-rename-input.ant-input::placeholder {
+  .canvas-themed-confirm-input.ant-input::placeholder {
     color: var(--theme-text-muted);
+  }
+}
+
+.canvas-assign-group-modal-wrap {
+  .ant-modal-content {
+    border-radius: 20px;
+    background: linear-gradient(180deg, var(--theme-panel-bg), var(--theme-panel-bg-soft));
+    box-shadow: 0 18px 40px var(--theme-card-shadow-strong);
+  }
+
+  .ant-modal-header {
+    background: transparent;
+    border-bottom: 1px solid var(--theme-panel-border);
+    border-radius: 20px 20px 0 0;
+  }
+
+  .ant-modal-title {
+    color: var(--theme-title);
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .ant-modal-body {
+    padding: 18px 24px 12px;
+  }
+
+  .ant-modal-footer {
+    border-top: 1px solid var(--theme-panel-border);
+    padding: 12px 24px 18px;
+    background: transparent;
+  }
+
+  .ant-btn {
+    height: 34px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
   }
 }
 </style>

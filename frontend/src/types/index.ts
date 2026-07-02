@@ -277,6 +277,19 @@ export interface CanvasDetail extends UserCanvasSummary {
   groups: CanvasGroup[];
 }
 
+export interface CanvasGroupAssignNodesResponse {
+  group: CanvasGroup;
+  groups: CanvasGroup[];
+  nodes: CanvasNode[];
+  deleted_group_ids: number[];
+}
+
+export interface CanvasGroupRemoveNodesResponse {
+  groups: CanvasGroup[];
+  nodes: CanvasNode[];
+  deleted_group_ids: number[];
+}
+
 export interface UserCanvasListResponse {
   items: UserCanvasSummary[];
 }

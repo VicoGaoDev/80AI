@@ -69,6 +69,7 @@
 - `reference_images`: 参考图列表，JSON 字符串形式存储。
 - `source_image`: 图编辑原图地址。
 - `mask_image`: 图编辑蒙版地址。
+- `board_id`: 所属历史分类；为空表示默认分类或未分类。
 - `canvas_id`: 所属无限画布内部 ID；为空表示普通生图/历史任务。
 - `credit_cost`: 单任务积分消耗。
 - `status`: 任务状态，常见值为 `pending`、`queued`、`processing`、`success`、`failed`。
@@ -91,10 +92,29 @@
 - `deleted_at`: 逻辑删除时间。
 - `created_at` / `updated_at`: 创建时间、最后更新时间。
 
+### `user_boards`
+
+- `id`: 历史分类内部主键。
+- `user_id`: 分类归属用户。
+- `name`: 分类名称。
+- `created_at` / `updated_at`: 创建时间、最后更新时间。
+
+### `canvas_groups`
+
+- `id`: 画布分组内部主键。
+- `canvas_id`: 所属画布。
+- `name`: 分组名称。
+- `color`: 分组背景/边框主题色。
+- `x` / `y`: 分组框在画布世界坐标中的位置。
+- `width` / `height`: 分组框尺寸。
+- `z_index`: 分组层级。
+- `created_at` / `updated_at`: 创建时间、最后更新时间。
+
 ### `canvas_nodes`
 
 - `id`: 节点内部主键。
 - `canvas_id`: 所属画布。
+- `group_id`: 所属画布分组；为空表示未分组。
 - `task_id`: 关联任务；任务节点有值，自由文本节点和上传图片节点为空。
 - `node_type`: 节点类型，当前常见为 `task`、`text`、`image`。
 - `content`: 文本节点内容。
@@ -102,6 +122,16 @@
 - `x` / `y`: 节点在画布世界坐标中的位置。
 - `width` / `height`: 节点尺寸。
 - `z_index`: 节点层级。
+- `created_at` / `updated_at`: 创建时间、最后更新时间。
+
+### `canvas_edges`
+
+- `id`: 连线内部主键。
+- `canvas_id`: 所属画布。
+- `source_node_id` / `target_node_id`: 起点和终点节点。
+- `edge_type`: 连线类型，当前默认 `reference`。
+- `source_anchor` / `target_anchor`: 连线锚点，当前默认 `auto`。
+- `is_collapsed`: 是否折叠。
 - `created_at` / `updated_at`: 创建时间、最后更新时间。
 
 ### `images`
@@ -540,6 +570,35 @@ CREATE TABLE user_canvas (
   CONSTRAINT fk_user_canvas_user FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE user_boards (
+  id INT NOT NULL AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  name VARCHAR(100) NOT NULL DEFAULT '',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_user_boards_user_id (user_id),
+  CONSTRAINT fk_user_boards_user FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE canvas_groups (
+  id INT NOT NULL AUTO_INCREMENT,
+  canvas_id INT NOT NULL,
+  name VARCHAR(100) NOT NULL DEFAULT '',
+  color VARCHAR(32) NOT NULL DEFAULT '#ffab27',
+  x DOUBLE NOT NULL DEFAULT 0,
+  y DOUBLE NOT NULL DEFAULT 0,
+  width DOUBLE NOT NULL DEFAULT 320,
+  height DOUBLE NOT NULL DEFAULT 220,
+  z_index INT NOT NULL DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_canvas_groups_canvas_id (canvas_id),
+  KEY idx_canvas_groups_canvas_z (canvas_id, z_index),
+  CONSTRAINT fk_canvas_groups_canvas FOREIGN KEY (canvas_id) REFERENCES user_canvas (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE external_api_scene_bindings (
   id INT NOT NULL AUTO_INCREMENT,
   scene_key VARCHAR(50) NOT NULL,
@@ -584,6 +643,7 @@ CREATE TABLE tasks (
   id INT NOT NULL AUTO_INCREMENT,
   business_id VARCHAR(32) NOT NULL,
   user_id INT NOT NULL,
+  board_id INT DEFAULT NULL,
   model VARCHAR(50) DEFAULT '',
   source VARCHAR(20) NOT NULL DEFAULT 'web',
   mode VARCHAR(20) DEFAULT 'generate',
@@ -608,15 +668,18 @@ CREATE TABLE tasks (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_tasks_business_id (business_id),
+  KEY idx_tasks_board_id (board_id),
   KEY idx_tasks_canvas_id (canvas_id),
   KEY idx_tasks_user_canvas_deleted_created (user_id, canvas_id, is_deleted, created_at),
   CONSTRAINT fk_tasks_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_tasks_board FOREIGN KEY (board_id) REFERENCES user_boards (id) ON DELETE SET NULL,
   CONSTRAINT fk_tasks_canvas FOREIGN KEY (canvas_id) REFERENCES user_canvas (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE canvas_nodes (
   id INT NOT NULL AUTO_INCREMENT,
   canvas_id INT NOT NULL,
+  group_id INT DEFAULT NULL,
   task_id INT DEFAULT NULL,
   node_type VARCHAR(20) NOT NULL DEFAULT 'task',
   content VARCHAR(5000) NOT NULL DEFAULT '',
@@ -630,10 +693,32 @@ CREATE TABLE canvas_nodes (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_canvas_nodes_canvas_id (canvas_id),
+  KEY idx_canvas_nodes_group_id (group_id),
   KEY idx_canvas_nodes_canvas_z (canvas_id, z_index),
   KEY idx_canvas_nodes_task_id (task_id),
   CONSTRAINT fk_canvas_nodes_canvas FOREIGN KEY (canvas_id) REFERENCES user_canvas (id),
+  CONSTRAINT fk_canvas_nodes_group FOREIGN KEY (group_id) REFERENCES canvas_groups (id) ON DELETE SET NULL,
   CONSTRAINT fk_canvas_nodes_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE canvas_edges (
+  id INT NOT NULL AUTO_INCREMENT,
+  canvas_id INT NOT NULL,
+  source_node_id INT NOT NULL,
+  target_node_id INT NOT NULL,
+  edge_type VARCHAR(20) NOT NULL DEFAULT 'reference',
+  source_anchor VARCHAR(10) NOT NULL DEFAULT 'auto',
+  target_anchor VARCHAR(10) NOT NULL DEFAULT 'auto',
+  is_collapsed TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_canvas_edges_canvas_id (canvas_id),
+  KEY idx_canvas_edges_source_node_id (source_node_id),
+  KEY idx_canvas_edges_target_node_id (target_node_id),
+  CONSTRAINT fk_canvas_edges_canvas FOREIGN KEY (canvas_id) REFERENCES user_canvas (id) ON DELETE CASCADE,
+  CONSTRAINT fk_canvas_edges_source_node FOREIGN KEY (source_node_id) REFERENCES canvas_nodes (id) ON DELETE CASCADE,
+  CONSTRAINT fk_canvas_edges_target_node FOREIGN KEY (target_node_id) REFERENCES canvas_nodes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE template_tag_relations (
@@ -713,6 +798,27 @@ CREATE TABLE payment_orders (
   CONSTRAINT fk_payment_orders_user_id FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE offline_orders (
+  id INT NOT NULL AUTO_INCREMENT,
+  business_id VARCHAR(32) NOT NULL,
+  user_id INT NOT NULL,
+  order_type VARCHAR(20) NOT NULL DEFAULT 'purchase',
+  credit_amount INT NOT NULL DEFAULT 0,
+  amount_fen INT NOT NULL DEFAULT 0,
+  remark VARCHAR(500) NOT NULL DEFAULT '',
+  created_by INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_offline_orders_business_id (business_id),
+  KEY ix_offline_orders_business_id (business_id),
+  KEY ix_offline_orders_user_id (user_id),
+  KEY ix_offline_orders_order_type (order_type),
+  KEY ix_offline_orders_created_by (created_by),
+  CONSTRAINT fk_offline_orders_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_offline_orders_created_by FOREIGN KEY (created_by) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE user_api_key (
   id INT NOT NULL AUTO_INCREMENT,
   user_id INT NOT NULL,
@@ -770,7 +876,7 @@ CREATE TABLE feedback (
   id INT NOT NULL AUTO_INCREMENT,
   business_id VARCHAR(32) NOT NULL,
   user_id INT NOT NULL,
-  task_id INT NOT NULL,
+  task_id INT DEFAULT NULL,
   content TEXT NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   is_read TINYINT(1) NOT NULL DEFAULT 0,

@@ -3,6 +3,8 @@ import type {
   CanvasDetail,
   CanvasEdge,
   CanvasGroup,
+  CanvasGroupAssignNodesResponse,
+  CanvasGroupRemoveNodesResponse,
   CanvasNode,
   CanvasTaskCreateResponse,
   CanvasTaskPayload,
@@ -65,6 +67,14 @@ export function createCanvasGroup(projectId: string, data: {
 
 export function updateCanvasGroup(projectId: string, groupId: number, data: Partial<Pick<CanvasGroup, "name" | "color" | "x" | "y" | "width" | "height" | "z_index">>): Promise<CanvasGroup> {
   return client.patch(`/canvases/${projectId}/groups/${groupId}`, data);
+}
+
+export function assignCanvasNodesToGroup(projectId: string, groupId: number, nodes: Array<Partial<Pick<CanvasNode, "x" | "y" | "z_index">> & { id: number }>): Promise<CanvasGroupAssignNodesResponse> {
+  return client.post(`/canvases/${projectId}/groups/${groupId}/nodes`, { nodes });
+}
+
+export function removeCanvasNodesFromGroups(projectId: string, nodes: Array<Partial<Pick<CanvasNode, "x" | "y" | "z_index">> & { id: number }>): Promise<CanvasGroupRemoveNodesResponse> {
+  return client.post(`/canvases/${projectId}/groups/nodes/remove`, { nodes });
 }
 
 export function deleteCanvasGroup(projectId: string, groupId: number): Promise<void> {
