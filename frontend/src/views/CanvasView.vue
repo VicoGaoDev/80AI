@@ -22,7 +22,7 @@ import {
   ThunderboltOutlined,
   UploadOutlined,
 } from "@ant-design/icons-vue";
-import { createCanvas, createCanvasNode, createCanvasTask, deleteCanvasNode, getCanvas, listCanvases, updateCanvas, updateCanvasEdge, updateCanvasNode, updateCanvasNodesBatch, updateCanvasViewport } from "@/api/canvases";
+import { createCanvas, createCanvasGroup, createCanvasNode, createCanvasTask, deleteCanvasGroup, deleteCanvasNode, getCanvas, listCanvases, updateCanvas, updateCanvasEdge, updateCanvasGroup, updateCanvasNode, updateCanvasNodesBatch, updateCanvasViewport } from "@/api/canvases";
 import { listUsers } from "@/api/admin";
 import { getMe } from "@/api/auth";
 import { getTaskScenes } from "@/api/config";
@@ -36,7 +36,7 @@ import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import { withApiBaseUrl, withBaseUrl } from "@/lib/assets";
 import { getTaskImageFailureMessage } from "@/lib/generationErrors";
 import { useAuthStore } from "@/stores/auth";
-import type { AdminUser, CanvasEdge, CanvasNode, TaskResult, TaskSceneConfig, UserCanvasSummary, UserHistoryCard } from "@/types";
+import type { AdminUser, CanvasEdge, CanvasGroup, CanvasNode, TaskResult, TaskSceneConfig, UserCanvasSummary, UserHistoryCard } from "@/types";
 
 const props = defineProps<{
   projectId?: string;
@@ -95,6 +95,10 @@ const DEFAULT_NODE_WIDTH = 320;
 const DEFAULT_NODE_HEIGHT = 420;
 const CANVAS_ARRANGE_COLUMN_GAP = 34;
 const CANVAS_ARRANGE_ROW_GAP = 96;
+const CANVAS_SELECTION_ARRANGE_GAP = 34;
+const CANVAS_GROUP_PADDING = 24;
+const CANVAS_GROUP_TITLE_HEIGHT = 40;
+const CANVAS_GROUP_COLORS = ["#8b8b98", "#12d98c", "#f4cc3c", "#24a7f2", "#e83d8b"];
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2.4;
 const CANVAS_BACKGROUND_STORAGE_KEY = "banana-canvas-background";
@@ -155,6 +159,7 @@ const canvasFeedbackAppendContent = computed(() => {
 });
 const nodes = ref<CanvasWorkbenchNode[]>([]);
 const edges = ref<CanvasEdge[]>([]);
+const groups = ref<CanvasGroup[]>([]);
 const loading = ref(false);
 const creatingCanvas = ref(false);
 const canvasMenuOpen = ref(false);
@@ -193,6 +198,9 @@ const previewVisible = ref(false);
 const previewCurrent = ref("");
 const selectedNodeId = ref<number | null>(null);
 const selectedNodeIds = ref<Set<number>>(new Set());
+const selectedGroupId = ref<number | null>(null);
+const selectedGroupName = ref("");
+const selectedGroupRenaming = ref(false);
 const detailOpen = ref(false);
 const detailItem = ref<UserHistoryCard | null>(null);
 const feedbackDialogOpen = ref(false);
@@ -248,6 +256,16 @@ const activeTaskIds = computed(() => nodes.value
   .filter((task): task is TaskResult => !!task && !["success", "failed"].includes(task.status))
   .map((task) => task.id));
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) || null);
+const selectedGroup = computed(() => groups.value.find((group) => group.id === selectedGroupId.value) || null);
+const selectedGroupToolbarStyle = computed(() => {
+  const group = selectedGroup.value;
+  if (!group) return {};
+  return {
+    left: `${viewport.value.x + (group.x + group.width / 2) * viewport.value.zoom}px`,
+    top: `${viewport.value.y + group.y * viewport.value.zoom - 14}px`,
+    zIndex: group.z_index + 1200,
+  };
+});
 const selectionActionNodes = computed(() => {
   if (canvasInteractionMode.value !== "select") return [];
   if (selectedNodeIds.value.size) {
@@ -398,9 +416,36 @@ const expandedEdgeGroupControls = computed(() => Array.from(edgesBySource.value.
     y: sourceNode.y + getNodeCardHeight(sourceNode) / 2,
   };
 }).filter((item): item is { sourceNodeId: number; count: number; x: number; y: number } => !!item));
+const visibleCanvasGroups = computed(() => {
+  const visibleNodeIds = new Set(nodes.value.map((node) => node.id));
+  return groups.value
+    .map((group) => ({
+      ...group,
+      node_ids: (group.node_ids || []).filter((nodeId) => visibleNodeIds.has(nodeId)),
+    }))
+    .filter((group) => group.node_ids.length)
+    .sort((a, b) => Number(a.z_index || 0) - Number(b.z_index || 0));
+});
 
 let panState: { pointerId: number; startX: number; startY: number; originX: number; originY: number } | null = null;
-let dragState: { pointerId: number; nodeId: number; startX: number; startY: number; originX: number; originY: number } | null = null;
+let dragState: { pointerId: number; nodeId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null = null;
+let selectionDragState: {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  nodeOrigins: Array<{ id: number; x: number; y: number }>;
+  moved: boolean;
+} | null = null;
+let groupDragState: {
+  pointerId: number;
+  groupId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  nodeOrigins: Array<{ id: number; x: number; y: number }>;
+  moved: boolean;
+} | null = null;
 let resizeState: {
   pointerId: number;
   nodeId: number;
@@ -412,6 +457,7 @@ let resizeState: {
 let lastNodePointerDown: { nodeId: number; time: number } | null = null;
 let lastNodeClick: { nodeId: number; time: number } | null = null;
 let lastTextNodePointerDown: { nodeId: number; time: number } | null = null;
+let suppressNextGroupClick = false;
 let localCanvasNodeId = -1;
 
 function revokeObjectUrl(url?: string) {
@@ -543,15 +589,25 @@ function getNodesBounds(sourceNodes = nodes.value) {
 function clearCanvasSelection() {
   selectedNodeId.value = null;
   selectedNodeIds.value = new Set();
+  selectedGroupId.value = null;
+  selectedGroupName.value = "";
+  selectedGroupRenaming.value = false;
 }
 
 function selectSingleNode(node: CanvasNode) {
   selectedNodeId.value = node.id;
   selectedNodeIds.value = new Set();
+  selectedGroupId.value = null;
+  selectedGroupName.value = "";
+  selectedGroupRenaming.value = false;
 }
 
 function isNodeSelected(node: CanvasNode) {
   return node.id === selectedNodeId.value || selectedNodeIds.value.has(node.id);
+}
+
+function clearBrowserTextSelection() {
+  window.getSelection()?.removeAllRanges();
 }
 
 function setCanvasInteractionMode(mode: CanvasInteractionMode) {
@@ -589,6 +645,222 @@ function updateSelectionBoxSelection() {
     .map((node) => node.id);
   selectedNodeIds.value = new Set(selectedIds);
   selectedNodeId.value = selectedIds.length === 1 ? selectedIds[0] : null;
+}
+
+function buildArrangedNodePositions(targetNodes: CanvasWorkbenchNode[]) {
+  if (!targetNodes.length) return { updates: [], bounds: null as ReturnType<typeof getNodesBounds> };
+  const sortedNodes = [...targetNodes].sort((a, b) => {
+    const rowDiff = Number(a.y || 0) - Number(b.y || 0);
+    if (Math.abs(rowDiff) > 24) return rowDiff;
+    return Number(a.x || 0) - Number(b.x || 0);
+  });
+  const columns = Math.max(1, Math.ceil(Math.sqrt(sortedNodes.length)));
+  const rows: CanvasWorkbenchNode[][] = [];
+  sortedNodes.forEach((node, index) => {
+    const rowIndex = Math.floor(index / columns);
+    if (!rows[rowIndex]) rows[rowIndex] = [];
+    rows[rowIndex].push(node);
+  });
+
+  const currentBounds = getNodesBounds(sortedNodes);
+  const center = currentBounds
+    ? { x: (currentBounds.minX + currentBounds.maxX) / 2, y: (currentBounds.minY + currentBounds.maxY) / 2 }
+    : getViewportCenter();
+  const rowWidths = rows.map((row) => row.reduce((total, node, index) => (
+    total + Number(node.width || DEFAULT_NODE_WIDTH) + (index > 0 ? CANVAS_SELECTION_ARRANGE_GAP : 0)
+  ), 0));
+  const rowHeights = rows.map((row) => Math.max(...row.map((node) => getNodeCardHeight(node))));
+  const totalHeight = rowHeights.reduce((total, height) => total + height, 0) + Math.max(0, rowHeights.length - 1) * CANVAS_SELECTION_ARRANGE_GAP;
+  const baseZIndex = Math.max(1, ...nodes.value.map((node) => Number(node.z_index || 0))) + 1;
+  let currentY = center.y - totalHeight / 2;
+  const updates: Array<Pick<CanvasNode, "x" | "y" | "z_index"> & { id: number }> = [];
+
+  rows.forEach((row, rowIndex) => {
+    let currentX = center.x - rowWidths[rowIndex] / 2;
+    row.forEach((node) => {
+      updates.push({
+        id: node.id,
+        x: Math.round(currentX),
+        y: Math.round(currentY),
+        z_index: baseZIndex + updates.length,
+      });
+      currentX += Number(node.width || DEFAULT_NODE_WIDTH) + CANVAS_SELECTION_ARRANGE_GAP;
+    });
+    currentY += rowHeights[rowIndex] + CANVAS_SELECTION_ARRANGE_GAP;
+  });
+
+  const arrangedNodes = sortedNodes.map((node) => ({
+    ...node,
+    ...updates.find((update) => update.id === node.id),
+  }));
+  return { updates, bounds: getNodesBounds(arrangedNodes) };
+}
+
+function getGroupFrameFromBounds(bounds: NonNullable<ReturnType<typeof getNodesBounds>>) {
+  return {
+    x: Math.round(bounds.minX - CANVAS_GROUP_PADDING),
+    y: Math.round(bounds.minY - CANVAS_GROUP_PADDING - CANVAS_GROUP_TITLE_HEIGHT),
+    width: Math.round(bounds.maxX - bounds.minX + CANVAS_GROUP_PADDING * 2),
+    height: Math.round(bounds.maxY - bounds.minY + CANVAS_GROUP_PADDING * 2 + CANVAS_GROUP_TITLE_HEIGHT),
+  };
+}
+
+function getCanvasGroupStyle(group: CanvasGroup) {
+  return {
+    transform: `translate(${group.x}px, ${group.y}px)`,
+    width: `${group.width}px`,
+    height: `${group.height}px`,
+    zIndex: group.z_index,
+    "--canvas-group-color": group.color || "#ffab27",
+  };
+}
+
+function selectCanvasGroup(group: CanvasGroup) {
+  selectedNodeId.value = null;
+  selectedNodeIds.value = new Set();
+  selectedGroupId.value = group.id;
+  selectedGroupName.value = group.name || "未命名分组";
+  selectedGroupRenaming.value = false;
+}
+
+function getGroupNodes(group: CanvasGroup) {
+  const nodeIds = new Set(group.node_ids || []);
+  return nodes.value.filter((node) => nodeIds.has(node.id));
+}
+
+function startGroupDrag(event: PointerEvent, group: CanvasGroup) {
+  if (event.button !== 0) return;
+  event.stopPropagation();
+  event.preventDefault();
+  if (canvasReadOnly.value) {
+    selectCanvasGroup(group);
+    return;
+  }
+  clearBrowserTextSelection();
+  selectedNodeId.value = null;
+  selectedNodeIds.value = new Set();
+  selectedGroupId.value = group.id;
+  selectedGroupName.value = "";
+  selectedGroupRenaming.value = false;
+  groupDragState = {
+    pointerId: event.pointerId,
+    groupId: group.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: Number(group.x || 0),
+    originY: Number(group.y || 0),
+    nodeOrigins: getGroupNodes(group).map((node) => ({
+      id: node.id,
+      x: Number(node.x || 0),
+      y: Number(node.y || 0),
+    })),
+    moved: false,
+  };
+  canvasStageRef.value?.setPointerCapture(event.pointerId);
+}
+
+function startSelectionGroupDrag(event: PointerEvent) {
+  if (event.button !== 0 || canvasInteractionMode.value !== "select") return;
+  event.stopPropagation();
+  event.preventDefault();
+  if (canvasReadOnly.value || !selectionActionNodes.value.length) return;
+  clearBrowserTextSelection();
+  selectedGroupId.value = null;
+  selectedGroupName.value = "";
+  selectedGroupRenaming.value = false;
+  selectionDragState = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    nodeOrigins: selectionActionNodes.value.map((node) => ({
+      id: node.id,
+      x: Number(node.x || 0),
+      y: Number(node.y || 0),
+    })),
+    moved: false,
+  };
+  canvasStageRef.value?.setPointerCapture(event.pointerId);
+}
+
+function handleCanvasGroupClick(group: CanvasGroup) {
+  if (suppressNextGroupClick) {
+    suppressNextGroupClick = false;
+    return;
+  }
+  selectCanvasGroup(group);
+}
+
+function startSelectedGroupRename() {
+  const group = selectedGroup.value;
+  if (!group || canvasReadOnly.value) return;
+  selectedGroupName.value = group.name || "未命名分组";
+  selectedGroupRenaming.value = true;
+}
+
+async function saveSelectedGroupName() {
+  const group = selectedGroup.value;
+  const projectId = selectedCanvasProjectId.value;
+  if (!group || !projectId || canvasReadOnly.value) return;
+  const normalizedName = selectedGroupName.value.trim();
+  if (!normalizedName) {
+    message.warning("分组名称不能为空");
+    selectedGroupName.value = group.name || "未命名分组";
+    return;
+  }
+  if (normalizedName === group.name) {
+    selectedGroupRenaming.value = false;
+    return;
+  }
+  try {
+    const updated = await updateCanvasGroup(projectId, group.id, { name: normalizedName });
+    groups.value = groups.value.map((item) => item.id === updated.id ? updated : item);
+    selectedGroupName.value = updated.name;
+    selectedGroupRenaming.value = false;
+    message.success("分组名称已更新");
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || "保存分组名称失败");
+    selectedGroupName.value = group.name || "未命名分组";
+  }
+}
+
+async function updateSelectedGroupColor(color: string) {
+  const group = selectedGroup.value;
+  const projectId = selectedCanvasProjectId.value;
+  if (!group || !projectId || canvasReadOnly.value || group.color === color) return;
+  try {
+    const updated = await updateCanvasGroup(projectId, group.id, { color });
+    groups.value = groups.value.map((item) => item.id === updated.id ? updated : item);
+    message.success("分组颜色已更新");
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || "更新分组颜色失败");
+  }
+}
+
+async function ungroupSelectedGroup() {
+  const group = selectedGroup.value;
+  const projectId = selectedCanvasProjectId.value;
+  if (!group || !projectId || canvasReadOnly.value) return;
+  try {
+    await deleteCanvasGroup(projectId, group.id);
+    const nodeIds = new Set(group.node_ids || []);
+    groups.value = groups.value.filter((item) => item.id !== group.id);
+    nodes.value = nodes.value.map((node) => nodeIds.has(node.id) ? { ...node, group_id: null } : node);
+    selectedGroupId.value = null;
+    selectedGroupName.value = "";
+    selectedGroupRenaming.value = false;
+    message.success("已取消分组");
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || "取消分组失败");
+  }
+}
+
+function removeNodeIdsFromLocalGroups(nodeIds: Set<number>) {
+  groups.value = groups.value
+    .map((group) => ({
+      ...group,
+      node_ids: (group.node_ids || []).filter((nodeId) => !nodeIds.has(nodeId)),
+    }))
+    .filter((group) => group.node_ids.length);
 }
 
 function resetViewport() {
@@ -701,6 +973,49 @@ function handleStagePointerDown(event: PointerEvent) {
 }
 
 function handleStagePointerMove(event: PointerEvent) {
+  if (selectionDragState?.pointerId === event.pointerId) {
+    event.preventDefault();
+    clearBrowserTextSelection();
+    const dx = (event.clientX - selectionDragState.startX) / viewport.value.zoom;
+    const dy = (event.clientY - selectionDragState.startY) / viewport.value.zoom;
+    if (Math.hypot(event.clientX - selectionDragState.startX, event.clientY - selectionDragState.startY) > 3) {
+      selectionDragState.moved = true;
+    }
+    const originMap = new Map(selectionDragState.nodeOrigins.map((node) => [node.id, node]));
+    nodes.value = nodes.value.map((node) => {
+      const origin = originMap.get(node.id);
+      return origin ? {
+        ...node,
+        x: Math.round(origin.x + dx),
+        y: Math.round(origin.y + dy),
+      } : node;
+    });
+    return;
+  }
+  if (groupDragState?.pointerId === event.pointerId) {
+    event.preventDefault();
+    clearBrowserTextSelection();
+    const dx = (event.clientX - groupDragState.startX) / viewport.value.zoom;
+    const dy = (event.clientY - groupDragState.startY) / viewport.value.zoom;
+    if (Math.hypot(event.clientX - groupDragState.startX, event.clientY - groupDragState.startY) > 3) {
+      groupDragState.moved = true;
+    }
+    groups.value = groups.value.map((group) => group.id === groupDragState?.groupId ? {
+      ...group,
+      x: Math.round(groupDragState.originX + dx),
+      y: Math.round(groupDragState.originY + dy),
+    } : group);
+    const originMap = new Map(groupDragState.nodeOrigins.map((node) => [node.id, node]));
+    nodes.value = nodes.value.map((node) => {
+      const origin = originMap.get(node.id);
+      return origin ? {
+        ...node,
+        x: Math.round(origin.x + dx),
+        y: Math.round(origin.y + dy),
+      } : node;
+    });
+    return;
+  }
   if (selectionBox.value?.pointerId === event.pointerId) {
     const localPoint = getStageLocalPoint(event);
     if (!localPoint) return;
@@ -742,6 +1057,9 @@ function handleStagePointerMove(event: PointerEvent) {
   if (!dragState || dragState.pointerId !== event.pointerId) return;
   const dx = (event.clientX - dragState.startX) / viewport.value.zoom;
   const dy = (event.clientY - dragState.startY) / viewport.value.zoom;
+  if (Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY) > 3) {
+    dragState.moved = true;
+  }
   const targetNode = nodes.value.find((node) => node.id === dragState?.nodeId);
   if (!targetNode) return;
   targetNode.x = dragState.originX + dx;
@@ -749,6 +1067,44 @@ function handleStagePointerMove(event: PointerEvent) {
 }
 
 function handleStagePointerUp(event: PointerEvent) {
+  if (selectionDragState?.pointerId === event.pointerId) {
+    const state = selectionDragState;
+    selectionDragState = null;
+    const projectId = selectedCanvasProjectId.value;
+    if (projectId && !canvasReadOnly.value && state.moved) {
+      const movedNodeIds = new Set(state.nodeOrigins.map((node) => node.id));
+      const movedNodes = nodes.value.filter((node) => movedNodeIds.has(node.id));
+      void updateCanvasNodesBatch(projectId, movedNodes.map((node) => ({ id: node.id, x: node.x, y: node.y }))).then((updatedNodes) => {
+        nodes.value = nodes.value.map((node) => updatedNodes.nodes.find((item) => item.id === node.id) || node);
+      }).catch(() => {
+        message.error("保存选中节点位置失败");
+      });
+    }
+  }
+  if (groupDragState?.pointerId === event.pointerId) {
+    const state = groupDragState;
+    groupDragState = null;
+    const projectId = selectedCanvasProjectId.value;
+    const group = groups.value.find((item) => item.id === state.groupId);
+    if (state.moved) {
+      suppressNextGroupClick = true;
+    } else if (group) {
+      selectCanvasGroup(group);
+    }
+    if (group && projectId && !canvasReadOnly.value && state.moved) {
+      const groupNodeIds = new Set(group.node_ids || []);
+      const movedNodes = nodes.value.filter((node) => groupNodeIds.has(node.id));
+      void Promise.all([
+        updateCanvasGroup(projectId, group.id, { x: group.x, y: group.y }),
+        updateCanvasNodesBatch(projectId, movedNodes.map((node) => ({ id: node.id, x: node.x, y: node.y }))),
+      ]).then(([updatedGroup, updatedNodes]) => {
+        groups.value = groups.value.map((item) => item.id === updatedGroup.id ? updatedGroup : item);
+        nodes.value = nodes.value.map((node) => updatedNodes.nodes.find((item) => item.id === node.id) || node);
+      }).catch(() => {
+        message.error("保存分组位置失败");
+      });
+    }
+  }
   if (selectionBox.value?.pointerId === event.pointerId) {
     const box = selectionBox.value;
     const distance = Math.hypot(box.currentX - box.startX, box.currentY - box.startY);
@@ -764,10 +1120,14 @@ function handleStagePointerUp(event: PointerEvent) {
     scheduleViewportSave();
   }
   if (dragState?.pointerId === event.pointerId) {
-    const node = nodes.value.find((item) => item.id === dragState?.nodeId);
+    const state = dragState;
+    const node = nodes.value.find((item) => item.id === state.nodeId);
     dragState = null;
     const projectId = selectedCanvasProjectId.value;
-    if (node && projectId && !canvasReadOnly.value) {
+    if (node && !state.moved) {
+      expandGeneratePanel();
+    }
+    if (node && projectId && !canvasReadOnly.value && state.moved) {
       void updateCanvasNode(projectId, node.id, { x: node.x, y: node.y }).catch(() => {
         message.error("保存节点位置失败");
       });
@@ -788,6 +1148,10 @@ function handleStagePointerUp(event: PointerEvent) {
 function startNodeDrag(event: PointerEvent, node: CanvasNode) {
   if (event.button !== 0) return;
   event.stopPropagation();
+  if (canvasInteractionMode.value === "select" && selectedNodeIds.value.size > 1 && selectedNodeIds.value.has(node.id)) {
+    startSelectionGroupDrag(event);
+    return;
+  }
   selectSingleNode(node);
   const now = Date.now();
   if (lastNodePointerDown?.nodeId === node.id && now - lastNodePointerDown.time < 500) {
@@ -804,6 +1168,7 @@ function startNodeDrag(event: PointerEvent, node: CanvasNode) {
     startY: event.clientY,
     originX: node.x,
     originY: node.y,
+    moved: false,
   };
   canvasStageRef.value?.setPointerCapture(event.pointerId);
 }
@@ -811,6 +1176,10 @@ function startNodeDrag(event: PointerEvent, node: CanvasNode) {
 function handleTextNodePointerDown(event: PointerEvent, node: CanvasNode) {
   if (event.button !== 0) return;
   event.stopPropagation();
+  if (canvasInteractionMode.value === "select" && selectedNodeIds.value.size > 1 && selectedNodeIds.value.has(node.id)) {
+    startSelectionGroupDrag(event);
+    return;
+  }
   selectSingleNode(node);
   const now = Date.now();
   if (lastTextNodePointerDown?.nodeId === node.id && now - lastTextNodePointerDown.time < 600) {
@@ -828,6 +1197,7 @@ function handleTextNodePointerDown(event: PointerEvent, node: CanvasNode) {
     startY: event.clientY,
     originX: node.x,
     originY: node.y,
+    moved: false,
   };
   canvasStageRef.value?.setPointerCapture(event.pointerId);
 }
@@ -924,7 +1294,13 @@ async function openReadonlyOwnerDialog() {
 
 function handleDocumentPointerDown(event: PointerEvent) {
   const target = event.target as HTMLElement | null;
-  if (target && !target.closest(".canvas-node") && !target.closest(".canvas-node-toolbar")) {
+  if (
+    target
+    && !target.closest(".canvas-node")
+    && !target.closest(".canvas-node-toolbar")
+    && !target.closest(".canvas-persistent-group")
+    && !target.closest(".canvas-group-toolbar")
+  ) {
     clearCanvasSelection();
   }
   if (canvasSettingsOpen.value && !target?.closest(".canvas-settings")) {
@@ -960,6 +1336,7 @@ async function loadCanvasDetail(projectId = selectedCanvasProjectId.value) {
     revokeLocalNodeObjectUrls();
     nodes.value = detail.nodes || [];
     edges.value = detail.edges || [];
+    groups.value = detail.groups || [];
     promptSourceNodeId.value = null;
     const detailSummary = { ...detail, node_count: detail.node_count };
     canvases.value = canvases.value.some((item) => item.id === detail.id)
@@ -1110,6 +1487,23 @@ function addCanvasReference(option: CanvasReferenceOption) {
     canvasReferenceSelectMode.value = false;
     message.info(`已达到当前模型参考图上限：${maxReferenceImages.value} 张`);
   }
+}
+
+function replaceCanvasReference(option: CanvasReferenceOption) {
+  if (!maxReferenceImages.value) {
+    message.warning("当前模型不支持参考图");
+    return false;
+  }
+  referenceItems.value.forEach((item) => revokeObjectUrl(item.objectUrl));
+  referenceItems.value = [{
+    id: `canvas-${option.id}-${Date.now()}`,
+    localUrl: option.displayUrl,
+    remoteUrl: option.imageUrl,
+    status: "success",
+    sourceNodeId: option.sourceNodeId,
+  }];
+  canvasReferenceSelectMode.value = false;
+  return true;
 }
 
 function getNodeReferenceOption(node: CanvasNode): CanvasReferenceOption | null {
@@ -1295,6 +1689,7 @@ function handleNodeClick(event: MouseEvent, node: CanvasNode) {
   }
   lastNodeClick = { nodeId: node.id, time: now };
   selectNode(node);
+  expandGeneratePanel();
 }
 
 function openNodeDetail(node: CanvasNode) {
@@ -1379,10 +1774,8 @@ function useNodeImageForEditing(node: CanvasNode) {
   generatePanelCollapsed.value = false;
   clearCanvasSelection();
   canvasMode.value = "imageEdit";
-  const beforeCount = referenceItems.value.length;
-  addCanvasReference(option);
-  if (referenceItems.value.length > beforeCount) {
-    message.success("已添加为参考图");
+  if (replaceCanvasReference(option)) {
+    message.success("已替换为当前节点图片");
   }
 }
 
@@ -1442,6 +1835,96 @@ function handleGenerateFromSelection() {
   }
 }
 
+async function arrangeSelectedNodes() {
+  if (canvasReadOnly.value) {
+    message.warning("只读模式下不能整理并保存节点");
+    return;
+  }
+  const projectId = selectedCanvasProjectId.value;
+  const targetNodes = selectionActionNodes.value;
+  if (!projectId || !targetNodes.length) return;
+  const { updates } = buildArrangedNodePositions(targetNodes);
+  if (!updates.length) return;
+  nodes.value = nodes.value.map((node) => updates.find((update) => update.id === node.id) ? {
+    ...node,
+    ...updates.find((update) => update.id === node.id),
+  } : node);
+  try {
+    const res = await updateCanvasNodesBatch(projectId, updates);
+    nodes.value = nodes.value.map((node) => res.nodes.find((item) => item.id === node.id) || node);
+    selectedNodeIds.value = new Set(targetNodes.map((node) => node.id));
+    selectedNodeId.value = targetNodes.length === 1 ? targetNodes[0].id : null;
+    message.success("选中节点已自动排列");
+  } catch {
+    message.warning("节点位置保存失败，请稍后重试");
+  }
+}
+
+function getNextGroupColor() {
+  return CANVAS_GROUP_COLORS[groups.value.length % CANVAS_GROUP_COLORS.length];
+}
+
+function createGroupFromSelection() {
+  if (canvasReadOnly.value) {
+    message.warning("只读模式下不能添加分组");
+    return;
+  }
+  const projectId = selectedCanvasProjectId.value;
+  const targetNodes = selectionActionNodes.value;
+  if (!projectId || !targetNodes.length) return;
+  let nextName = `分组 ${groups.value.length + 1}`;
+  Modal.confirm({
+    title: "添加分组",
+    wrapClassName: "canvas-group-modal-wrap",
+    centered: true,
+    content: () => h("input", {
+      class: "ant-input canvas-group-name-input",
+      value: nextName,
+      maxlength: 100,
+      placeholder: "请输入分组名称",
+      onInput: (event: Event) => {
+        nextName = (event.target as HTMLInputElement).value;
+      },
+    }),
+    okText: "创建分组",
+    cancelText: "取消",
+    async onOk() {
+      const normalizedName = nextName.trim();
+      if (!normalizedName) {
+        message.warning("分组名称不能为空");
+        return Promise.reject();
+      }
+      const { updates, bounds } = buildArrangedNodePositions(targetNodes);
+      if (!updates.length || !bounds) return Promise.reject();
+      const frame = getGroupFrameFromBounds(bounds);
+      const color = getNextGroupColor();
+      const maxGroupZIndex = Math.max(1, ...groups.value.map((group) => Number(group.z_index || 0)));
+      nodes.value = nodes.value.map((node) => updates.find((update) => update.id === node.id) ? {
+        ...node,
+        ...updates.find((update) => update.id === node.id),
+      } : node);
+      try {
+        const res = await createCanvasGroup(projectId, {
+          name: normalizedName,
+          color,
+          node_ids: targetNodes.map((node) => node.id),
+          nodes: updates,
+          ...frame,
+          z_index: maxGroupZIndex + 1,
+        });
+        groups.value = [...groups.value.filter((group) => group.id !== res.group.id), res.group];
+        nodes.value = nodes.value.map((node) => res.nodes.find((item) => item.id === node.id) || node);
+        selectedNodeIds.value = new Set(res.nodes.map((node) => node.id));
+        selectedNodeId.value = res.nodes.length === 1 ? res.nodes[0].id : null;
+        message.success("分组已创建");
+      } catch (err: any) {
+        message.error(err.response?.data?.detail || "创建分组失败");
+        return Promise.reject(err);
+      }
+    },
+  });
+}
+
 function deleteSelectedNodes() {
   if (canvasReadOnly.value) {
     message.warning("只读模式下不能删除节点");
@@ -1466,6 +1949,7 @@ function deleteSelectedNodes() {
         targetNodes.forEach((node) => revokeObjectUrl((node as CanvasWorkbenchNode).localObjectUrl));
         nodes.value = nodes.value.filter((node) => !targetIds.has(node.id));
         edges.value = edges.value.filter((edge) => !targetIds.has(edge.source_node_id) && !targetIds.has(edge.target_node_id));
+        removeNodeIdsFromLocalGroups(targetIds);
         canvases.value = canvases.value.map((item) => item.id === selectedCanvasId.value ? {
           ...item,
           node_count: Math.max(0, item.node_count - targetNodes.length),
@@ -1550,6 +2034,7 @@ function deleteNode(node: CanvasNode) {
     revokeObjectUrl(localNode.localObjectUrl);
     nodes.value = nodes.value.filter((item) => item.id !== node.id);
     edges.value = edges.value.filter((edge) => edge.source_node_id !== node.id && edge.target_node_id !== node.id);
+    removeNodeIdsFromLocalGroups(new Set([node.id]));
     if (selectedNodeId.value === node.id || selectedNodeIds.value.has(node.id)) clearCanvasSelection();
     message.success("删除成功");
     return;
@@ -1567,6 +2052,7 @@ function deleteNode(node: CanvasNode) {
         await deleteCanvasNode(projectId, node.id);
         nodes.value = nodes.value.filter((item) => item.id !== node.id);
         edges.value = edges.value.filter((edge) => edge.source_node_id !== node.id && edge.target_node_id !== node.id);
+        removeNodeIdsFromLocalGroups(new Set([node.id]));
         if (selectedNodeId.value === node.id || selectedNodeIds.value.has(node.id)) clearCanvasSelection();
         canvases.value = canvases.value.map((item) => item.id === selectedCanvasId.value ? {
           ...item,
@@ -1587,6 +2073,7 @@ function deleteNode(node: CanvasNode) {
       await deleteHistoryTask(node.task_id);
       nodes.value = nodes.value.filter((item) => item.id !== node.id);
       edges.value = edges.value.filter((edge) => edge.source_node_id !== node.id && edge.target_node_id !== node.id);
+      removeNodeIdsFromLocalGroups(new Set([node.id]));
       if (selectedNodeId.value === node.id || selectedNodeIds.value.has(node.id)) clearCanvasSelection();
       canvases.value = canvases.value.map((item) => item.id === selectedCanvasId.value ? {
         ...item,
@@ -1664,6 +2151,7 @@ async function handleGenerate() {
       if (detail.project_id !== selectedCanvasProjectId.value) return;
       nodes.value = detail.nodes || nodes.value;
       edges.value = detail.edges || [];
+      groups.value = detail.groups || [];
     }).catch(() => {});
     if (res.nodes.length) {
       canvases.value = canvases.value.map((item) => item.id === selectedCanvasId.value ? { ...item, node_count: item.node_count + res.nodes.length } : item);
@@ -1700,6 +2188,7 @@ async function refreshActiveTasks() {
       canvasReadOnlyState.value = detail.is_readonly === true;
       nodes.value = detail.nodes || [];
       edges.value = detail.edges || [];
+      groups.value = detail.groups || [];
       const detailSummary = { ...detail, node_count: detail.node_count };
       canvases.value = canvases.value.some((item) => item.id === detail.id)
         ? canvases.value.map((item) => item.id === detail.id ? { ...item, ...detailSummary } : item)
@@ -2853,6 +3342,14 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <span class="canvas-selection-action-count">已选择 {{ selectionActionNodes.length }} 个</span>
+        <button type="button" :disabled="canvasReadOnly" @click="createGroupFromSelection">
+          <PlusOutlined />
+          <span>添加分组</span>
+        </button>
+        <button type="button" :disabled="canvasReadOnly" @click="arrangeSelectedNodes">
+          <ClearOutlined />
+          <span>自动排列</span>
+        </button>
         <button type="button" @click="handleGenerateFromSelection">
           <ThunderboltOutlined />
           <span>生成图片</span>
@@ -2864,6 +3361,52 @@ onBeforeUnmount(() => {
       </div>
 
       <div
+        v-if="selectedGroup && selectedGroupName"
+        class="canvas-group-toolbar canvas-panel"
+        :style="selectedGroupToolbarStyle"
+        @pointerdown.stop
+        @pointerup.stop
+        @click.stop
+      >
+        <template v-if="selectedGroupRenaming">
+          <input
+            v-model="selectedGroupName"
+            type="text"
+            maxlength="100"
+            :disabled="canvasReadOnly"
+            @keydown.enter.prevent="saveSelectedGroupName"
+            @blur="saveSelectedGroupName"
+          />
+          <button type="button" class="canvas-group-toolbar-action" :disabled="canvasReadOnly" @click="saveSelectedGroupName">
+            保存
+          </button>
+        </template>
+        <div class="canvas-group-color-picker" aria-label="选择分组背景颜色">
+          <button
+            v-for="color in CANVAS_GROUP_COLORS"
+            :key="color"
+            type="button"
+            class="canvas-group-color-option"
+            :class="{ active: selectedGroup.color === color }"
+            :style="{ '--group-option-color': color }"
+            :disabled="canvasReadOnly"
+            :aria-label="`选择颜色 ${color}`"
+            @click="updateSelectedGroupColor(color)"
+          ></button>
+        </div>
+        <template v-if="!selectedGroupRenaming">
+          <button type="button" class="canvas-group-toolbar-action" :disabled="canvasReadOnly" @click="startSelectedGroupRename">
+            <EditOutlined />
+            <span>重命名</span>
+          </button>
+          <button type="button" class="canvas-group-toolbar-action danger" :disabled="canvasReadOnly" @click="ungroupSelectedGroup">
+            <DeleteOutlined />
+            <span>删除分组</span>
+          </button>
+        </template>
+      </div>
+
+      <div
         v-if="selectedNode && !selectionActionNodes.length"
         class="canvas-node-toolbar"
         :style="selectedNodeToolbarStyle"
@@ -2872,61 +3415,64 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <template v-if="!selectedNode.node_type || selectedNode.node_type === 'task'">
-          <a-tooltip title="重新生成">
-            <button type="button" @click="refillGenerateConfigFromNode(selectedNode)">
-              <ReloadOutlined />
-            </button>
-          </a-tooltip>
-          <a-tooltip title="编辑图片">
-            <button type="button" @click="useNodeImageForEditing(selectedNode)">
-              <EditOutlined />
-            </button>
-          </a-tooltip>
-          <a-tooltip title="下载">
-            <button type="button" @click="downloadNode(selectedNode)">
-              <DownloadOutlined />
-            </button>
-          </a-tooltip>
+          <button type="button" @click="refillGenerateConfigFromNode(selectedNode)">
+            <ReloadOutlined />
+            <span>重新生成</span>
+          </button>
+          <button type="button" @click="useNodeImageForEditing(selectedNode)">
+            <EditOutlined />
+            <span>编辑图片</span>
+          </button>
+          <button type="button" @click="downloadNode(selectedNode)">
+            <DownloadOutlined />
+            <span>下载</span>
+          </button>
           <span class="canvas-node-toolbar-divider"></span>
-          <a-tooltip title="详细信息">
-            <button type="button" @click="openNodeDetail(selectedNode)">
-              <InfoCircleOutlined />
-            </button>
-          </a-tooltip>
-          <a-tooltip title="反馈">
-            <button type="button" @click="openNodeFeedback(selectedNode)">
-              <MessageOutlined />
-            </button>
-          </a-tooltip>
+          <button type="button" @click="openNodeDetail(selectedNode)">
+            <InfoCircleOutlined />
+            <span>详细信息</span>
+          </button>
+          <button type="button" @click="openNodeFeedback(selectedNode)">
+            <MessageOutlined />
+            <span>反馈</span>
+          </button>
         </template>
         <template v-else>
-          <a-tooltip v-if="selectedNode.node_type === 'text'" title="编辑文本">
-            <button type="button" @click="openTextNodeEditor(selectedNode)">
-              <EditOutlined />
-            </button>
-          </a-tooltip>
-          <a-tooltip :title="selectedNode.node_type === 'image' && selectedNode.uploadStatus === 'uploading' ? '图片上传中' : selectedNode.node_type === 'image' ? '编辑图片' : '生成图片'">
-            <button
-              type="button"
-              :disabled="selectedNode.node_type === 'image' && selectedNode.uploadStatus !== 'success' && !selectedNode.image_url"
-              @click="selectedNode.node_type === 'image' ? useNodeImageForEditing(selectedNode) : useFreeNodeForGeneration(selectedNode)"
-            >
-              <EditOutlined v-if="selectedNode.node_type === 'image'" />
-              <ThunderboltOutlined v-else />
-            </button>
-          </a-tooltip>
-        </template>
-        <a-tooltip v-if="!canvasReadOnly" title="删除">
-          <button type="button" class="danger" @click="deleteNode(selectedNode)">
-            <DeleteOutlined />
+          <button v-if="selectedNode.node_type === 'text'" type="button" @click="openTextNodeEditor(selectedNode)">
+            <EditOutlined />
+            <span>编辑文本</span>
           </button>
-        </a-tooltip>
+          <button
+            type="button"
+            :disabled="selectedNode.node_type === 'image' && selectedNode.uploadStatus !== 'success' && !selectedNode.image_url"
+            @click="selectedNode.node_type === 'image' ? useNodeImageForEditing(selectedNode) : useFreeNodeForGeneration(selectedNode)"
+          >
+            <EditOutlined v-if="selectedNode.node_type === 'image'" />
+            <ThunderboltOutlined v-else />
+            <span>{{ selectedNode.node_type === 'image' ? selectedNode.uploadStatus === 'uploading' ? '上传中' : '编辑图片' : '生成图片' }}</span>
+          </button>
+        </template>
+        <button v-if="!canvasReadOnly" type="button" class="danger" @click="deleteNode(selectedNode)">
+          <DeleteOutlined />
+          <span>删除</span>
+        </button>
       </div>
 
       <div
         class="canvas-world"
         :style="{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }"
       >
+        <div
+          v-for="group in visibleCanvasGroups"
+          :key="group.id"
+          class="canvas-persistent-group"
+          :class="{ selected: group.id === selectedGroupId }"
+          :style="getCanvasGroupStyle(group)"
+          @pointerdown="startGroupDrag($event, group)"
+          @click.stop="handleCanvasGroupClick(group)"
+        >
+          <div class="canvas-persistent-group-title">{{ group.name }}</div>
+        </div>
         <svg class="canvas-edge-layer" aria-hidden="true">
           <defs>
             <marker id="canvas-edge-arrow" markerWidth="8" markerHeight="8" refX="6.8" refY="4" orient="auto" markerUnits="strokeWidth">
@@ -2967,7 +3513,7 @@ onBeforeUnmount(() => {
           v-if="selectionActionNodes.length && selectionGroupBounds"
           class="canvas-selection-group"
           :style="selectionGroupStyle"
-          aria-hidden="true"
+          @pointerdown="startSelectionGroupDrag"
         ></div>
         <article
           v-for="node in nodes"
@@ -4643,6 +5189,58 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
+.canvas-persistent-group {
+  position: absolute;
+  overflow: visible;
+  border: 2px solid color-mix(in srgb, var(--canvas-group-color) 62%, #fff 18%);
+  border-radius: 26px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--canvas-group-color) 12%, transparent), transparent 42%),
+    color-mix(in srgb, var(--canvas-group-color) 10%, rgba(20, 20, 20, 0.22));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 18px 46px rgba(0, 0, 0, 0.14);
+  cursor: grab;
+  pointer-events: auto;
+  user-select: none;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.canvas-persistent-group:hover,
+.canvas-persistent-group.selected {
+  border-color: color-mix(in srgb, var(--canvas-group-color) 78%, #fff 22%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 20px 52px rgba(0, 0, 0, 0.18),
+    0 0 0 3px color-mix(in srgb, var(--canvas-group-color) 18%, transparent);
+}
+
+.canvas-persistent-group:active {
+  cursor: grabbing;
+}
+
+.canvas-persistent-group-title {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  max-width: calc(100% - 28px);
+  padding: 0 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--canvas-group-color) 22%, rgba(var(--theme-surface-strong-rgb), 0.82));
+  color: var(--theme-title);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .canvas-edge-path {
   fill: none;
   stroke: rgba(255, 171, 39, 0.78);
@@ -4715,7 +5313,13 @@ onBeforeUnmount(() => {
     inset 0 0 0 1px rgba(255, 255, 255, 0.16),
     0 0 0 1px rgba(0, 0, 0, 0.18),
     0 22px 54px rgba(0, 0, 0, 0.18);
-  pointer-events: none;
+  cursor: grab;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.canvas-selection-group:active {
+  cursor: grabbing;
 }
 
 .canvas-selection-action-toolbar {
@@ -4775,6 +5379,111 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.canvas-group-toolbar {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border-radius: 14px;
+  transform: translate(-50%, -100%);
+
+  input {
+    width: 156px;
+    height: 30px;
+    padding: 0 9px;
+    border: 1px solid var(--theme-panel-border);
+    border-radius: 10px;
+    outline: 0;
+    background: var(--theme-panel-bg-muted);
+    color: var(--theme-title);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .canvas-group-color-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 30px;
+    padding: 0 8px;
+    border-right: 1px solid var(--theme-panel-border);
+  }
+
+  .canvas-group-color-option {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 3px solid var(--group-option-color);
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    transition:
+      box-shadow 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .canvas-group-color-option::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--group-option-color) 28%, transparent);
+  }
+
+  .canvas-group-color-option:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--group-option-color) 18%, transparent);
+  }
+
+  .canvas-group-color-option.active {
+    box-shadow:
+      0 0 0 3px rgba(255, 255, 255, 0.42),
+      0 0 0 6px color-mix(in srgb, var(--group-option-color) 36%, transparent);
+  }
+
+  .canvas-group-toolbar-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 30px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--theme-accent);
+    color: var(--theme-accent-contrast);
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+    transition:
+      background 0.18s ease,
+      color 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .canvas-group-toolbar-action:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .canvas-group-toolbar-action.danger {
+    background: rgba(200, 90, 73, 0.12);
+    color: #c85a49;
+  }
+
+  .canvas-group-toolbar-action.danger:hover:not(:disabled) {
+    background: rgba(200, 90, 73, 0.18);
+    color: #b84b3b;
+  }
+
+  button:disabled,
+  input:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+  }
+}
+
 .canvas-node-toolbar {
   position: absolute;
   z-index: 52;
@@ -4788,21 +5497,20 @@ onBeforeUnmount(() => {
   box-shadow: 0 12px 24px var(--theme-card-shadow-strong);
   transform: translateY(-100%);
 
-  :deep(.ant-tooltip-open),
-  :deep(.ant-tooltip-disabled-compatible-wrapper) {
-    display: inline-flex;
-  }
-
   button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
+    gap: 5px;
+    min-width: 30px;
     height: 30px;
+    padding: 0 9px;
     border: 0;
     border-radius: 10px;
     background: transparent;
     color: var(--theme-title);
+    font-size: 12px;
+    font-weight: 900;
     cursor: pointer;
     transition:
       background 0.2s ease,

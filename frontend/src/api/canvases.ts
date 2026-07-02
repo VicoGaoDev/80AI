@@ -2,6 +2,7 @@ import client from "./client";
 import type {
   CanvasDetail,
   CanvasEdge,
+  CanvasGroup,
   CanvasNode,
   CanvasTaskCreateResponse,
   CanvasTaskPayload,
@@ -46,6 +47,28 @@ export function updateCanvasNode(projectId: string, nodeId: number, data: Partia
 
 export function updateCanvasNodesBatch(projectId: string, nodes: Array<Partial<Pick<CanvasNode, "x" | "y" | "width" | "height" | "z_index" | "content">> & { id: number }>): Promise<{ nodes: CanvasNode[] }> {
   return client.patch(`/canvases/${projectId}/nodes/batch`, { nodes });
+}
+
+export function createCanvasGroup(projectId: string, data: {
+  name: string;
+  color: string;
+  node_ids: number[];
+  nodes: Array<Partial<Pick<CanvasNode, "x" | "y" | "z_index">> & { id: number }>;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z_index: number;
+}): Promise<{ group: CanvasGroup; nodes: CanvasNode[] }> {
+  return client.post(`/canvases/${projectId}/groups`, data);
+}
+
+export function updateCanvasGroup(projectId: string, groupId: number, data: Partial<Pick<CanvasGroup, "name" | "color" | "x" | "y" | "width" | "height" | "z_index">>): Promise<CanvasGroup> {
+  return client.patch(`/canvases/${projectId}/groups/${groupId}`, data);
+}
+
+export function deleteCanvasGroup(projectId: string, groupId: number): Promise<void> {
+  return client.delete(`/canvases/${projectId}/groups/${groupId}`);
 }
 
 export function deleteCanvasNode(projectId: string, nodeId: number): Promise<void> {

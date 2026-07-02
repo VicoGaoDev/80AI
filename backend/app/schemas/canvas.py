@@ -32,6 +32,13 @@ class CanvasNodeUpdate(BaseModel):
     content: str | None = Field(default=None, max_length=5000)
 
 
+class CanvasGroupNodeUpdate(BaseModel):
+    id: int
+    x: float | None = None
+    y: float | None = None
+    z_index: int | None = Field(default=None, ge=1)
+
+
 class CanvasNodeBatchUpdateItem(CanvasNodeUpdate):
     id: int
 
@@ -69,6 +76,28 @@ class CanvasTaskCreate(BaseModel):
     height: float = Field(default=420, ge=160, le=1600)
 
 
+class CanvasGroupCreate(BaseModel):
+    name: str = Field(default="未命名分组", min_length=1, max_length=100)
+    color: str = Field(default="#ffab27", max_length=32)
+    node_ids: list[int] = Field(default_factory=list, min_length=1, max_length=100)
+    nodes: list[CanvasGroupNodeUpdate] = Field(default_factory=list, max_length=100)
+    x: float = 0
+    y: float = 0
+    width: float = Field(default=320, ge=1, le=100000)
+    height: float = Field(default=220, ge=1, le=100000)
+    z_index: int = Field(default=1, ge=1)
+
+
+class CanvasGroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    color: str | None = Field(default=None, max_length=32)
+    x: float | None = None
+    y: float | None = None
+    width: float | None = Field(default=None, ge=1, le=100000)
+    height: float | None = Field(default=None, ge=1, le=100000)
+    z_index: int | None = Field(default=None, ge=1)
+
+
 class CanvasSummary(BaseModel):
     id: int
     project_id: str
@@ -93,6 +122,7 @@ class CanvasListResponse(BaseModel):
 class CanvasNodeOut(BaseModel):
     id: int
     canvas_id: int
+    group_id: int | None = None
     task_id: str
     node_type: str = "task"
     content: str = ""
@@ -124,12 +154,33 @@ class CanvasEdgeUpdate(BaseModel):
     is_collapsed: bool | None = None
 
 
+class CanvasGroupOut(BaseModel):
+    id: int
+    canvas_id: int
+    name: str
+    color: str
+    x: float
+    y: float
+    width: float
+    height: float
+    z_index: int
+    node_ids: list[int] = []
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class CanvasDetail(CanvasSummary):
     nodes: list[CanvasNodeOut] = []
     edges: list[CanvasEdgeOut] = []
+    groups: list[CanvasGroupOut] = []
 
 
 class CanvasNodeBatchUpdateResponse(BaseModel):
+    nodes: list[CanvasNodeOut] = []
+
+
+class CanvasGroupCreateResponse(BaseModel):
+    group: CanvasGroupOut
     nodes: list[CanvasNodeOut] = []
 
 

@@ -12,6 +12,7 @@
 --   2. Confirm the selected database: SELECT DATABASE();
 --   3. Confirm these objects do not already exist:
 --      SHOW TABLES LIKE 'user_canvas';
+--      SHOW TABLES LIKE 'canvas_groups';
 --      SHOW TABLES LIKE 'canvas_nodes';
 --      SHOW TABLES LIKE 'canvas_edges';
 --      SHOW COLUMNS FROM tasks LIKE 'canvas_id';
@@ -46,9 +47,27 @@ ALTER TABLE tasks
   FOREIGN KEY (canvas_id) REFERENCES user_canvas(id)
   ON DELETE SET NULL;
 
+CREATE TABLE canvas_groups (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  canvas_id INT NOT NULL,
+  name VARCHAR(100) NOT NULL DEFAULT '',
+  color VARCHAR(32) NOT NULL DEFAULT '#ffab27',
+  x DOUBLE NOT NULL DEFAULT 0,
+  y DOUBLE NOT NULL DEFAULT 0,
+  width DOUBLE NOT NULL DEFAULT 320,
+  height DOUBLE NOT NULL DEFAULT 220,
+  z_index INT NOT NULL DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_canvas_groups_canvas_id (canvas_id),
+  INDEX idx_canvas_groups_canvas_z (canvas_id, z_index),
+  CONSTRAINT fk_canvas_groups_canvas FOREIGN KEY (canvas_id) REFERENCES user_canvas(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE canvas_nodes (
   id INT AUTO_INCREMENT PRIMARY KEY,
   canvas_id INT NOT NULL,
+  group_id INT NULL,
   task_id INT NULL,
   node_type VARCHAR(20) NOT NULL DEFAULT 'task',
   content VARCHAR(5000) NOT NULL DEFAULT '',
@@ -62,8 +81,10 @@ CREATE TABLE canvas_nodes (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_canvas_nodes_canvas_id (canvas_id),
   INDEX idx_canvas_nodes_canvas_z (canvas_id, z_index),
+  INDEX idx_canvas_nodes_group_id (group_id),
   INDEX idx_canvas_nodes_task_id (task_id),
   CONSTRAINT fk_canvas_nodes_canvas FOREIGN KEY (canvas_id) REFERENCES user_canvas(id),
+  CONSTRAINT fk_canvas_nodes_group FOREIGN KEY (group_id) REFERENCES canvas_groups(id) ON DELETE SET NULL,
   CONSTRAINT fk_canvas_nodes_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

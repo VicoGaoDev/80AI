@@ -454,8 +454,8 @@ html, body, #app {
 }
 
 .ant-message {
-  top: auto !important;
-  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  top: calc(24px + env(safe-area-inset-top, 0px)) !important;
+  bottom: auto;
   left: 50%;
   width: auto;
   max-width: calc(100vw - 24px);

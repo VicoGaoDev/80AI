@@ -12,6 +12,10 @@ from app.schemas.canvas import (
     CanvasEdgeOut,
     CanvasEdgeUpdate,
     CanvasFreeNodeCreate,
+    CanvasGroupCreate,
+    CanvasGroupCreateResponse,
+    CanvasGroupOut,
+    CanvasGroupUpdate,
     CanvasListResponse,
     CanvasNodeBatchUpdate,
     CanvasNodeBatchUpdateResponse,
@@ -26,14 +30,17 @@ from app.schemas.canvas import (
 from app.services.business_id_service import task_external_id, user_external_id
 from app.services.canvas_service import (
     create_canvas_generation_tasks,
+    create_canvas_group,
     create_canvas_free_node,
     create_user_canvas,
+    delete_canvas_group,
     delete_canvas_node,
     delete_user_canvas,
     get_canvas_detail,
     list_user_canvases,
     update_canvas_node,
     update_canvas_nodes_batch,
+    update_canvas_group,
     update_canvas_edge,
     update_canvas_viewport,
     update_user_canvas,
@@ -154,6 +161,63 @@ def update_node(
         z_index=body.z_index,
         content=body.content,
     )
+
+
+@router.post("/{project_id}/groups", response_model=CanvasGroupCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_group(
+    project_id: str,
+    body: CanvasGroupCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return create_canvas_group(
+        db,
+        user.id,
+        project_id,
+        name=body.name,
+        color=body.color,
+        node_ids=body.node_ids,
+        node_updates=body.nodes,
+        x=body.x,
+        y=body.y,
+        width=body.width,
+        height=body.height,
+        z_index=body.z_index,
+    )
+
+
+@router.patch("/{project_id}/groups/{group_id}", response_model=CanvasGroupOut)
+def update_group(
+    project_id: str,
+    group_id: int,
+    body: CanvasGroupUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return update_canvas_group(
+        db,
+        user.id,
+        project_id,
+        group_id,
+        name=body.name,
+        color=body.color,
+        x=body.x,
+        y=body.y,
+        width=body.width,
+        height=body.height,
+        z_index=body.z_index,
+    )
+
+
+@router.delete("/{project_id}/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_group(
+    project_id: str,
+    group_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    delete_canvas_group(db, user.id, project_id, group_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{project_id}/nodes/{node_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -5,6 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.canvas_edge import CanvasEdge
+from app.models.canvas_group import CanvasGroup
 from app.models.canvas_node import CanvasNode
 from app.models.image import Image
 from app.models.task import Task
@@ -75,6 +76,7 @@ def _serialize_node(node: CanvasNode, *, cos_config=None) -> dict:
     return {
         "id": node.id,
         "canvas_id": node.canvas_id,
+        "group_id": node.group_id,
         "task_id": task_external_id(task) if task else "",
         "node_type": node.node_type or ("task" if task else "text"),
         "content": node.content or "",
@@ -87,6 +89,23 @@ def _serialize_node(node: CanvasNode, *, cos_config=None) -> dict:
         "created_at": node.created_at,
         "updated_at": node.updated_at,
         "task": serialize_task(task, cos_config=cos_config) if task else None,
+    }
+
+
+def _serialize_group(group: CanvasGroup, node_ids: list[int] | None = None) -> dict:
+    return {
+        "id": group.id,
+        "canvas_id": group.canvas_id,
+        "name": group.name or "未命名分组",
+        "color": group.color or "#ffab27",
+        "x": float(group.x or 0),
+        "y": float(group.y or 0),
+        "width": float(group.width or DEFAULT_NODE_WIDTH),
+        "height": float(group.height or DEFAULT_NODE_HEIGHT),
+        "z_index": int(group.z_index or 1),
+        "node_ids": node_ids or [],
+        "created_at": group.created_at,
+        "updated_at": group.updated_at,
     }
 
 
@@ -140,7 +159,7 @@ def _build_preview_map(db: Session, user_id: int, canvas_ids: list[int]) -> dict
         if preview_url:
             previews.append(preview_url)
     image_nodes = (
-        db.query(CanvasNode)
+        db.query(CanvasNode.canvas_id, CanvasNode.image_url)
         .filter(
             CanvasNode.canvas_id.in_(canvas_ids),
             CanvasNode.task_id.is_(None),
@@ -151,11 +170,11 @@ def _build_preview_map(db: Session, user_id: int, canvas_ids: list[int]) -> dict
         .limit(max(60, len(canvas_ids) * DEFAULT_CANVAS_PREVIEW_LIMIT * 4))
         .all()
     )
-    for node in image_nodes:
-        previews = preview_map.setdefault(node.canvas_id, [])
+    for canvas_id, raw_image_url in image_nodes:
+        previews = preview_map.setdefault(canvas_id, [])
         if len(previews) >= DEFAULT_CANVAS_PREVIEW_LIMIT:
             continue
-        image_url = (node.image_url or "").strip()
+        image_url = (raw_image_url or "").strip()
         if image_url and image_url not in previews:
             previews.append(image_url)
     return preview_map
@@ -316,6 +335,17 @@ def get_canvas_detail(db: Session, user_id: int, project_id: str, *, allow_admin
             .all()
         )
     detail["edges"] = [_serialize_edge(edge) for edge in edges]
+    group_rows = (
+        db.query(CanvasGroup)
+        .filter(CanvasGroup.canvas_id == canvas.id)
+        .order_by(CanvasGroup.z_index.asc(), CanvasGroup.id.asc())
+        .all()
+    )
+    visible_node_ids = set(node_ids)
+    detail["groups"] = [
+        _serialize_group(group, [node.id for node in nodes if node.group_id == group.id and node.id in visible_node_ids])
+        for group in group_rows
+    ]
     return detail
 
 
@@ -416,6 +446,141 @@ def update_canvas_nodes_batch(
     cos_config = get_optional_cos_config(db)
     ordered_nodes = [node_map[int(item.id)] for item in updates]
     return {"nodes": [_serialize_node(node, cos_config=cos_config) for node in ordered_nodes]}
+
+
+def create_canvas_group(
+    db: Session,
+    user_id: int,
+    project_id: str,
+    *,
+    name: str,
+    color: str,
+    node_ids: list[int],
+    node_updates: list,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    z_index: int,
+) -> dict:
+    canvas = get_user_canvas_or_404(db, user_id, project_id)
+    normalized_node_ids = list(dict.fromkeys(int(node_id) for node_id in node_ids if int(node_id) > 0))
+    if not normalized_node_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一个节点")
+
+    nodes = (
+        db.query(CanvasNode)
+        .outerjoin(Task, Task.id == CanvasNode.task_id)
+        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .filter(
+            CanvasNode.id.in_(normalized_node_ids),
+            CanvasNode.canvas_id == canvas.id,
+            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+        )
+        .all()
+    )
+    node_map = {node.id: node for node in nodes}
+    if len(node_map) != len(normalized_node_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部分画布节点不存在")
+
+    group = CanvasGroup(
+        canvas_id=canvas.id,
+        name=(name or "").strip() or "未命名分组",
+        color=(color or "").strip() or "#ffab27",
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        z_index=z_index,
+    )
+    db.add(group)
+    db.flush()
+
+    update_map = {int(item.id): item for item in node_updates}
+    for node_id in normalized_node_ids:
+        node = node_map[node_id]
+        update = update_map.get(node_id)
+        if update:
+            if update.x is not None:
+                node.x = update.x
+            if update.y is not None:
+                node.y = update.y
+            if update.z_index is not None:
+                node.z_index = update.z_index
+        node.group_id = group.id
+
+    canvas.updated_at = now_local()
+    db.commit()
+    db.refresh(group)
+    for node in nodes:
+        db.refresh(node)
+    cos_config = get_optional_cos_config(db)
+    ordered_nodes = [node_map[node_id] for node_id in normalized_node_ids]
+    return {
+        "group": _serialize_group(group, normalized_node_ids),
+        "nodes": [_serialize_node(node, cos_config=cos_config) for node in ordered_nodes],
+    }
+
+
+def update_canvas_group(
+    db: Session,
+    user_id: int,
+    project_id: str,
+    group_id: int,
+    *,
+    name: str | None = None,
+    color: str | None = None,
+    x: float | None = None,
+    y: float | None = None,
+    width: float | None = None,
+    height: float | None = None,
+    z_index: int | None = None,
+) -> dict:
+    canvas = get_user_canvas_or_404(db, user_id, project_id)
+    group = (
+        db.query(CanvasGroup)
+        .filter(CanvasGroup.id == group_id, CanvasGroup.canvas_id == canvas.id)
+        .first()
+    )
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="画布分组不存在")
+    if name is not None:
+        group.name = name.strip() or "未命名分组"
+    if color is not None:
+        group.color = color.strip() or "#ffab27"
+    if x is not None:
+        group.x = x
+    if y is not None:
+        group.y = y
+    if width is not None:
+        group.width = width
+    if height is not None:
+        group.height = height
+    if z_index is not None:
+        group.z_index = z_index
+    canvas.updated_at = now_local()
+    db.commit()
+    db.refresh(group)
+    node_ids = [node_id for (node_id,) in db.query(CanvasNode.id).filter(CanvasNode.group_id == group.id).all()]
+    return _serialize_group(group, node_ids)
+
+
+def delete_canvas_group(db: Session, user_id: int, project_id: str, group_id: int) -> None:
+    canvas = get_user_canvas_or_404(db, user_id, project_id)
+    group = (
+        db.query(CanvasGroup)
+        .filter(CanvasGroup.id == group_id, CanvasGroup.canvas_id == canvas.id)
+        .first()
+    )
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="画布分组不存在")
+    db.query(CanvasNode).filter(
+        CanvasNode.canvas_id == canvas.id,
+        CanvasNode.group_id == group.id,
+    ).update({CanvasNode.group_id: None}, synchronize_session=False)
+    db.delete(group)
+    canvas.updated_at = now_local()
+    db.commit()
 
 
 def delete_canvas_node(db: Session, user_id: int, project_id: str, node_id: int) -> None:

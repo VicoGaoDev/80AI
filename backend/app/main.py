@@ -1607,6 +1607,43 @@ def _ensure_user_canvas_schema():
 
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
+    if "canvas_groups" not in table_names:
+        from app.models.canvas_group import CanvasGroup
+
+        CanvasGroup.__table__.create(bind=engine)
+        inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
+
+    group_columns = {col["name"] for col in inspector.get_columns("canvas_groups")}
+    group_indexes = {index["name"] for index in inspector.get_indexes("canvas_groups")}
+    with engine.begin() as conn:
+        if "canvas_id" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN canvas_id INTEGER NOT NULL"))
+        if "name" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN name VARCHAR(100) NOT NULL DEFAULT ''"))
+        if "color" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN color VARCHAR(32) NOT NULL DEFAULT '#ffab27'"))
+        if "x" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN x DOUBLE NOT NULL DEFAULT 0"))
+        if "y" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN y DOUBLE NOT NULL DEFAULT 0"))
+        if "width" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN width DOUBLE NOT NULL DEFAULT 320"))
+        if "height" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN height DOUBLE NOT NULL DEFAULT 220"))
+        if "z_index" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN z_index INTEGER NOT NULL DEFAULT 1"))
+        if "created_at" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+        if "updated_at" not in group_columns:
+            conn.execute(text("ALTER TABLE canvas_groups ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+        if "idx_canvas_groups_canvas_id" not in group_indexes:
+            conn.execute(text("CREATE INDEX idx_canvas_groups_canvas_id ON canvas_groups (canvas_id)"))
+        if "idx_canvas_groups_canvas_z" not in group_indexes:
+            conn.execute(text("CREATE INDEX idx_canvas_groups_canvas_z ON canvas_groups (canvas_id, z_index)"))
+
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
     if "canvas_nodes" not in table_names:
         from app.models.canvas_node import CanvasNode
 
@@ -1618,6 +1655,8 @@ def _ensure_user_canvas_schema():
     with engine.begin() as conn:
         if "canvas_id" not in node_columns:
             conn.execute(text("ALTER TABLE canvas_nodes ADD COLUMN canvas_id INTEGER NOT NULL"))
+        if "group_id" not in node_columns:
+            conn.execute(text("ALTER TABLE canvas_nodes ADD COLUMN group_id INTEGER NULL"))
         if "task_id" not in node_columns:
             conn.execute(text("ALTER TABLE canvas_nodes ADD COLUMN task_id INTEGER NULL"))
         else:
@@ -1647,6 +1686,8 @@ def _ensure_user_canvas_schema():
             conn.execute(text("ALTER TABLE canvas_nodes ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
         if "idx_canvas_nodes_canvas_z" not in node_indexes:
             conn.execute(text("CREATE INDEX idx_canvas_nodes_canvas_z ON canvas_nodes (canvas_id, z_index)"))
+        if "idx_canvas_nodes_group_id" not in node_indexes:
+            conn.execute(text("CREATE INDEX idx_canvas_nodes_group_id ON canvas_nodes (group_id)"))
         if "idx_canvas_nodes_task_id" not in node_indexes:
             conn.execute(text("CREATE INDEX idx_canvas_nodes_task_id ON canvas_nodes (task_id)"))
 

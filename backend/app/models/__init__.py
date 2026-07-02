@@ -1,6 +1,7 @@
 from app.models.user import User
 from app.models.user_board import UserBoard
 from app.models.user_canvas import UserCanvas
+from app.models.canvas_group import CanvasGroup
 from app.models.canvas_node import CanvasNode
 from app.models.canvas_edge import CanvasEdge
 from app.models.task import Task
@@ -28,6 +29,7 @@ __all__ = [
     "User",
     "UserBoard",
     "UserCanvas",
+    "CanvasGroup",
     "CanvasNode",
     "CanvasEdge",
     "Task",

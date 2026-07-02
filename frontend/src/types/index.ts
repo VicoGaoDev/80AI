@@ -228,6 +228,7 @@ export interface UserCanvasSummary {
 export interface CanvasNode {
   id: number;
   canvas_id: number;
+  group_id?: number | null;
   task_id: string;
   node_type: "task" | "text" | "image";
   content: string;
@@ -240,6 +241,21 @@ export interface CanvasNode {
   created_at?: string | null;
   updated_at?: string | null;
   task?: TaskResult | null;
+}
+
+export interface CanvasGroup {
+  id: number;
+  canvas_id: number;
+  name: string;
+  color: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z_index: number;
+  node_ids: number[];
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface CanvasEdge {
@@ -258,6 +274,7 @@ export interface CanvasEdge {
 export interface CanvasDetail extends UserCanvasSummary {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
+  groups: CanvasGroup[];
 }
 
 export interface UserCanvasListResponse {
