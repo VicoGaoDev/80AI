@@ -86,7 +86,7 @@ interface PendingGroupAssignment {
   nodeOrigins: Array<{ id: number; x: number; y: number }>;
 }
 
-type CanvasOnboardingStepId = "leftTools" | "composer" | "toolbar";
+type CanvasOnboardingStepId = "leftTools" | "composer" | "toolbar" | "guide";
 
 interface CanvasOnboardingStep {
   id: CanvasOnboardingStepId;
@@ -190,11 +190,17 @@ const canvasStageRef = ref<HTMLElement | null>(null);
 const canvasSideToolboxRef = ref<HTMLElement | null>(null);
 const canvasToolbarRef = ref<HTMLElement | null>(null);
 const canvasComposerRef = ref<HTMLElement | null>(null);
+const canvasGuideTriggerRef = ref<HTMLElement | null>(null);
+const canvasGuideCardRef = ref<HTMLElement | null>(null);
 const viewport = ref({ x: 0, y: 0, zoom: 1 });
 const viewportSaveTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 const canvasOnboardingOpen = ref(false);
 const canvasOnboardingStepIndex = ref(0);
 const canvasOnboardingTargetRect = ref<{ top: number; left: number; width: number; height: number } | null>(null);
+const canvasOnboardingCardRef = ref<HTMLElement | null>(null);
+const canvasOnboardingCardHeight = ref(220);
+const canvasOnboardingGuideInitialOpen = ref(false);
+const canvasOnboardingGuideAutoOpened = ref(false);
 
 const taskScenes = ref<TaskSceneConfig[]>([]);
 const sceneConfigLoading = ref(false);
@@ -258,14 +264,20 @@ const canvasOnboardingSteps: CanvasOnboardingStep[] = [
   {
     id: "composer",
     title: "底部创作区",
-    description: "在这里输入提示词、切换图编辑或文生图、上传参考图，并直接发起生成任务。",
+    description: "在这里输入提示词、切换图编辑或文生图、上传参考图，并支持直接把画布里的节点作为参考图或提示词来源，随后发起生成任务。",
     placement: "top",
   },
   {
     id: "toolbar",
     title: "缩放与刷新",
     description: "右下角可以查看当前缩放比例，快速缩放、复位视图，或刷新当前画布数据。",
-    placement: "bottom",
+    placement: "top",
+  },
+  {
+    id: "guide",
+    title: "随时查看操作指南",
+    description: "这里整理了画布浏览、节点操作和分组管理等常用手势与快捷方式。刚开始不熟悉时可以随时打开查看，边用边上手会更轻松。",
+    placement: "right",
   },
 ];
 
@@ -402,6 +414,7 @@ const canvasOnboardingCardStyle = computed(() => {
   if (!rect || !step) return {};
   const cardWidth = Math.min(360, window.innerWidth - 32);
   const gap = 18;
+  const cardHeight = canvasOnboardingCardHeight.value || 220;
   let top = rect.top;
   let left = rect.left;
   if (step.placement === "right") {
@@ -409,13 +422,13 @@ const canvasOnboardingCardStyle = computed(() => {
     top = rect.top + rect.height / 2 - 120;
   } else if (step.placement === "top") {
     left = rect.left + rect.width / 2 - cardWidth / 2;
-    top = rect.top - 164;
+    top = rect.top - cardHeight - gap;
   } else {
     left = rect.left + rect.width / 2 - cardWidth / 2;
     top = rect.top + rect.height + gap;
   }
   left = Math.max(16, Math.min(left, window.innerWidth - cardWidth - 16));
-  top = Math.max(16, Math.min(top, window.innerHeight - 220));
+  top = Math.max(16, Math.min(top, window.innerHeight - cardHeight - 16));
   return {
     width: `${cardWidth}px`,
     top: `${top}px`,
@@ -653,7 +666,26 @@ function getCanvasOnboardingTargetElement(stepId: CanvasOnboardingStepId) {
   if (stepId === "leftTools") return canvasSideToolboxRef.value;
   if (stepId === "composer") return canvasComposerRef.value;
   if (stepId === "toolbar") return canvasToolbarRef.value;
+  if (stepId === "guide") return canvasGuideCardRef.value || canvasGuideTriggerRef.value;
   return null;
+}
+
+async function syncCanvasOnboardingGuideState() {
+  if (!canvasOnboardingOpen.value) return;
+  const isGuideStep = currentCanvasOnboardingStep.value?.id === "guide";
+  if (isGuideStep) {
+    if (!guideOpen.value) {
+      guideOpen.value = true;
+      canvasOnboardingGuideAutoOpened.value = true;
+      await nextTick();
+    }
+    return;
+  }
+  if (canvasOnboardingGuideAutoOpened.value || guideOpen.value !== canvasOnboardingGuideInitialOpen.value) {
+    guideOpen.value = canvasOnboardingGuideInitialOpen.value;
+    canvasOnboardingGuideAutoOpened.value = false;
+    await nextTick();
+  }
 }
 
 function refreshCanvasOnboardingLayout() {
@@ -673,6 +705,10 @@ function refreshCanvasOnboardingLayout() {
     width: Math.min(window.innerWidth - 24, rect.width + paddingX * 2),
     height: Math.min(window.innerHeight - 24, rect.height + paddingY * 2),
   };
+  const cardRect = canvasOnboardingCardRef.value?.getBoundingClientRect();
+  if (cardRect?.height) {
+    canvasOnboardingCardHeight.value = cardRect.height;
+  }
 }
 
 function nodeRectsOverlap(
@@ -1320,6 +1356,8 @@ function cancelAssignNodesToGroup() {
 }
 
 async function openCanvasOnboarding() {
+  canvasOnboardingGuideInitialOpen.value = guideOpen.value;
+  canvasOnboardingGuideAutoOpened.value = false;
   guideOpen.value = false;
   canvasOnboardingStepIndex.value = 0;
   canvasOnboardingOpen.value = true;
@@ -1344,6 +1382,8 @@ async function maybeStartCanvasOnboarding() {
 
 function closeCanvasOnboarding() {
   markCanvasOnboardingSeen();
+  guideOpen.value = canvasOnboardingGuideInitialOpen.value;
+  canvasOnboardingGuideAutoOpened.value = false;
   canvasOnboardingOpen.value = false;
   canvasOnboardingTargetRect.value = null;
 }
@@ -3520,6 +3560,7 @@ watch(canvasBackgroundMode, (mode) => {
 watch([canvasOnboardingOpen, canvasOnboardingStepIndex, generatePanelCollapsed], async ([open]) => {
   if (!open) return;
   await nextTick();
+  await syncCanvasOnboardingGuideState();
   refreshCanvasOnboardingLayout();
 });
 
@@ -3633,11 +3674,11 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="canvas-guide" @pointerdown.stop @click.stop>
-        <button type="button" class="canvas-guide-trigger canvas-panel" @click="guideOpen = !guideOpen">
+        <button ref="canvasGuideTriggerRef" type="button" class="canvas-guide-trigger canvas-panel" @click="guideOpen = !guideOpen">
           <InfoCircleOutlined />
           <span>操作指南</span>
         </button>
-        <div v-if="guideOpen" class="canvas-guide-card canvas-panel">
+        <div v-if="guideOpen" ref="canvasGuideCardRef" class="canvas-guide-card canvas-panel">
           <button type="button" class="canvas-guide-close" title="关闭操作指南" @click="guideOpen = false">
             ×
           </button>
@@ -3834,7 +3875,14 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div ref="canvasToolbarRef" class="canvas-toolbar canvas-panel">
+      <div
+        ref="canvasToolbarRef"
+        class="canvas-toolbar canvas-panel"
+        :class="{
+          'composer-expanded': !generatePanelCollapsed,
+          'composer-image-edit': !generatePanelCollapsed && isImageEditMode,
+        }"
+      >
         <a-button shape="circle" class="canvas-toolbar-icon-btn" @click="zoomAtCenter(-0.12)"><template #icon><MinusOutlined /></template></a-button>
         <span>{{ Math.round(viewport.zoom * 100) }}%</span>
         <a-button shape="circle" class="canvas-toolbar-icon-btn" @click="zoomAtCenter(0.12)"><template #icon><PlusOutlined /></template></a-button>
@@ -3992,7 +4040,7 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <div class="canvas-onboarding-spotlight" :style="canvasOnboardingSpotlightStyle"></div>
-        <div class="canvas-onboarding-card" :style="canvasOnboardingCardStyle">
+        <div ref="canvasOnboardingCardRef" class="canvas-onboarding-card" :style="canvasOnboardingCardStyle">
           <button type="button" class="canvas-onboarding-close" title="关闭引导" @click="closeCanvasOnboarding">×</button>
           <div class="canvas-onboarding-title">{{ currentCanvasOnboardingStep.title }}</div>
           <div class="canvas-onboarding-description">{{ currentCanvasOnboardingStep.description }}</div>
@@ -4434,14 +4482,14 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 120;
-  background: rgba(10, 10, 14, 0.52);
+  background: transparent;
 }
 
 .canvas-onboarding-spotlight {
   position: fixed;
   border: 2px solid color-mix(in srgb, var(--theme-accent) 82%, white 18%);
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.02);
+  background: transparent;
   box-shadow:
     0 0 0 9999px rgba(10, 10, 14, 0.52),
     0 18px 40px rgba(0, 0, 0, 0.22),
@@ -5900,15 +5948,14 @@ onBeforeUnmount(() => {
 
 .canvas-toolbar {
   position: absolute;
-  top: 14px;
-  left: 50%;
+  right: 18px;
+  bottom: 18px;
   z-index: 30;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 6px;
   border-radius: 999px;
-  transform: translateX(-50%);
 
   span {
     min-width: 40px;
@@ -6816,10 +6863,18 @@ onBeforeUnmount(() => {
   }
 
   .canvas-toolbar {
-    top: 104px;
-    left: 50%;
-    right: auto;
+    right: 12px;
+    bottom: 72px;
+    left: auto;
     max-width: calc(100% - 24px);
+  }
+
+  .canvas-toolbar.composer-expanded {
+    bottom: 172px;
+  }
+
+  .canvas-toolbar.composer-expanded.composer-image-edit {
+    bottom: 232px;
   }
 
   .canvas-guide {
