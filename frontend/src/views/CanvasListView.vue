@@ -76,6 +76,10 @@ async function handleCreateCanvas(options: { onboarding?: boolean } = {}) {
   }
 }
 
+function handleCreateCanvasClick() {
+  void handleCreateCanvas();
+}
+
 function openRenameDialog(canvas: UserCanvasSummary) {
   renameTarget.value = canvas;
   renameName.value = canvas.name;
@@ -178,7 +182,7 @@ onMounted(() => loadCanvases({ autoCreateWhenEmpty: true }));
           class="canvas-list-card canvas-list-card-create warm-card"
           type="button"
           :disabled="creating"
-          @click="handleCreateCanvas"
+          @click="handleCreateCanvasClick"
         >
           <div class="canvas-list-create-icon">
             <PlusOutlined />
