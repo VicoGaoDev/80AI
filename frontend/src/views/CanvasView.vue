@@ -748,15 +748,28 @@ function findNonOverlappingNodePosition(preferred: { x: number; y: number }, siz
   const stepX = Math.max(180, Math.min(420, size.width * 0.65));
   const stepY = Math.max(180, Math.min(420, size.height * 0.65));
   for (let ring = 1; ring <= 18; ring += 1) {
+    const offsets: Array<{ dx: number; dy: number }> = [];
     for (let dx = -ring; dx <= ring; dx += 1) {
       for (let dy = -ring; dy <= ring; dy += 1) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
-        const candidate = {
-          x: Math.round(preferred.x + dx * stepX),
-          y: Math.round(preferred.y + dy * stepY),
-        };
-        if (fits(candidate)) return candidate;
+        offsets.push({ dx, dy });
       }
+    }
+    offsets.sort((a, b) => {
+      const sidePriority = (dx: number) => (dx > 0 ? 0 : dx === 0 ? 1 : 2);
+      return (
+        sidePriority(a.dx) - sidePriority(b.dx)
+        || Math.abs(a.dy) - Math.abs(b.dy)
+        || (a.dy < 0 ? 1 : 0) - (b.dy < 0 ? 1 : 0)
+        || Math.abs(b.dx) - Math.abs(a.dx)
+      );
+    });
+    for (const { dx, dy } of offsets) {
+      const candidate = {
+        x: Math.round(preferred.x + dx * stepX),
+        y: Math.round(preferred.y + dy * stepY),
+      };
+      if (fits(candidate)) return candidate;
     }
   }
   return {
