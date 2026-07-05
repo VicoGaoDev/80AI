@@ -113,6 +113,7 @@ const DEFAULT_SCENE_COSTS: Record<string, number> = {
 const generateMode = ref<GenerateMode>("imageEdit");
 const failedResultAsset = withBaseUrl("failed-result.svg");
 const generateEmptyStateAsset = withBaseUrl("generate-task-card.svg");
+const canvasNavIcon = withBaseUrl("nav-canvas.svg");
 const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 960 960">
   <defs>
@@ -994,6 +995,11 @@ async function ensureAuthenticated() {
     loginModalVisible.value = true;
     return false;
   }
+}
+
+async function goCanvas() {
+  if (!(await ensureAuthenticated())) return;
+  router.push("/canvas");
 }
 
 function triggerUpload() {
@@ -2930,6 +2936,13 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
               </div>
             </div>
           </div>
+          <div class="result-head-center">
+            <button type="button" class="result-canvas-entry-btn" @click="goCanvas">
+              <img :src="canvasNavIcon" alt="" class="result-canvas-entry-icon" />
+              <span class="result-canvas-entry-text">进入画布模式</span>
+              <span class="result-canvas-entry-badge">NEW</span>
+            </button>
+          </div>
           <div class="result-head-meta">
             <a-select
               v-model:value="preferredResultColumnCount"
@@ -4715,11 +4728,83 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   animation: generate-slide-right-in var(--motion-duration-stage-delayed) var(--motion-ease-enter) 0.14s both;
 }
 
-.result-head {
-  display: flex;
+.result-canvas-entry-btn {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  min-height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  background: linear-gradient(135deg, #ffb347 0%, #ff8a18 42%, #ff5f1f 100%);
+  box-shadow:
+    0 12px 24px rgba(255, 122, 24, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+  transition:
+    transform var(--motion-duration-fast) var(--motion-ease-soft),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-soft),
+    filter var(--motion-duration-fast) var(--motion-ease-soft);
+
+  &:hover,
+  &:focus-visible {
+    transform: translateY(-1px);
+    filter: brightness(1.03);
+    box-shadow:
+      0 16px 28px rgba(255, 122, 24, 0.36),
+      0 0 0 1px rgba(255, 255, 255, 0.24) inset;
+  }
+
+  &:active {
+    transform: translateY(0) scale(0.985);
+  }
+}
+
+.result-canvas-entry-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  filter: brightness(0) invert(1);
+}
+
+.result-canvas-entry-text {
+  line-height: 1;
+}
+
+.result-canvas-entry-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+}
+
+.result-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px 12px;
+}
+
+.result-head-center {
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .result-head-main {
@@ -4727,6 +4812,7 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .result-panel-head {
@@ -5701,8 +5787,17 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-mor
   }
 
   .result-head {
-    flex-direction: column;
-    align-items: flex-start;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .result-head-center {
+    width: 100%;
+  }
+
+  .result-canvas-entry-btn {
+    width: 100%;
+    min-height: 40px;
   }
 
   .generate-mode-switch {
@@ -5959,6 +6054,13 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .field-bloc
 html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-panel-head h3,
 html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-empty .empty-title {
   color: var(--theme-title) !important;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .result-canvas-entry-btn {
+  background: linear-gradient(135deg, #ffb347 0%, #ff8a18 42%, #ff5f1f 100%);
+  box-shadow:
+    0 18px 34px rgba(255, 122, 24, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.14) inset;
 }
 
 html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .work-panel {
