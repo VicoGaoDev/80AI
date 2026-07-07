@@ -1,5 +1,6 @@
 from calendar import monthrange
 from collections import defaultdict
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -1552,6 +1553,9 @@ INVALID_REFERENCE_IMAGE_ERROR_MESSAGE = (
 )
 
 
+UPSTREAM_HTTP_STATUS_PATTERN = re.compile(r"生图接口返回 http\s+(\d{3})", re.IGNORECASE)
+
+
 def _normalize_error_message_for_analytics(error_message: str | None) -> str:
     message = (error_message or "").strip() or "未知错误"
     if "生图接口返回内容缺少配置路径" in message and "对应的 base64 数据" in message:
@@ -1562,6 +1566,69 @@ def _normalize_error_message_for_analytics(error_message: str | None) -> str:
     ):
         return INVALID_REFERENCE_IMAGE_ERROR_MESSAGE
     return message
+
+
+def _classify_upstream_http_error(message: str, lower: str) -> str | None:
+    matched = UPSTREAM_HTTP_STATUS_PATTERN.search(message)
+    if not matched:
+        return None
+
+    status_code = int(matched.group(1))
+    if "provider_request_invalid" in lower or "bad request to openai" in lower:
+        return "上游 HTTP 400-请求参数无效"
+    if "invalid image file or mode" in lower:
+        return "上游 HTTP 400-参考图无效"
+    if "rate limit" in lower or "too many requests" in lower:
+        return "上游 HTTP 429-限流"
+    if "unauthorized" in lower or "invalid api key" in lower or "authentication" in lower:
+        return "上游 HTTP 401-鉴权失败"
+    if "forbidden" in lower or "permission" in lower:
+        return "上游 HTTP 403-权限不足"
+    if "not found" in lower or "model_not_found" in lower:
+        return "上游 HTTP 404-资源不存在"
+    if "timeout" in lower:
+        return f"上游 HTTP {status_code}-超时"
+    if "payload too large" in lower or "request entity too large" in lower:
+        return "上游 HTTP 413-请求体过大"
+    if "unprocessable" in lower or "validation" in lower:
+        return "上游 HTTP 422-请求校验失败"
+    if "bad gateway" in lower:
+        return "上游 HTTP 502-网关异常"
+    if "service unavailable" in lower:
+        return "上游 HTTP 503-服务不可用"
+    if "gateway timeout" in lower:
+        return "上游 HTTP 504-网关超时"
+    if status_code == 400:
+        return "上游 HTTP 400-请求错误"
+    if status_code == 401:
+        return "上游 HTTP 401-鉴权失败"
+    if status_code == 403:
+        return "上游 HTTP 403-权限不足"
+    if status_code == 404:
+        return "上游 HTTP 404-资源不存在"
+    if status_code == 408:
+        return "上游 HTTP 408-请求超时"
+    if status_code == 409:
+        return "上游 HTTP 409-状态冲突"
+    if status_code == 413:
+        return "上游 HTTP 413-请求体过大"
+    if status_code == 422:
+        return "上游 HTTP 422-请求校验失败"
+    if status_code == 429:
+        return "上游 HTTP 429-限流"
+    if status_code == 500:
+        return "上游 HTTP 500-服务内部错误"
+    if status_code == 502:
+        return "上游 HTTP 502-网关异常"
+    if status_code == 503:
+        return "上游 HTTP 503-服务不可用"
+    if status_code == 504:
+        return "上游 HTTP 504-网关超时"
+    if 400 <= status_code < 500:
+        return f"上游 HTTP {status_code}-客户端错误"
+    if 500 <= status_code < 600:
+        return f"上游 HTTP {status_code}-服务端错误"
+    return f"上游 HTTP {status_code}-其他错误"
 
 
 def _classify_error_message_for_analytics(error_message: str | None) -> str:
@@ -1596,8 +1663,9 @@ def _classify_error_message_for_analytics(error_message: str | None) -> str:
         return "参考图无效"
     if "生图接口返回内容缺少配置路径" in message and "对应的 base64 数据" in message:
         return "上游返回缺少图片数据"
-    if "生图接口返回 http" in lower:
-        return "上游 HTTP 错误"
+    upstream_http_category = _classify_upstream_http_error(message, lower)
+    if upstream_http_category:
+        return upstream_http_category
     if "图片已生成，但保存结果失败" in message:
         return "结果图片保存失败"
     if "图编辑原图不存在或无法读取" in message:

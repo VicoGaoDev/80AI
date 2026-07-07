@@ -9,6 +9,7 @@ from app.models.canvas_group import CanvasGroup
 from app.models.canvas_node import CanvasNode
 from app.models.image import Image
 from app.models.task import Task
+from app.models.user import User
 from app.models.user_canvas import UserCanvas, generate_canvas_project_id
 from app.services.business_id_service import task_external_id, user_external_id
 from app.services.image_delivery_service import get_optional_cos_config, serialize_task
@@ -317,7 +318,12 @@ def list_user_canvases(db: Session, user_id: int) -> dict:
 def list_all_canvases(db: Session) -> dict:
     canvases = (
         db.query(UserCanvas)
+        .join(User, User.id == UserCanvas.user_id)
         .options(joinedload(UserCanvas.user))
+        .filter(
+            User.role.notin_(["admin", "superadmin"]),
+            User.is_whitelisted.is_(False),
+        )
         .order_by(UserCanvas.updated_at.desc(), UserCanvas.id.desc())
         .all()
     )

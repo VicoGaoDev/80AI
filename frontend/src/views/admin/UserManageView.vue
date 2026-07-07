@@ -328,7 +328,7 @@ function promoActivityRowKey(record: {
         </div>
         <div>
           <div class="warm-page-title">用户管理</div>
-          <div class="warm-page-desc">管理员可创建普通用户、管理白名单、分配积分与积分清零，超级管理员可额外管理权限。</div>
+          <div class="warm-page-desc">管理员可创建普通用户、管理白名单、分配积分、禁用账号与积分清零，超级管理员可额外管理权限。</div>
         </div>
       </div>
       <div class="header-actions">
@@ -459,18 +459,18 @@ function promoActivityRowKey(record: {
               >
                 积分清零
               </a-button>
+              <a-button
+                type="link"
+                size="small"
+                class="user-action-btn"
+                :class="record.status === 'active' ? 'user-action-btn-danger' : 'user-action-btn-secondary'"
+                :danger="record.status === 'active'"
+                :disabled="isFirstAdmin(record) && record.status === 'active'"
+                @click="toggleStatus(record)"
+              >
+                {{ record.status === "active" ? "禁用" : "启用" }}
+              </a-button>
               <template v-if="isSuperAdmin">
-                <a-button
-                  type="link"
-                  size="small"
-                  class="user-action-btn"
-                  :class="record.status === 'active' ? 'user-action-btn-danger' : 'user-action-btn-secondary'"
-                  :danger="record.status === 'active'"
-                  :disabled="isFirstAdmin(record) && record.status === 'active'"
-                  @click="toggleStatus(record)"
-                >
-                  {{ record.status === "active" ? "禁用" : "启用" }}
-                </a-button>
                 <a-button
                   type="link"
                   size="small"

@@ -106,7 +106,7 @@ def admin_list_canvases(
 def admin_update_status(
     user_id: str,
     body: UpdateStatusRequest,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     return update_user_status(db, user_id, body.status, user)

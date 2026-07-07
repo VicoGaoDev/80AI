@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onMounted, computed } from "vue";
 import { message } from "ant-design-vue";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
 import { CopyOutlined, GiftOutlined } from "@ant-design/icons-vue";
 import { createRedeemKeysBatch, listRedeemKeys, updateRedeemKeyStatus } from "@/api/admin";
+import { copyText } from "@/lib/clipboard";
 import type { AdminRedeemKey, AdminRedeemKeyBatchResult, RedeemKeyStatus } from "@/types";
 
 const loading = ref(false);
@@ -12,6 +13,7 @@ const generating = ref(false);
 const statusLoadingId = ref<number | null>(null);
 const latestBatch = ref<AdminRedeemKeyBatchResult | null>(null);
 const items = ref<AdminRedeemKey[]>([]);
+const selectedRowKeys = ref<number[]>([]);
 type DateShortcut = "today" | "last7Days" | "thisWeek";
 const dateShortcut = ref<DateShortcut | undefined>();
 
@@ -47,6 +49,22 @@ const columns = [
   { title: "操作", key: "action", width: 120 },
 ];
 
+const selectedItems = computed(() => {
+  const keySet = new Set(selectedRowKeys.value);
+  return items.value.filter((item) => keySet.has(item.id));
+});
+
+const isCurrentPageFullySelected = computed(
+  () => items.value.length > 0 && items.value.every((item) => selectedRowKeys.value.includes(item.id))
+);
+
+const rowSelection = computed(() => ({
+  selectedRowKeys: selectedRowKeys.value,
+  onChange: (keys: Array<string | number>) => {
+    selectedRowKeys.value = keys.map((key) => Number(key));
+  },
+}));
+
 async function load() {
   loading.value = true;
   try {
@@ -64,6 +82,7 @@ async function load() {
     });
     items.value = res.items;
     pagination.total = res.total;
+    selectedRowKeys.value = [];
   } catch (err: any) {
     message.error(err.response?.data?.detail || "获取兑换码列表失败");
   } finally {
@@ -142,7 +161,7 @@ function handlePageChange(page: number, pageSize?: number) {
 
 async function handleCopy(text: string, successText = "内容已复制") {
   try {
-    await navigator.clipboard.writeText(text);
+    await copyText(text);
     message.success(successText);
   } catch {
     message.error("复制失败，请重试");
@@ -156,6 +175,19 @@ async function copyLatestBatch() {
     return;
   }
   await handleCopy(keys, "兑换码已复制");
+}
+
+function toggleSelectCurrentPage() {
+  selectedRowKeys.value = isCurrentPageFullySelected.value ? [] : items.value.map((item) => item.id);
+}
+
+async function copySelectedKeys() {
+  const keys = selectedItems.value.map((item) => item.redeem_key).join("\n");
+  if (!keys) {
+    message.warning("请先选择当前页兑换码");
+    return;
+  }
+  await handleCopy(keys, `已复制 ${selectedItems.value.length} 个兑换码`);
 }
 
 async function toggleStatus(item: AdminRedeemKey) {
@@ -287,12 +319,26 @@ function formatQueryDate(value?: Dayjs) {
     </div>
 
     <div class="warm-card warm-table-card motion-fade-up motion-card-lift" style="--motion-delay: 240ms">
+      <div class="table-toolbar">
+        <div class="table-toolbar-summary">
+          当前页已选 <span>{{ selectedItems.length }}</span> / {{ items.length }}
+        </div>
+        <div class="table-toolbar-actions">
+          <a-button class="filter-reset-btn action-btn table-toolbar-btn" @click="toggleSelectCurrentPage">
+            {{ isCurrentPageFullySelected ? "取消全选本页" : "全选本页" }}
+          </a-button>
+          <a-button class="filter-reset-btn action-btn table-toolbar-btn" @click="copySelectedKeys">
+            批量复制已选
+          </a-button>
+        </div>
+      </div>
       <a-table
         :columns="columns"
         :data-source="items"
         :loading="loading"
         :pagination="false"
         row-key="id"
+        :row-selection="rowSelection"
         :scroll="{ x: 980 }"
         class="admin-mobile-table"
       >
@@ -370,6 +416,36 @@ function formatQueryDate(value?: Dayjs) {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 18px;
+  flex-wrap: wrap;
+}
+
+.table-toolbar-summary {
+  color: #8c7458;
+  font-size: 13px;
+
+  span {
+    color: #b26c04;
+    font-weight: 700;
+  }
+}
+
+.table-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.table-toolbar-btn {
+  min-width: 108px;
 }
 
 .redeem-create-form {
@@ -547,7 +623,9 @@ function formatQueryDate(value?: Dayjs) {
 
 @media (max-width: 768px) {
   .header-actions,
-  .redeem-filter-bar {
+  .redeem-filter-bar,
+  .table-toolbar,
+  .table-toolbar-actions {
     flex-direction: column;
     align-items: stretch;
   }
