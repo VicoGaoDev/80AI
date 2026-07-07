@@ -1,4 +1,6 @@
 from app.models.user import User
+from app.models.user_asset_category import UserAssetCategory
+from app.models.user_asset import UserAsset
 from app.models.user_board import UserBoard
 from app.models.user_canvas import UserCanvas
 from app.models.canvas_group import CanvasGroup
@@ -28,6 +30,8 @@ from app.models.example_canvas_project import ExampleCanvasProject
 
 __all__ = [
     "User",
+    "UserAssetCategory",
+    "UserAsset",
     "UserBoard",
     "UserCanvas",
     "CanvasGroup",

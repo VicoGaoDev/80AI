@@ -30,18 +30,26 @@ import { getTaskScenes } from "@/api/config";
 import { deleteHistoryTask } from "@/api/history";
 import { getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl } from "@/api/images";
 import { getTasks } from "@/api/tasks";
+import { createUserAssetCategory, getUserAssetStats, importUserAssetFromUrl, listUserAssetCategories, uploadUserAssetFile } from "@/api/userAssets";
 import {
   isImageUploadTooLarge,
   MAX_IMAGE_UPLOAD_SIZE_TEXT,
   uploadReferenceImage,
 } from "@/api/upload";
+import UserAssetPicker from "@/components/assets/UserAssetPicker.vue";
 import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import AdminUserInfoDialog from "@/components/admin/AdminUserInfoDialog.vue";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import { withApiBaseUrl, withBaseUrl } from "@/lib/assets";
 import { formatGenerationErrorMessage, getTaskImageFailureMessage } from "@/lib/generationErrors";
+import { USER_ASSET_DRAG_MIME, decodeDraggedUserAsset } from "@/lib/userAssetDrag";
+import {
+  getAssetQuotaFullMessage,
+  getAssetQuotaTruncatedMessage,
+  resolveAssetQuotaErrorMessage,
+} from "@/lib/userAssetQuota";
 import { useAuthStore } from "@/stores/auth";
-import type { AdminUser, CanvasEdge, CanvasGroup, CanvasNode, TaskResult, TaskSceneConfig, UserCanvasSummary, UserHistoryCard } from "@/types";
+import type { AdminUser, CanvasEdge, CanvasGroup, CanvasNode, TaskResult, TaskSceneConfig, UserAsset, UserAssetCategory, UserCanvasSummary, UserHistoryCard } from "@/types";
 
 const props = defineProps<{
   projectId?: string;
@@ -231,6 +239,17 @@ const promptSourceNodeId = ref<number | null>(null);
 const generating = ref(false);
 const uploadMenuOpen = ref(false);
 const uploadMenuAnchor = ref<UploadMenuAnchor>("reference");
+const assetPickerOpen = ref(false);
+const assetCategories = ref<UserAssetCategory[]>([]);
+const assetCategoriesLoading = ref(false);
+const saveToAssetDialogOpen = ref(false);
+const saveToAssetSubmitting = ref(false);
+const saveToAssetNode = ref<CanvasNode | null>(null);
+const saveToAssetName = ref("");
+const saveToAssetCategoryId = ref<number | "uncategorized">("uncategorized");
+const assetCategoryNameDialogOpen = ref(false);
+const assetCategoryNameDialogSaving = ref(false);
+const assetCategoryNameValue = ref("");
 const canvasReferenceSelectMode = ref(false);
 const referenceDragActive = ref(false);
 const referenceDragCounter = ref(0);
@@ -2202,6 +2221,15 @@ function openCanvasReferencePicker() {
   canvasReferenceSelectMode.value = true;
 }
 
+function openUserAssetPicker() {
+  uploadMenuOpen.value = false;
+  if (!referenceSlotsRemaining.value) {
+    message.warning(`当前模型最多支持 ${maxReferenceImages.value} 张参考图`);
+    return;
+  }
+  assetPickerOpen.value = true;
+}
+
 function addCanvasReference(option: CanvasReferenceOption) {
   if (!referenceSlotsRemaining.value) {
     message.warning(`当前模型最多支持 ${maxReferenceImages.value} 张参考图`);
@@ -2222,6 +2250,40 @@ function addCanvasReference(option: CanvasReferenceOption) {
   if (referenceSlotsRemaining.value <= 0) {
     canvasReferenceSelectMode.value = false;
     message.info(`已达到当前模型参考图上限：${maxReferenceImages.value} 张`);
+  }
+}
+
+function addUserAssetReference(asset: UserAsset) {
+  if (!referenceSlotsRemaining.value) {
+    message.warning(`当前模型最多支持 ${maxReferenceImages.value} 张参考图`);
+    return false;
+  }
+  if (referenceItems.value.some((item) => item.remoteUrl === asset.image_url)) {
+    message.info("这张素材已在参考图中");
+    return false;
+  }
+  referenceItems.value = [...referenceItems.value, {
+    id: `asset-${asset.id}-${Date.now()}`,
+    localUrl: asset.thumb_url || asset.image_url,
+    remoteUrl: asset.image_url,
+    status: "success",
+  }];
+  return true;
+}
+
+function handlePickUserAsset(asset: UserAsset) {
+  if (addUserAssetReference(asset)) {
+    assetPickerOpen.value = false;
+  }
+}
+
+async function handleInsertUserAssetToCanvas(asset: UserAsset) {
+  try {
+    await createImageNodeFromAsset(asset);
+    assetPickerOpen.value = false;
+    message.success("素材已添加到画布");
+  } catch (err: any) {
+    message.error(err?.response?.data?.detail || "添加素材到画布失败");
   }
 }
 
@@ -2300,15 +2362,34 @@ async function processReferenceFiles(files: File[]) {
     if (files.length) message.warning("请上传图片文件");
     return;
   }
-  const acceptedFiles = imageFiles.slice(0, referenceSlotsRemaining.value);
-  if (!acceptedFiles.length) {
+
+  if (!referenceSlotsRemaining.value) {
     message.warning(`当前模型最多上传 ${maxReferenceImages.value} 张参考图`);
     return;
   }
-  if (acceptedFiles.length < imageFiles.length) {
+
+  const quota = await getUserAssetStats();
+  if (quota.remaining <= 0) {
+    message.warning(getAssetQuotaFullMessage(quota));
+    return;
+  }
+
+  const referenceLimitedFiles = imageFiles.slice(0, referenceSlotsRemaining.value);
+  const acceptedFiles = referenceLimitedFiles.slice(0, quota.remaining);
+  const skippedDueToModel = imageFiles.length - referenceLimitedFiles.length;
+  const skippedDueToQuota = referenceLimitedFiles.length - acceptedFiles.length;
+
+  if (skippedDueToModel > 0) {
     message.warning(`当前模型最多支持 ${maxReferenceImages.value} 张参考图，已自动截断`);
   }
-  await Promise.all(acceptedFiles.map(uploadReference));
+  if (skippedDueToQuota > 0) {
+    message.warning(getAssetQuotaTruncatedMessage(acceptedFiles.length, quota.remaining));
+  }
+  if (!acceptedFiles.length) return;
+
+  for (const file of acceptedFiles) {
+    await uploadReference(file);
+  }
 }
 
 function handleReferenceDragEnter(event: DragEvent) {
@@ -2351,18 +2432,23 @@ async function uploadReference(file: File) {
   };
   referenceItems.value = [...referenceItems.value, item];
   try {
-    const res = await uploadReferenceImage(file, "ref");
+    const res = await uploadUserAssetFile(file);
     revokeObjectUrl(objectUrl);
     referenceItems.value = referenceItems.value.map((current) => current.id === item.id ? {
       ...current,
-      localUrl: res.url,
-      remoteUrl: res.url,
+      localUrl: res.asset.thumb_url || res.asset.image_url,
+      remoteUrl: res.asset.image_url,
       status: "success",
       objectUrl: undefined,
     } : current);
-  } catch {
+  } catch (err: any) {
     referenceItems.value = referenceItems.value.map((current) => current.id === item.id ? { ...current, status: "failed" } : current);
-    message.error(`${file.name} 上传失败`);
+    const quotaMessage = resolveAssetQuotaErrorMessage(err);
+    if (quotaMessage) {
+      message.warning(quotaMessage);
+      return;
+    }
+    message.error(err?.response?.data?.detail || `${file.name} 上传失败`);
   }
 }
 
@@ -3116,13 +3202,19 @@ function goCanvasList() {
   router.push({ path: isAdminCanvasReadonlyRoute.value ? "/admin/user-canvases" : "/canvas", query: { fromWorkbench: "1" } });
 }
 
-function handleCanvasSideTool(action: "freeNode" | "searchNode" | "historyTasks") {
+function handleCanvasSideTool(action: "freeNode" | "userAssets" | "searchNode" | "historyTasks") {
   if (action === "freeNode") {
     if (canvasReadOnly.value) {
       message.warning("只读模式下不能创建自由节点");
       return;
     }
     freeNodeMenuOpen.value = !freeNodeMenuOpen.value;
+    assetPickerOpen.value = false;
+    return;
+  }
+  if (action === "userAssets") {
+    freeNodeMenuOpen.value = false;
+    assetPickerOpen.value = true;
     return;
   }
   if (action === "searchNode") {
@@ -3132,6 +3224,7 @@ function handleCanvasSideTool(action: "freeNode" | "searchNode" | "historyTasks"
   }
   const labels = {
     freeNode: "自由节点",
+    userAssets: "素材库",
     searchNode: "搜索节点",
     historyTasks: "历史任务",
   };
@@ -3312,6 +3405,61 @@ function readImageDimensions(file: File): Promise<{ width: number; height: numbe
     };
     image.src = objectUrl;
   });
+}
+
+function getCanvasImageNodeSize(width?: number | null, height?: number | null) {
+  const safeWidth = Math.max(1, Number(width || 0));
+  const safeHeight = Math.max(1, Number(height || 0));
+  const nodeWidth = 320;
+  return {
+    width: nodeWidth,
+    height: Math.min(1600, Math.max(120, Math.round((nodeWidth * safeHeight) / safeWidth))),
+  };
+}
+
+async function createImageNodeFromAsset(asset: UserAsset, anchor?: { x: number; y: number } | null) {
+  if (canvasReadOnly.value) {
+    message.warning("只读模式下不能插入素材节点");
+    return;
+  }
+  const projectId = selectedCanvasProjectId.value;
+  if (!projectId || !selectedCanvasId.value) return;
+  const size = getCanvasImageNodeSize(asset.width, asset.height);
+  const center = anchor || getViewportCenter();
+  const position = findNonOverlappingNodePosition(
+    { x: center.x - size.width / 2, y: center.y - size.height / 2 },
+    size,
+  );
+  const node = await createCanvasNode(projectId, {
+    node_type: "image",
+    image_url: asset.image_url,
+    x: position.x,
+    y: position.y,
+    width: size.width,
+    height: size.height,
+  });
+  nodes.value = [...nodes.value, node];
+  canvases.value = canvases.value.map((item) => item.id === selectedCanvasId.value ? { ...item, node_count: item.node_count + 1 } : item);
+  focusCanvasNode(node);
+}
+
+function handleCanvasAssetDragOver(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes(USER_ASSET_DRAG_MIME)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+}
+
+async function handleCanvasAssetDrop(event: DragEvent) {
+  const asset = decodeDraggedUserAsset(event.dataTransfer?.getData(USER_ASSET_DRAG_MIME));
+  if (!asset) return;
+  event.preventDefault();
+  const worldPoint = screenToWorld(event.clientX, event.clientY);
+  try {
+    await createImageNodeFromAsset(asset, worldPoint);
+    message.success("素材已插入画布");
+  } catch (err: any) {
+    message.error(err?.response?.data?.detail || "插入素材失败");
+  }
 }
 
 async function handleFreeImageUpload(event: Event) {
@@ -3565,6 +3713,135 @@ function getNodeImageUrl(node: CanvasNode) {
     return previewUrl;
   }
   return getDisplayImageUrl(image);
+}
+
+function isUserAssetUrl(url?: string) {
+  return typeof url === "string" && url.includes("user_assets/");
+}
+
+function getImageNodeBadgeText(node: CanvasNode) {
+  const workbenchNode = node as CanvasWorkbenchNode;
+  if (workbenchNode.uploadStatus === "uploading") return "上传中";
+  if (workbenchNode.uploadStatus === "failed") return "失败";
+  return isUserAssetUrl(node.image_url) ? "素材库" : "上传";
+}
+
+async function loadAssetCategories() {
+  assetCategoriesLoading.value = true;
+  try {
+    const res = await listUserAssetCategories();
+    assetCategories.value = res.items || [];
+  } catch (err: any) {
+    message.error(err?.response?.data?.detail || "获取素材分类失败");
+  } finally {
+    assetCategoriesLoading.value = false;
+  }
+}
+
+function getNodeAssetImportSourceUrl(node: CanvasNode) {
+  if (node.node_type === "image" && node.image_url) {
+    return node.image_url;
+  }
+  const option = getNodeReferenceOption(node);
+  return option?.imageUrl || "";
+}
+
+function buildNodeAssetImportName(node: CanvasNode) {
+  if (node.node_type === "image") {
+    return `画布素材-${node.id}`;
+  }
+  const promptText = (node.task?.prompt || "").trim();
+  if (promptText) {
+    return promptText.slice(0, 30);
+  }
+  return `画布结果-${node.id}`;
+}
+
+function canAddNodeToAssetLibrary(node: CanvasNode | null | undefined) {
+  return !!node && !!getNodeAssetImportSourceUrl(node);
+}
+
+async function openSaveNodeToAssetDialog(node: CanvasNode) {
+  const sourceUrl = getNodeAssetImportSourceUrl(node);
+  if (!sourceUrl) {
+    message.warning("当前节点没有可保存的图片");
+    return;
+  }
+  const quota = await getUserAssetStats();
+  if (quota.remaining <= 0) {
+    message.warning(getAssetQuotaFullMessage(quota));
+    return;
+  }
+  closeNodeContextMenu();
+  saveToAssetNode.value = node;
+  saveToAssetName.value = buildNodeAssetImportName(node);
+  saveToAssetCategoryId.value = "uncategorized";
+  saveToAssetDialogOpen.value = true;
+  if (!assetCategories.value.length) {
+    await loadAssetCategories();
+  }
+}
+
+async function submitSaveNodeToAssetDialog() {
+  const node = saveToAssetNode.value;
+  if (!node) return;
+  const sourceUrl = getNodeAssetImportSourceUrl(node);
+  const fileName = saveToAssetName.value.trim();
+  if (!sourceUrl) {
+    message.warning("当前节点没有可保存的图片");
+    return;
+  }
+  if (!fileName) {
+    message.warning("请输入素材名称");
+    return;
+  }
+  const quota = await getUserAssetStats();
+  if (quota.remaining <= 0) {
+    message.warning(getAssetQuotaFullMessage(quota));
+    return;
+  }
+  saveToAssetSubmitting.value = true;
+  try {
+    await importUserAssetFromUrl({
+      imageUrl: sourceUrl,
+      fileName,
+      categoryId: saveToAssetCategoryId.value === "uncategorized" ? null : saveToAssetCategoryId.value,
+      width: Math.round(Number(node.width || DEFAULT_NODE_WIDTH)),
+      height: Math.round(getNodeCardHeight(node)),
+    });
+    saveToAssetDialogOpen.value = false;
+    message.success("已添加到素材库");
+  } catch (err: any) {
+    const quotaMessage = resolveAssetQuotaErrorMessage(err);
+    if (quotaMessage) {
+      message.warning(quotaMessage);
+      return;
+    }
+    message.error(err?.response?.data?.detail || "添加到素材库失败");
+  } finally {
+    saveToAssetSubmitting.value = false;
+  }
+}
+
+async function submitAssetCategoryNameDialog() {
+  const name = assetCategoryNameValue.value.trim();
+  if (!name) {
+    message.warning("请输入分类名称");
+    return;
+  }
+  assetCategoryNameDialogSaving.value = true;
+  try {
+    const category = await createUserAssetCategory(name);
+    await loadAssetCategories();
+    saveToAssetCategoryId.value = category.id;
+    assetCategoryNameDialogOpen.value = false;
+    assetCategoryNameValue.value = "";
+    message.success("分类已创建");
+  } catch (err: any) {
+    message.error(err?.response?.data?.detail || "创建分类失败");
+  } finally {
+    assetCategoryNameDialogSaving.value = false;
+  }
 }
 
 function handleNodeImageLoad(node: CanvasNode) {
@@ -3832,6 +4109,8 @@ onBeforeUnmount(() => {
         'background-solid': canvasBackgroundMode === 'solid',
       }"
       @wheel="handleWheel"
+      @dragover="handleCanvasAssetDragOver"
+      @drop="handleCanvasAssetDrop"
       @contextmenu="handleStageContextMenu"
       @pointerdown="handleStagePointerDown"
       @pointermove="handleStagePointerMove"
@@ -3854,6 +4133,10 @@ onBeforeUnmount(() => {
         <button type="button" :disabled="canvasReadOnly" @click="triggerFreeImageUpload(pendingFreeImageAnchor)">
           <PictureOutlined />
           <span>上传图片</span>
+        </button>
+        <button type="button" :disabled="canvasReadOnly" @click="assetPickerOpen = true">
+          <PictureOutlined />
+          <span>素材库</span>
         </button>
         <button type="button" :disabled="canvasReadOnly" @click="arrangeCanvasNodesFromContextMenu">
           <ClearOutlined />
@@ -4096,6 +4379,15 @@ onBeforeUnmount(() => {
               <PlusOutlined />
             </button>
           </a-tooltip>
+          <a-tooltip title="素材库" placement="right">
+            <button
+              type="button"
+              :class="{ active: assetPickerOpen }"
+              @click="handleCanvasSideTool('userAssets')"
+            >
+              <PictureOutlined />
+            </button>
+          </a-tooltip>
           <a-tooltip title="搜索节点" placement="right">
             <button type="button" @click="handleCanvasSideTool('searchNode')">
               <SearchOutlined />
@@ -4209,6 +4501,10 @@ onBeforeUnmount(() => {
                   <button type="button" @click="triggerReferenceUpload">
                     <UploadOutlined />
                     <span>本地上传</span>
+                  </button>
+                  <button type="button" @click="openUserAssetPicker">
+                    <PictureOutlined />
+                    <span>素材库</span>
                   </button>
                   <button type="button" @click="openCanvasReferencePicker">
                     <AimOutlined />
@@ -4498,6 +4794,14 @@ onBeforeUnmount(() => {
           <EditOutlined />
           <span>编辑图片</span>
         </button>
+        <button
+          v-if="!canvasReadOnly && canAddNodeToAssetLibrary(nodeContextMenuNode)"
+          type="button"
+          @click="openSaveNodeToAssetDialog(nodeContextMenuNode)"
+        >
+          <PictureOutlined />
+          <span>添加到素材库</span>
+        </button>
         <button v-if="!canvasReadOnly" type="button" class="danger" @click="handleNodeContextDelete">
           <DeleteOutlined />
           <span>删除节点</span>
@@ -4612,7 +4916,7 @@ onBeforeUnmount(() => {
               </div>
             </template>
             <span v-else-if="node.node_type === 'image'" class="canvas-free-image-badge">
-              {{ node.uploadStatus === 'uploading' ? '上传中' : node.uploadStatus === 'failed' ? '失败' : '上传' }}
+              {{ getImageNodeBadgeText(node) }}
             </span>
             <img
               v-if="node.node_type !== 'text' && getNodeImageUrl(node)"
@@ -4694,6 +4998,72 @@ onBeforeUnmount(() => {
       :require-task="false"
       :append-content="canvasFeedbackAppendContent"
     />
+    <UserAssetPicker
+      v-model:open="assetPickerOpen"
+      title="素材库"
+      :enable-drag="true"
+      :mask="false"
+      :show-insert-to-canvas="true"
+      @select-asset="handlePickUserAsset"
+      @insert-asset="handleInsertUserAssetToCanvas"
+    />
+    <a-modal
+      v-model:open="saveToAssetDialogOpen"
+      title="添加到素材库"
+      centered
+      ok-text="保存"
+      cancel-text="取消"
+      :confirm-loading="saveToAssetSubmitting"
+      @ok="submitSaveNodeToAssetDialog"
+    >
+      <div class="asset-import-dialog">
+        <div class="asset-import-field">
+          <div class="asset-import-label">素材名称</div>
+          <a-input
+            v-model:value="saveToAssetName"
+            :maxlength="255"
+            show-count
+            placeholder="请输入素材名称"
+            @press-enter="submitSaveNodeToAssetDialog"
+          />
+        </div>
+        <div class="asset-import-field">
+          <div class="asset-import-label-row">
+            <div class="asset-import-label">所属分类</div>
+            <a-button size="small" :loading="assetCategoriesLoading" @click="assetCategoryNameDialogOpen = true">
+              新建分类
+            </a-button>
+          </div>
+          <a-select
+            v-model:value="saveToAssetCategoryId"
+            class="asset-import-select"
+            :loading="assetCategoriesLoading"
+          >
+            <a-select-option value="uncategorized">未分类</a-select-option>
+            <a-select-option v-for="item in assetCategories" :key="item.id" :value="item.id">
+              {{ item.name }}
+            </a-select-option>
+          </a-select>
+        </div>
+      </div>
+    </a-modal>
+    <a-modal
+      v-model:open="assetCategoryNameDialogOpen"
+      title="新建分类"
+      centered
+      ok-text="保存"
+      cancel-text="取消"
+      :confirm-loading="assetCategoryNameDialogSaving"
+      @ok="submitAssetCategoryNameDialog"
+    >
+      <a-input
+        v-model:value="assetCategoryNameValue"
+        :maxlength="100"
+        show-count
+        placeholder="请输入分类名称"
+        @press-enter="submitAssetCategoryNameDialog"
+      />
+    </a-modal>
     <AdminUserInfoDialog
       v-model:open="readonlyOwnerDialogOpen"
       :user="selectedReadonlyOwner"
@@ -4778,6 +5148,33 @@ onBeforeUnmount(() => {
   border: 1px solid var(--theme-panel-border);
   background: linear-gradient(180deg, var(--theme-panel-bg), var(--theme-panel-bg-soft));
   box-shadow: 0 16px 34px var(--theme-card-shadow);
+}
+
+.asset-import-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.asset-import-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.asset-import-label,
+.asset-import-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.asset-import-select {
+  width: 100%;
 }
 
 .canvas-onboarding-overlay {
