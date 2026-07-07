@@ -1052,153 +1052,107 @@ def _pick_default_config_for_definition(db: Session, definition: dict[str, Any])
 
 def _ensure_scene_bindings(db: Session) -> None:
     bindings = db.query(ExternalApiSceneBinding).all()
-    existing_map = {row.scene_key: row for row in bindings}
-    if bindings:
-        updated = False
-        for binding in bindings:
-            default_definition = DEFAULT_SCENE_MAP.get(binding.scene_key)
-            default_cost = get_default_credit_cost(binding.scene_key, binding.scene_type)
-            aspect_ratio_options_json, image_size_options_json, custom_size_options_json = _get_scene_option_json(
-                binding.scene_type or SCENE_TYPE_GENERATE,
-                binding.aspect_ratio_options_json,
-                binding.image_size_options_json,
-                binding.custom_size_options_json,
-            )
-            if binding.credit_cost is None:
-                binding.credit_cost = default_cost
+    if not bindings:
+        return
+    updated = False
+    for binding in bindings:
+        default_definition = DEFAULT_SCENE_MAP.get(binding.scene_key)
+        default_cost = get_default_credit_cost(binding.scene_key, binding.scene_type)
+        aspect_ratio_options_json, image_size_options_json, custom_size_options_json = _get_scene_option_json(
+            binding.scene_type or SCENE_TYPE_GENERATE,
+            binding.aspect_ratio_options_json,
+            binding.image_size_options_json,
+            binding.custom_size_options_json,
+        )
+        if binding.credit_cost is None:
+            binding.credit_cost = default_cost
+            updated = True
+        if (binding.status or "").strip().lower() not in {"enabled", "disabled"}:
+            binding.status = "enabled"
+            updated = True
+        if (binding.aspect_ratio_options_json or "") != aspect_ratio_options_json:
+            binding.aspect_ratio_options_json = aspect_ratio_options_json
+            updated = True
+        if (binding.image_size_options_json or "") != image_size_options_json:
+            binding.image_size_options_json = image_size_options_json
+            updated = True
+        if (binding.custom_size_options_json or "") != custom_size_options_json:
+            binding.custom_size_options_json = custom_size_options_json
+            updated = True
+        resolution_mapping_json = _get_resolution_mapping_json(binding.resolution_mapping_json)
+        if (binding.resolution_mapping_json or "") != resolution_mapping_json:
+            binding.resolution_mapping_json = resolution_mapping_json
+            updated = True
+        resolution_credit_costs_json = _get_resolution_credit_costs_json(binding.resolution_credit_costs_json)
+        if (binding.resolution_credit_costs_json or "") != resolution_credit_costs_json:
+            binding.resolution_credit_costs_json = resolution_credit_costs_json
+            updated = True
+        if default_definition:
+            if not (binding.scene_type or "").strip():
+                binding.scene_type = default_definition["scene_type"]
                 updated = True
-            if (binding.status or "").strip().lower() not in {"enabled", "disabled"}:
-                binding.status = "enabled"
-                updated = True
-            if (binding.aspect_ratio_options_json or "") != aspect_ratio_options_json:
-                binding.aspect_ratio_options_json = aspect_ratio_options_json
-                updated = True
-            if (binding.image_size_options_json or "") != image_size_options_json:
-                binding.image_size_options_json = image_size_options_json
-                updated = True
-            if (binding.custom_size_options_json or "") != custom_size_options_json:
-                binding.custom_size_options_json = custom_size_options_json
-                updated = True
-            resolution_mapping_json = _get_resolution_mapping_json(binding.resolution_mapping_json)
-            if (binding.resolution_mapping_json or "") != resolution_mapping_json:
-                binding.resolution_mapping_json = resolution_mapping_json
-                updated = True
-            resolution_credit_costs_json = _get_resolution_credit_costs_json(binding.resolution_credit_costs_json)
-            if (binding.resolution_credit_costs_json or "") != resolution_credit_costs_json:
-                binding.resolution_credit_costs_json = resolution_credit_costs_json
-                updated = True
-            if default_definition:
-                if not (binding.scene_type or "").strip():
+            if is_builtin_scene(binding.scene_key):
+                if binding.scene_type != default_definition["scene_type"]:
                     binding.scene_type = default_definition["scene_type"]
                     updated = True
-                if is_builtin_scene(binding.scene_key):
-                    if binding.scene_type != default_definition["scene_type"]:
-                        binding.scene_type = default_definition["scene_type"]
-                        updated = True
-                    if (binding.scene_label or "").strip() != default_definition["scene_label"]:
-                        binding.scene_label = default_definition["scene_label"]
-                        updated = True
-                    if (binding.scene_description or "").strip() != default_definition["scene_description"]:
-                        binding.scene_description = default_definition["scene_description"]
-                        updated = True
-                    if int(binding.sort_order or 0) != int(default_definition["sort_order"]):
-                        binding.sort_order = default_definition["sort_order"]
-                        updated = True
-                    if bool(binding.hide_aspect_ratio) != bool(default_definition["hide_aspect_ratio"]):
-                        binding.hide_aspect_ratio = default_definition["hide_aspect_ratio"]
-                        updated = True
-                    if bool(binding.hide_resolution) != bool(default_definition["hide_resolution"]):
-                        binding.hide_resolution = default_definition["hide_resolution"]
-                        updated = True
-                    if bool(binding.hide_custom_size) != bool(default_definition["hide_custom_size"]):
-                        binding.hide_custom_size = default_definition["hide_custom_size"]
-                        updated = True
-                else:
-                    if not (binding.scene_label or "").strip():
-                        binding.scene_label = default_definition["scene_label"]
-                        updated = True
-                    if not (binding.scene_description or "").strip():
-                        binding.scene_description = default_definition["scene_description"]
-                        updated = True
-                    if int(binding.sort_order or 0) <= 0:
-                        binding.sort_order = default_definition["sort_order"]
-                        updated = True
-                    if binding.hide_aspect_ratio is None:
-                        binding.hide_aspect_ratio = default_definition["hide_aspect_ratio"]
-                        updated = True
-                    if binding.hide_resolution is None:
-                        binding.hide_resolution = default_definition["hide_resolution"]
-                        updated = True
-                    if binding.hide_custom_size is None:
-                        binding.hide_custom_size = default_definition["hide_custom_size"]
-                        updated = True
-            else:
-                if not (binding.scene_type or "").strip():
-                    binding.scene_type = SCENE_TYPE_GENERATE
+                if (binding.scene_label or "").strip() != default_definition["scene_label"]:
+                    binding.scene_label = default_definition["scene_label"]
                     updated = True
+                if (binding.scene_description or "").strip() != default_definition["scene_description"]:
+                    binding.scene_description = default_definition["scene_description"]
+                    updated = True
+                if int(binding.sort_order or 0) != int(default_definition["sort_order"]):
+                    binding.sort_order = default_definition["sort_order"]
+                    updated = True
+                if bool(binding.hide_aspect_ratio) != bool(default_definition["hide_aspect_ratio"]):
+                    binding.hide_aspect_ratio = default_definition["hide_aspect_ratio"]
+                    updated = True
+                if bool(binding.hide_resolution) != bool(default_definition["hide_resolution"]):
+                    binding.hide_resolution = default_definition["hide_resolution"]
+                    updated = True
+                if bool(binding.hide_custom_size) != bool(default_definition["hide_custom_size"]):
+                    binding.hide_custom_size = default_definition["hide_custom_size"]
+                    updated = True
+            else:
                 if not (binding.scene_label or "").strip():
-                    binding.scene_label = binding.scene_key
+                    binding.scene_label = default_definition["scene_label"]
+                    updated = True
+                if not (binding.scene_description or "").strip():
+                    binding.scene_description = default_definition["scene_description"]
+                    updated = True
+                if int(binding.sort_order or 0) <= 0:
+                    binding.sort_order = default_definition["sort_order"]
                     updated = True
                 if binding.hide_aspect_ratio is None:
-                    binding.hide_aspect_ratio = False
+                    binding.hide_aspect_ratio = default_definition["hide_aspect_ratio"]
                     updated = True
                 if binding.hide_resolution is None:
-                    binding.hide_resolution = False
+                    binding.hide_resolution = default_definition["hide_resolution"]
                     updated = True
                 if binding.hide_custom_size is None:
-                    binding.hide_custom_size = True
+                    binding.hide_custom_size = default_definition["hide_custom_size"]
                     updated = True
-                if binding.max_reference_images is None:
-                    binding.max_reference_images = get_default_max_reference_images(binding.scene_type)
-                    updated = True
-        for definition in DEFAULT_SCENE_DEFINITIONS:
-            if definition["scene_key"] in existing_map:
-                continue
-            config = _pick_default_config_for_definition(db, definition)
-            db.add(ExternalApiSceneBinding(
-                scene_key=definition["scene_key"],
-                scene_type=definition["scene_type"],
-                scene_label=definition["scene_label"],
-                scene_description=definition["scene_description"],
-                sort_order=definition["sort_order"],
-                hide_aspect_ratio=definition["hide_aspect_ratio"],
-                hide_resolution=definition["hide_resolution"],
-                hide_custom_size=definition["hide_custom_size"],
-                api_config_id=config.id if config else None,
-                credit_cost=get_default_credit_cost(definition["scene_key"], definition["scene_type"]),
-                max_reference_images=get_default_max_reference_images(definition["scene_type"]),
-                aspect_ratio_options_json=_get_scene_option_json(definition["scene_type"], None, None, None)[0],
-                image_size_options_json=_get_scene_option_json(definition["scene_type"], None, None, None)[1],
-                custom_size_options_json=_get_scene_option_json(definition["scene_type"], None, None, None)[2],
-                resolution_mapping_json=_get_resolution_mapping_json(None),
-                resolution_credit_costs_json=_get_resolution_credit_costs_json(None),
-            ))
-            updated = True
-        if updated:
-            db.commit()
-        return
-
-    for definition in DEFAULT_SCENE_DEFINITIONS:
-        config = _pick_default_config_for_definition(db, definition)
-        db.add(ExternalApiSceneBinding(
-            scene_key=definition["scene_key"],
-            scene_type=definition["scene_type"],
-            scene_label=definition["scene_label"],
-            scene_description=definition["scene_description"],
-            sort_order=definition["sort_order"],
-            hide_aspect_ratio=definition["hide_aspect_ratio"],
-            hide_resolution=definition["hide_resolution"],
-            hide_custom_size=definition["hide_custom_size"],
-            api_config_id=config.id if config else None,
-            credit_cost=get_default_credit_cost(definition["scene_key"], definition["scene_type"]),
-            max_reference_images=get_default_max_reference_images(definition["scene_type"]),
-            aspect_ratio_options_json=_get_scene_option_json(definition["scene_type"], None, None, None)[0],
-            image_size_options_json=_get_scene_option_json(definition["scene_type"], None, None, None)[1],
-            custom_size_options_json=_get_scene_option_json(definition["scene_type"], None, None, None)[2],
-            resolution_mapping_json=_get_resolution_mapping_json(None),
-            resolution_credit_costs_json=_get_resolution_credit_costs_json(None),
-        ))
-    db.commit()
+        else:
+            if not (binding.scene_type or "").strip():
+                binding.scene_type = SCENE_TYPE_GENERATE
+                updated = True
+            if not (binding.scene_label or "").strip():
+                binding.scene_label = binding.scene_key
+                updated = True
+            if binding.hide_aspect_ratio is None:
+                binding.hide_aspect_ratio = False
+                updated = True
+            if binding.hide_resolution is None:
+                binding.hide_resolution = False
+                updated = True
+            if binding.hide_custom_size is None:
+                binding.hide_custom_size = True
+                updated = True
+            if binding.max_reference_images is None:
+                binding.max_reference_images = get_default_max_reference_images(binding.scene_type)
+                updated = True
+    if updated:
+        db.commit()
 
 
 def seed_legacy_configs(db: Session, ai_api_url: str, prompt_reverse_url: str) -> None:
