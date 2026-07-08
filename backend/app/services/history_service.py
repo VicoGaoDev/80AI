@@ -4,11 +4,12 @@ from typing import Optional
 
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, selectinload
-from app.models.task import Task
-from app.models.image import Image
 from app.models.credit_log import CreditLog
-from app.models.prompt_history import PromptHistory
 from app.models.history_pin import HistoryPin
+from app.models.image import Image
+from app.models.prompt_history import PromptHistory
+from app.models.task import Task
+from app.models.task_api_attempt import TaskApiAttempt
 from app.models.user import User
 from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION,
@@ -99,6 +100,55 @@ def _serialize_history_images(
     return result
 
 
+def _serialize_task_api_attempts(attempts: list[TaskApiAttempt]) -> list[dict]:
+    serialized: list[dict] = []
+    for attempt in sorted(
+        attempts,
+        key=lambda item: (
+            item.image_index or 0,
+            item.image_id or 0,
+            item.attempt_index or 0,
+            item.id or 0,
+        ),
+    ):
+        serialized.append({
+            "id": attempt.id,
+            "image_id": attempt.image_id,
+            "image_index": attempt.image_index,
+            "api_config_id": attempt.api_config_id,
+            "api_config_name": attempt.api_config_name or "",
+            "attempt_index": int(attempt.attempt_index or 1),
+            "is_fallback": bool(attempt.is_fallback),
+            "status": attempt.status or "failed",
+            "http_status": attempt.http_status,
+            "error_message": attempt.error_message or "",
+            "duration_ms": attempt.duration_ms,
+            "created_at": attempt.created_at,
+        })
+    return serialized
+
+
+def _load_task_attempts_map(db: Session, task_ids: list[int]) -> dict[int, list[TaskApiAttempt]]:
+    normalized_task_ids = [int(task_id) for task_id in task_ids if task_id]
+    if not normalized_task_ids:
+        return {}
+    rows = (
+        db.query(TaskApiAttempt)
+        .filter(TaskApiAttempt.task_id.in_(normalized_task_ids))
+        .order_by(
+            TaskApiAttempt.task_id.asc(),
+            TaskApiAttempt.image_index.asc(),
+            TaskApiAttempt.attempt_index.asc(),
+            TaskApiAttempt.id.asc(),
+        )
+        .all()
+    )
+    attempts_map: dict[int, list[TaskApiAttempt]] = {}
+    for row in rows:
+        attempts_map.setdefault(int(row.task_id), []).append(row)
+    return attempts_map
+
+
 def _get_refunded_task_ids(db: Session, task_ids: list[int]) -> set[int]:
     normalized_ids = [int(task_id) for task_id in task_ids if task_id]
     if not normalized_ids:
@@ -120,7 +170,13 @@ def _get_refunded_task_ids(db: Session, task_ids: list[int]) -> set[int]:
     }
 
 
-def _serialize_task_history_detail(task: Task, *, cos_config, scene_type_map: dict[str, str] | None = None) -> dict:
+def _serialize_task_history_detail(
+    task: Task,
+    *,
+    cos_config,
+    scene_type_map: dict[str, str] | None = None,
+    api_attempts: list[TaskApiAttempt] | None = None,
+) -> dict:
     primary_image = next(
         (img for img in sorted(task.images, key=lambda item: item.id, reverse=True) if not img.is_deleted),
         None,
@@ -143,6 +199,17 @@ def _serialize_task_history_detail(task: Task, *, cos_config, scene_type_map: di
     if task.status == "failed" and task_credit_cost > 0:
         db = Session.object_session(task)
         credit_refunded = bool(db and is_task_generation_failure_credit_refunded(db, task.id))
+    resolved_attempts = api_attempts
+    if resolved_attempts is None:
+        db = Session.object_session(task)
+        resolved_attempts = (
+            db.query(TaskApiAttempt)
+            .filter(TaskApiAttempt.task_id == task.id)
+            .order_by(TaskApiAttempt.image_index.asc(), TaskApiAttempt.attempt_index.asc(), TaskApiAttempt.id.asc())
+            .all()
+            if db and task.id
+            else []
+        )
     return {
         "history_id": None,
         "item_type": "task",
@@ -181,9 +248,11 @@ def _serialize_task_history_detail(task: Task, *, cos_config, scene_type_map: di
         "custom_size": task.custom_size or "",
         "credit_cost": task_credit_cost,
         "credit_refunded": credit_refunded,
+        "used_fallback_api": bool(task.used_fallback_api),
         "created_at": task.created_at,
         "error_message": task.error_message or "",
         "images": visible_images,
+        "api_attempts": _serialize_task_api_attempts(resolved_attempts or []),
     }
 
 
@@ -226,9 +295,11 @@ def _serialize_prompt_history_detail(row: PromptHistory, *, cos_config) -> dict:
         "resolution": "",
         "custom_size": "",
         "credit_cost": 0,
+        "used_fallback_api": False,
         "created_at": row.created_at,
         "error_message": "",
         "images": [],
+        "api_attempts": [],
     }
 
 
@@ -766,7 +837,11 @@ def get_admin_history_cards(
         db.query(Image)
         .join(Task, Image.task_id == Task.id)
         .join(User, User.id == Task.user_id)
-        .options(selectinload(Image.task).selectinload(Task.images), selectinload(Image.task).selectinload(Task.user))
+        .options(
+            selectinload(Image.task).selectinload(Task.images),
+            selectinload(Image.task).selectinload(Task.user),
+            selectinload(Image.task).selectinload(Task.canvas),
+        )
         .filter(User.role != "superadmin")
         .filter(User.is_whitelisted.is_(False))
         .filter(Image.is_deleted.is_(False))
@@ -774,7 +849,7 @@ def get_admin_history_cards(
     running_task_query = (
         db.query(Task)
         .join(User, User.id == Task.user_id)
-        .options(selectinload(Task.images), selectinload(Task.user))
+        .options(selectinload(Task.images), selectinload(Task.user), selectinload(Task.canvas))
         .filter(User.role != "superadmin")
         .filter(User.is_whitelisted.is_(False))
         .filter(Task.is_deleted.is_(False))
@@ -783,7 +858,7 @@ def get_admin_history_cards(
     task_without_image_query = (
         db.query(Task)
         .join(User, User.id == Task.user_id)
-        .options(selectinload(Task.images), selectinload(Task.user))
+        .options(selectinload(Task.images), selectinload(Task.user), selectinload(Task.canvas))
         .filter(User.role != "superadmin")
         .filter(User.is_whitelisted.is_(False))
         .filter(~Task.status.in_(running_statuses))
@@ -935,14 +1010,24 @@ def get_admin_history_cards(
         user.id: user
         for user in db.query(User).filter(User.id.in_(user_ids)).all()
     } if user_ids else {}
+    failed_task_ids = {
+        int(task.id)
+        for task in (
+            [image.task for image in images if image.task]
+            + list(tasks_without_images)
+        )
+        if task
+        and task.id
+        and task.status == "failed"
+        and int(task.credit_cost or 0) > 0
+    }
+    refunded_task_ids = _get_refunded_task_ids(db, list(failed_task_ids))
     items = []
     for image in images:
         task = image.task
         task_user = user_cache.get(task.user_id) if task else None
         task_credit_cost = int(task.credit_cost or 0) if task else 0
-        credit_refunded = False
-        if task and task.status == "failed" and task_credit_cost > 0:
-            credit_refunded = is_task_generation_failure_credit_refunded(db, task.id)
+        credit_refunded = bool(task and task.id and int(task.id) in refunded_task_ids)
         image_payload = serialize_image(image, cos_config=cos_config)
         source_asset = serialize_asset_urls(task.source_image or "", cos_config=cos_config)
         mask_asset = serialize_asset_urls(task.mask_image or "", cos_config=cos_config)
@@ -951,6 +1036,7 @@ def get_admin_history_cards(
         items.append({
             "history_id": None,
             "item_type": "task",
+            "_task_db_id": task.id,
             "display_id": task_external_id(task),
             "task_id": task_external_id(task),
             "canvas_id": task.canvas_id if task else None,
@@ -986,10 +1072,12 @@ def get_admin_history_cards(
             "custom_size": task.custom_size or "",
             "credit_cost": task_credit_cost,
             "credit_refunded": credit_refunded,
+            "used_fallback_api": bool(task.used_fallback_api),
             "created_at": task.created_at,
             "run_time": _calculate_task_run_time(task),
             "error_message": task.error_message or "",
             "images": visible_images,
+            "api_attempts": [],
         })
 
     for task in running_tasks:
@@ -1002,6 +1090,7 @@ def get_admin_history_cards(
         items.append({
             "history_id": None,
             "item_type": "task",
+            "_task_db_id": task.id,
             "display_id": task_external_id(task),
             "task_id": task_external_id(task),
             "canvas_id": task.canvas_id,
@@ -1037,24 +1126,25 @@ def get_admin_history_cards(
             "custom_size": task.custom_size or "",
             "credit_cost": int(task.credit_cost or 0),
             "credit_refunded": False,
+            "used_fallback_api": bool(task.used_fallback_api),
             "created_at": task.created_at,
             "run_time": _calculate_task_run_time(task),
             "error_message": task.error_message or "",
             "images": visible_images,
+            "api_attempts": [],
         })
 
     for task in tasks_without_images:
         task_user = user_cache.get(task.user_id)
         task_credit_cost = int(task.credit_cost or 0)
-        credit_refunded = False
-        if task.status == "failed" and task_credit_cost > 0:
-            credit_refunded = is_task_generation_failure_credit_refunded(db, task.id)
+        credit_refunded = bool(task.id and int(task.id) in refunded_task_ids)
         source_asset = serialize_asset_urls(task.source_image or "", cos_config=cos_config)
         mask_asset = serialize_asset_urls(task.mask_image or "", cos_config=cos_config)
         reference_assets = [serialize_asset_urls(ref, cos_config=cos_config) for ref in _parse_refs(task.reference_images)]
         items.append({
             "history_id": None,
             "item_type": "task",
+            "_task_db_id": task.id,
             "display_id": task_external_id(task),
             "task_id": task_external_id(task),
             "canvas_id": task.canvas_id,
@@ -1090,10 +1180,12 @@ def get_admin_history_cards(
             "custom_size": task.custom_size or "",
             "credit_cost": task_credit_cost,
             "credit_refunded": credit_refunded,
+            "used_fallback_api": bool(task.used_fallback_api),
             "created_at": task.created_at,
             "run_time": _calculate_task_run_time(task),
             "error_message": task.error_message or "",
             "images": [],
+            "api_attempts": [],
         })
 
     for row in prompt_reverse_rows:
@@ -1134,13 +1226,26 @@ def get_admin_history_cards(
             "resolution": "",
             "custom_size": "",
             "credit_cost": 0,
+            "used_fallback_api": False,
             "created_at": row.created_at,
             "error_message": "",
             "images": [],
+            "api_attempts": [],
         })
 
     items.sort(key=lambda item: item.get("created_at") or datetime.min, reverse=True)
     page_items = items[start_index:start_index + page_size]
+    task_ids = [
+        int(item.get("_task_db_id"))
+        for item in page_items
+        if item.get("item_type") == "task" and item.get("_task_db_id")
+    ]
+    attempts_map = _load_task_attempts_map(db, task_ids)
+    for item in page_items:
+        task_db_id = item.pop("_task_db_id", None)
+        if item.get("item_type") != "task" or not task_db_id:
+            continue
+        item["api_attempts"] = _serialize_task_api_attempts(attempts_map.get(int(task_db_id), []))
     has_more = len(items) > start_index + page_size
     total = start_index + len(page_items) + (1 if has_more else 0)
     return {"total": total, "items": page_items}
@@ -1162,7 +1267,7 @@ def get_admin_history_detail(
         task = (
             db.query(Task)
             .join(User, User.id == Task.user_id)
-            .options(selectinload(Task.images))
+            .options(selectinload(Task.images), selectinload(Task.canvas))
             .filter(
                 Task.business_id == normalized_task_id,
                 User.role != "superadmin",
