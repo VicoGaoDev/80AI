@@ -103,6 +103,7 @@ export interface HistoryItem {
   custom_size?: string;
   credit_cost: number;
   credit_refunded?: boolean;
+  used_fallback_api?: boolean;
   status: string;
   error_message?: string;
   task_is_deleted?: boolean;
@@ -110,6 +111,7 @@ export interface HistoryItem {
   soft_deleted_count?: number;
   created_at: string;
   images: ImageResult[];
+  api_attempts?: TaskApiAttempt[];
 }
 
 export interface HistoryFilter {
@@ -121,6 +123,7 @@ export interface HistoryFilter {
   user_id?: string;
   start_date?: string;
   end_date?: string;
+  used_fallback_api?: boolean;
   respect_pins?: boolean;
   include_prompt_reverse?: boolean;
   board_id?: number;
@@ -131,6 +134,21 @@ export interface HistoryResponse {
   total: number;
   total_credit_cost: number;
   items: HistoryItem[];
+}
+
+export interface TaskApiAttempt {
+  id?: number | null;
+  image_id?: number | null;
+  image_index?: number | null;
+  api_config_id?: number | null;
+  api_config_name: string;
+  attempt_index: number;
+  is_fallback: boolean;
+  status: "success" | "failed" | string;
+  http_status?: number | null;
+  error_message?: string;
+  duration_ms?: number | null;
+  created_at?: string | null;
 }
 
 export interface UserHistoryCard {
@@ -171,10 +189,12 @@ export interface UserHistoryCard {
   custom_size?: string;
   credit_cost: number;
   credit_refunded?: boolean;
+  used_fallback_api?: boolean;
   created_at: string;
   run_time?: number | null;
   error_message?: string;
   images: ImageResult[];
+  api_attempts?: TaskApiAttempt[];
 }
 
 export interface UserHistoryResponse {
@@ -873,6 +893,7 @@ export interface AdminErrorTaskItem {
   error_message: string;
   credit_cost: number;
   credit_refunded: boolean;
+  used_fallback_api?: boolean;
   created_at?: string | null;
 }
 
@@ -1016,6 +1037,10 @@ export interface ExternalApiSceneBinding {
   api_config_name: string;
   api_group_name: string;
   api_status?: ExternalApiConfigStatus | null;
+  backup_api_config_id?: number | null;
+  backup_api_config_name: string;
+  backup_api_group_name: string;
+  backup_api_status?: ExternalApiConfigStatus | null;
   credit_cost: number;
   resolution_credit_costs_json: string;
   max_reference_images: number;
@@ -1035,6 +1060,7 @@ export interface ExternalApiSceneBindingCreatePayload {
   hide_resolution: boolean;
   hide_custom_size: boolean;
   api_config_id: number | null;
+  backup_api_config_id: number | null;
   display_name: string;
   subtitle: string;
   credit_cost: number;

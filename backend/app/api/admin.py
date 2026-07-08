@@ -441,6 +441,7 @@ def admin_error_analytics(
     end_date: Optional[datetime] = Query(None),
     model: Optional[str] = Query(None),
     error_category: Optional[str] = Query(None),
+    used_fallback_api: Optional[bool] = Query(None),
     _user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -450,6 +451,7 @@ def admin_error_analytics(
         end_date=end_date,
         model=model,
         error_category=error_category,
+        used_fallback_api=used_fallback_api,
     )
 
 
@@ -459,6 +461,7 @@ def admin_error_category_timeseries(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     model: Optional[str] = Query(None),
+    used_fallback_api: Optional[bool] = Query(None),
     limit: int = Query(6, ge=1, le=12),
     _user: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -469,6 +472,7 @@ def admin_error_category_timeseries(
         start_date=start_date,
         end_date=end_date,
         model=model,
+        used_fallback_api=used_fallback_api,
         limit=limit,
     )
 
@@ -481,6 +485,7 @@ def admin_error_tasks(
     end_date: Optional[datetime] = Query(None),
     model: Optional[str] = Query(None),
     error_category: Optional[str] = Query(None),
+    used_fallback_api: Optional[bool] = Query(None),
     _user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -492,6 +497,7 @@ def admin_error_tasks(
         end_date=end_date,
         model=model,
         error_category=error_category,
+        used_fallback_api=used_fallback_api,
     )
 
 
@@ -551,6 +557,7 @@ def admin_history_cards(
     prompt: Optional[str] = Query(None),
     status: Optional[str] = Query(None, pattern="^(pending|processing|success|failed)$"),
     user_id: Optional[str] = Query(None),
+    used_fallback_api: Optional[bool] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     _user: User = Depends(require_admin),
@@ -567,6 +574,7 @@ def admin_history_cards(
         model=model,
         prompt=prompt,
         status=status,
+        used_fallback_api=used_fallback_api,
         start_date=start_date,
         end_date=end_date,
     )

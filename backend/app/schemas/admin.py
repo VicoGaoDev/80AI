@@ -268,6 +268,7 @@ class ErrorTaskItemOut(BaseModel):
     error_message: str = ""
     credit_cost: int = 0
     credit_refunded: bool = False
+    used_fallback_api: bool = False
     created_at: datetime | None = None
 
 

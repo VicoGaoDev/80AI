@@ -28,6 +28,7 @@ const dateRange = ref<[Dayjs, Dayjs] | null>(null);
 const analytics = ref<AdminErrorAnalytics | null>(null);
 const errorTrend = ref<AdminErrorCategoryTimeseries | null>(null);
 const modelFilter = ref<string | undefined>(undefined);
+const fallbackOnly = ref(false);
 const selectedErrorCategory = ref<string | undefined>(undefined);
 const selectedBucketLabel = ref<string | undefined>(undefined);
 const drilledDateRange = ref<[Dayjs, Dayjs] | null>(null);
@@ -50,6 +51,7 @@ const taskColumns = [
   { title: "类型", dataIndex: "task_type", width: 110 },
   { title: "来源", dataIndex: "source", width: 90 },
   { title: "状态", dataIndex: "status", width: 90 },
+  { title: "备用接口", dataIndex: "used_fallback_api", width: 110 },
   { title: "错误信息", dataIndex: "error_message" },
   { title: "时间", dataIndex: "created_at", width: 168 },
   { title: "操作", key: "actions", width: 80, fixed: "right" as const },
@@ -73,8 +75,8 @@ const summaryCards = computed(() => [
     label: selectedErrorCategory.value ? "当前钻取失败数" : "失败任务总数",
     value: selectedErrorCategory.value ? filteredFailedTaskCount.value : (analytics.value?.total_failed_tasks ?? 0),
     desc: selectedErrorCategory.value
-      ? "当前选中错误类别在所选时间桶内的失败任务数量"
-      : "当前时间范围内状态为失败的任务数量",
+      ? (fallbackOnly.value ? "当前选中错误类别在所选时间桶内的主接口失败次数" : "当前选中错误类别在所选时间桶内的失败任务数量")
+      : (fallbackOnly.value ? "当前时间范围内触发备用接口的主接口失败次数" : "当前时间范围内状态为失败的任务数量"),
     color: "#cf3f36",
   },
   {
@@ -189,6 +191,14 @@ function handleDateRangeChange() {
 function handleReset() {
   applyPreset("today");
   modelFilter.value = undefined;
+  fallbackOnly.value = false;
+  selectedErrorCategory.value = undefined;
+  selectedBucketLabel.value = undefined;
+  drilledDateRange.value = null;
+  load();
+}
+
+function handleFallbackFilterChange() {
   selectedErrorCategory.value = undefined;
   selectedBucketLabel.value = undefined;
   drilledDateRange.value = null;
@@ -219,12 +229,14 @@ async function load() {
         end_date: endDate,
         model: modelFilter.value,
         error_category: selectedErrorCategory.value,
+        used_fallback_api: fallbackOnly.value ? true : undefined,
       }),
       getAdminErrorCategoryTimeseries({
         granularity: trendGranularity.value,
         start_date: formatQueryDate(dateRange.value[0].startOf("day")),
         end_date: formatQueryDate(dateRange.value[1].endOf("day")),
         model: modelFilter.value,
+        used_fallback_api: fallbackOnly.value ? true : undefined,
         limit: 6,
       }),
     ]);
@@ -257,6 +269,7 @@ async function loadTaskTable(page = taskTablePage.value) {
       end_date: formatQueryDate(effectiveRange?.[1]?.endOf("day")),
       model: modelFilter.value,
       error_category: selectedErrorCategory.value,
+      used_fallback_api: fallbackOnly.value ? true : undefined,
     });
     taskTableItems.value = res.items;
     taskTableTotal.value = res.total;
@@ -407,6 +420,9 @@ onMounted(async () => {
           option-filter-prop="label"
           @change="load"
         />
+        <a-checkbox v-model:checked="fallbackOnly" class="analytics-fallback-checkbox" @change="handleFallbackFilterChange">
+          仅看使用备用接口
+        </a-checkbox>
         <div class="analytics-filter-panel-compact">
           <a-radio-group
             :value="preset"
@@ -446,7 +462,11 @@ onMounted(async () => {
         <div>
           <div class="table-card-title">错误类别趋势</div>
           <div class="table-card-desc">
-            按 {{ trendGranularity === "day" ? "天" : trendGranularity === "week" ? "周" : "月" }} 展示当前范围内 Top 6 错误类别变化趋势。
+            {{
+              fallbackOnly
+                ? `按 ${trendGranularity === "day" ? "天" : trendGranularity === "week" ? "周" : "月"} 展示触发备用接口任务的主接口失败 Top 6 趋势。`
+                : `按 ${trendGranularity === "day" ? "天" : trendGranularity === "week" ? "周" : "月"} 展示当前范围内 Top 6 错误类别变化趋势。`
+            }}
           </div>
         </div>
         <div v-if="selectedErrorCategory" class="linked-filter-chip-wrap">
@@ -471,7 +491,9 @@ onMounted(async () => {
             {{
               selectedErrorCategory
                 ? `当前仅展示“${selectedErrorCategory}”在${selectedBucketLabel || "当前范围"}内的明细。`
-                : "按错误类别聚合展示，并保留每类的示例错误文案。"
+                : fallbackOnly
+                  ? "按主接口失败类别聚合展示使用过备用接口的任务，并保留每类的示例错误文案。"
+                  : "按错误类别聚合展示，并保留每类的示例错误文案。"
             }}
           </div>
         </div>
@@ -506,7 +528,11 @@ onMounted(async () => {
         <div>
           <div class="table-card-title">当天任务情况</div>
           <div class="table-card-desc">
-            {{ selectedBucketLabel ? `查看“${selectedErrorCategory}”在 ${selectedBucketLabel} 的失败任务明细。` : `查看“${selectedErrorCategory}”对应的失败任务明细。` }}
+            {{
+              fallbackOnly
+                ? (selectedBucketLabel ? `查看“${selectedErrorCategory}”在 ${selectedBucketLabel} 触发备用接口的任务。` : `查看“${selectedErrorCategory}”对应的备用接口任务。`)
+                : (selectedBucketLabel ? `查看“${selectedErrorCategory}”在 ${selectedBucketLabel} 的失败任务明细。` : `查看“${selectedErrorCategory}”对应的失败任务明细。`)
+            }}
           </div>
         </div>
         <div class="history-summary">
@@ -532,7 +558,11 @@ onMounted(async () => {
             {{ sourceLabel(record.source) }}
           </template>
           <template v-else-if="column.dataIndex === 'status'">
-            <span class="category-badge category-badge-danger">{{ statusLabel(record.status) }}</span>
+            <span class="category-badge" :class="record.status === 'failed' ? 'category-badge-danger' : ''">{{ statusLabel(record.status) }}</span>
+          </template>
+          <template v-else-if="column.dataIndex === 'used_fallback_api'">
+            <span v-if="record.used_fallback_api" class="category-badge">已调用</span>
+            <span v-else class="table-muted">未调用</span>
           </template>
           <template v-else-if="column.dataIndex === 'error_message'">
             <div class="error-message-cell">{{ taskErrorText(record) }}</div>
@@ -572,6 +602,15 @@ onMounted(async () => {
 <style scoped lang="scss">
 .analytics-filter {
   margin-bottom: 16px;
+}
+
+.analytics-fallback-checkbox {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  color: #7d6446;
+  font-weight: 600;
 }
 
 .page-period-chip {
@@ -756,6 +795,10 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.table-muted {
+  color: #a58a68;
 }
 
 .warm-pagination {

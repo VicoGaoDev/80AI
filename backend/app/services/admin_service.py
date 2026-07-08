@@ -9,6 +9,7 @@ from sqlalchemy import case, func
 from fastapi import HTTPException, status
 from app.models.user import User
 from app.models.task import Task
+from app.models.task_api_attempt import TaskApiAttempt
 from app.models.credit_log import CreditLog
 from app.models.credit_redeem_key import CreditRedeemKey
 from app.models.offline_order import OfflineOrder
@@ -1696,19 +1697,38 @@ def get_error_analytics(
     end_date: datetime | None = None,
     model: str | None = None,
     error_category: str | None = None,
+    used_fallback_api: bool | None = None,
 ) -> dict:
     current_start, current_end = _align_range("day", start_date, end_date)
-    query = (
-        db.query(Task.error_message)
-        .join(User, User.id == Task.user_id)
-        .filter(
-            Task.created_at >= _to_db_datetime(current_start),
-            Task.created_at <= _to_db_datetime(current_end),
-            Task.status == "failed",
-            User.role != "superadmin",
-            _non_whitelisted_user_filter(),
+    if used_fallback_api is True:
+        query = (
+            db.query(TaskApiAttempt.error_message)
+            .join(Task, Task.id == TaskApiAttempt.task_id)
+            .join(User, User.id == Task.user_id)
+            .filter(
+                Task.created_at >= _to_db_datetime(current_start),
+                Task.created_at <= _to_db_datetime(current_end),
+                Task.used_fallback_api.is_(True),
+                TaskApiAttempt.is_fallback.is_(False),
+                TaskApiAttempt.status == "failed",
+                User.role != "superadmin",
+                _non_whitelisted_user_filter(),
+            )
         )
-    )
+    else:
+        query = (
+            db.query(Task.error_message)
+            .join(User, User.id == Task.user_id)
+            .filter(
+                Task.created_at >= _to_db_datetime(current_start),
+                Task.created_at <= _to_db_datetime(current_end),
+                Task.status == "failed",
+                User.role != "superadmin",
+                _non_whitelisted_user_filter(),
+            )
+        )
+        if used_fallback_api is False:
+            query = query.filter(Task.used_fallback_api.is_(False))
     if model:
         query = query.filter(Task.model == model)
     rows = query.all()
@@ -1754,21 +1774,40 @@ def get_error_category_timeseries(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     model: str | None = None,
+    used_fallback_api: bool | None = None,
     limit: int = 6,
 ) -> dict:
     current_start, current_end = _align_range(granularity, start_date, end_date)
     bucket_starts = _iter_bucket_starts(current_start, current_end, granularity)
-    query = (
-        db.query(Task.created_at, Task.error_message)
-        .join(User, User.id == Task.user_id)
-        .filter(
-            Task.created_at >= _to_db_datetime(current_start),
-            Task.created_at <= _to_db_datetime(current_end),
-            Task.status == "failed",
-            User.role != "superadmin",
-            _non_whitelisted_user_filter(),
+    if used_fallback_api is True:
+        query = (
+            db.query(Task.created_at, TaskApiAttempt.error_message)
+            .join(Task, Task.id == TaskApiAttempt.task_id)
+            .join(User, User.id == Task.user_id)
+            .filter(
+                Task.created_at >= _to_db_datetime(current_start),
+                Task.created_at <= _to_db_datetime(current_end),
+                Task.used_fallback_api.is_(True),
+                TaskApiAttempt.is_fallback.is_(False),
+                TaskApiAttempt.status == "failed",
+                User.role != "superadmin",
+                _non_whitelisted_user_filter(),
+            )
         )
-    )
+    else:
+        query = (
+            db.query(Task.created_at, Task.error_message)
+            .join(User, User.id == Task.user_id)
+            .filter(
+                Task.created_at >= _to_db_datetime(current_start),
+                Task.created_at <= _to_db_datetime(current_end),
+                Task.status == "failed",
+                User.role != "superadmin",
+                _non_whitelisted_user_filter(),
+            )
+        )
+        if used_fallback_api is False:
+            query = query.filter(Task.used_fallback_api.is_(False))
     if model:
         query = query.filter(Task.model == model)
     rows = query.all()
@@ -1827,16 +1866,33 @@ def get_error_tasks(
     end_date: datetime | None = None,
     model: str | None = None,
     error_category: str | None = None,
+    used_fallback_api: bool | None = None,
 ) -> dict:
-    query = (
-        db.query(Task, User)
-        .join(User, User.id == Task.user_id)
-        .filter(
-            Task.status == "failed",
-            User.role != "superadmin",
-            _non_whitelisted_user_filter(),
+    if used_fallback_api is True:
+        query = (
+            db.query(Task, User, TaskApiAttempt)
+            .join(User, User.id == Task.user_id)
+            .join(TaskApiAttempt, TaskApiAttempt.task_id == Task.id)
+            .filter(
+                Task.used_fallback_api.is_(True),
+                TaskApiAttempt.is_fallback.is_(False),
+                TaskApiAttempt.status == "failed",
+                User.role != "superadmin",
+                _non_whitelisted_user_filter(),
+            )
         )
-    )
+    else:
+        query = (
+            db.query(Task, User, Task.error_message.label("attempt_error_message"))
+            .join(User, User.id == Task.user_id)
+            .filter(
+                Task.status == "failed",
+                User.role != "superadmin",
+                _non_whitelisted_user_filter(),
+            )
+        )
+        if used_fallback_api is False:
+            query = query.filter(Task.used_fallback_api.is_(False))
     if start_date:
         query = query.filter(Task.created_at >= _to_db_datetime(start_date))
     if end_date:
@@ -1847,11 +1903,23 @@ def get_error_tasks(
     rows = query.order_by(Task.created_at.desc(), Task.id.desc()).all()
     items: list[dict] = []
     scene_type_map = get_task_scene_type_map(db)
-    for task, user in rows:
-        normalized_message = _normalize_error_message_for_analytics(task.error_message)
+    seen_task_ids: set[int] = set()
+    for row in rows:
+        task = row[0]
+        user = row[1]
+        attempt_or_message = row[2]
+        row_error_message = (
+            attempt_or_message.error_message
+            if isinstance(attempt_or_message, TaskApiAttempt)
+            else str(attempt_or_message or "")
+        )
+        normalized_message = _normalize_error_message_for_analytics(row_error_message)
         row_error_category = _classify_error_message_for_analytics(normalized_message)
         if error_category and row_error_category != error_category:
             continue
+        if used_fallback_api is True and task.id in seen_task_ids:
+            continue
+        seen_task_ids.add(task.id)
         items.append({
             "task_id": task_external_id(task),
             "user_id": user_external_id(user),
@@ -1863,9 +1931,10 @@ def get_error_tasks(
             "mode": task.mode or "generate",
             "prompt": task.prompt or "",
             "status": task.status or "failed",
-            "error_message": task.error_message or "",
+            "error_message": row_error_message or task.error_message or "",
             "credit_cost": int(task.credit_cost or 0),
             "credit_refunded": bool(is_task_generation_failure_credit_refunded(db, task.id)) if task.id else False,
+            "used_fallback_api": bool(task.used_fallback_api),
             "created_at": task.created_at,
         })
 
