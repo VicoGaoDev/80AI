@@ -242,7 +242,6 @@ function handleDeleteCategory() {
 <template>
   <a-modal
     :open="open"
-    :title="title"
     :footer="null"
     :width="1120"
     centered
@@ -251,6 +250,36 @@ function handleDeleteCategory() {
     @update:open="emit('update:open', $event)"
     @cancel="closeDialog"
   >
+    <template #title>
+      <div class="prompt-modal-header">
+        <div class="prompt-modal-header-left">
+          <div class="prompt-modal-header-title">{{ title }}</div>
+          <div class="prompt-count-pill">提示词 {{ libraryTotal }}</div>
+        </div>
+        <div class="prompt-modal-header-right">
+          <div class="prompt-search">
+            <a-input
+              v-model:value="keyword"
+              allow-clear
+              placeholder="搜索标题或提示词内容"
+              @press-enter="handleSearch"
+            />
+            <button type="button" class="prompt-search-btn" aria-label="搜索提示词" @click="handleSearch">
+              <SearchOutlined />
+            </button>
+          </div>
+        </div>
+        <div class="prompt-toolbar-right">
+          <a-button :loading="loading" @click="refreshCurrent">
+            <template #icon><ReloadOutlined /></template>
+            刷新
+          </a-button>
+          <a-button type="primary" :loading="saving || promptDialogSaving" @click="openCreatePromptDialog">
+            新建提示词
+          </a-button>
+        </div>
+      </div>
+    </template>
     <div class="prompt-picker">
       <aside class="prompt-sidebar">
         <div class="prompt-sidebar-header">
@@ -295,32 +324,6 @@ function handleDeleteCategory() {
       </aside>
 
       <section class="prompt-main">
-        <div class="prompt-toolbar">
-          <div class="prompt-toolbar-left">
-            <div class="prompt-count-pill">提示词 {{ libraryTotal }}</div>
-            <div class="prompt-search">
-              <a-input
-                v-model:value="keyword"
-                allow-clear
-                placeholder="搜索标题或提示词内容"
-                @press-enter="handleSearch"
-              />
-              <button type="button" class="prompt-search-btn" aria-label="搜索提示词" @click="handleSearch">
-                <SearchOutlined />
-              </button>
-            </div>
-          </div>
-          <div class="prompt-toolbar-right">
-            <a-button :loading="loading" @click="refreshCurrent">
-              <template #icon><ReloadOutlined /></template>
-              刷新
-            </a-button>
-            <a-button type="primary" :loading="saving || promptDialogSaving" @click="openCreatePromptDialog">
-              新建提示词
-            </a-button>
-          </div>
-        </div>
-
         <a-spin :spinning="loading" class="prompt-content-spin">
           <div class="prompt-content">
             <div v-if="prompts.length" class="prompt-list">
@@ -419,6 +422,36 @@ function handleDeleteCategory() {
   gap: 12px;
 }
 
+.prompt-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 16px;
+}
+
+.prompt-modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.prompt-modal-header-title {
+  flex-shrink: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.prompt-modal-header-right {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-end;
+}
+
 .prompt-sidebar-title {
   font-size: 14px;
   font-weight: 700;
@@ -491,7 +524,6 @@ function handleDeleteCategory() {
 }
 
 .prompt-content-spin {
-  margin-top: 16px;
   min-height: 0;
 }
 
@@ -703,12 +735,14 @@ function handleDeleteCategory() {
     width: 100%;
   }
 
-  .prompt-toolbar {
+  .prompt-modal-header {
     flex-direction: column;
     align-items: stretch;
+    padding-right: 0;
   }
 
-  .prompt-toolbar-left,
+  .prompt-modal-header-left,
+  .prompt-modal-header-right,
   .prompt-toolbar-right {
     width: 100%;
     flex-wrap: wrap;

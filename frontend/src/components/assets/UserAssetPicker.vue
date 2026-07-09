@@ -330,7 +330,6 @@ function handleAssetDragStart(event: DragEvent, asset: UserAsset) {
 <template>
   <a-modal
     :open="open"
-    :title="title"
     :footer="null"
     :width="1120"
     :mask="mask"
@@ -338,6 +337,37 @@ function handleAssetDragStart(event: DragEvent, asset: UserAsset) {
     @update:open="emit('update:open', $event)"
     @cancel="closeDialog"
   >
+    <template #title>
+      <div class="asset-modal-header">
+        <div class="asset-modal-header-left">
+          <div class="asset-modal-header-title">{{ title }}</div>
+          <div class="asset-quota-pill">素材额度 {{ quota.used }} / {{ quota.limit }}</div>
+        </div>
+        <div class="asset-modal-header-right">
+          <div class="asset-search">
+            <a-input
+              v-model:value="keyword"
+              allow-clear
+              placeholder="搜索素材名称"
+              @press-enter="handleSearch"
+            />
+            <button type="button" class="asset-search-btn" aria-label="搜索素材" @click="handleSearch">
+              <SearchOutlined />
+            </button>
+          </div>
+        </div>
+        <div class="asset-toolbar-right">
+          <a-button :loading="loading" @click="reloadAssets">
+            <template #icon><ReloadOutlined /></template>
+            刷新
+          </a-button>
+          <a-button type="primary" :loading="uploading" :disabled="assetQuotaFull" @click="triggerUpload">
+            <template #icon><PictureOutlined /></template>
+            上传素材
+          </a-button>
+        </div>
+      </div>
+    </template>
     <div class="asset-picker">
       <aside class="asset-sidebar">
         <div class="asset-sidebar-header">
@@ -382,34 +412,7 @@ function handleAssetDragStart(event: DragEvent, asset: UserAsset) {
       </aside>
 
       <section class="asset-main">
-        <div class="asset-toolbar">
-          <div class="asset-toolbar-left">
-            <div class="asset-quota-pill">素材额度 {{ quota.used }} / {{ quota.limit }}</div>
-            <div class="asset-search">
-              <a-input
-                v-model:value="keyword"
-                allow-clear
-                placeholder="搜索素材名称"
-                @press-enter="handleSearch"
-              />
-              <button type="button" class="asset-search-btn" aria-label="搜索素材" @click="handleSearch">
-                <SearchOutlined />
-              </button>
-            </div>
-          </div>
-          <div class="asset-toolbar-right">
-            <a-button :loading="loading" @click="reloadAssets">
-              <template #icon><ReloadOutlined /></template>
-              刷新
-            </a-button>
-            <a-button type="primary" :loading="uploading" :disabled="assetQuotaFull" @click="triggerUpload">
-              <template #icon><PictureOutlined /></template>
-              上传素材
-            </a-button>
-            <input ref="fileInputRef" type="file" accept="image/*" multiple hidden @change="handleFileChange" />
-          </div>
-        </div>
-
+        <input ref="fileInputRef" type="file" accept="image/*" multiple hidden @change="handleFileChange" />
         <a-spin :spinning="loading" class="asset-content-spin">
           <div class="asset-content">
             <div v-if="assets.length" class="asset-grid">
@@ -558,6 +561,36 @@ function handleAssetDragStart(event: DragEvent, asset: UserAsset) {
   gap: 12px;
 }
 
+.asset-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 16px;
+}
+
+.asset-modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.asset-modal-header-title {
+  flex-shrink: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.asset-modal-header-right {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-end;
+}
+
 .asset-sidebar-title {
   font-size: 14px;
   font-weight: 700;
@@ -630,7 +663,6 @@ function handleAssetDragStart(event: DragEvent, asset: UserAsset) {
 }
 
 .asset-content-spin {
-  margin-top: 16px;
   min-height: 0;
 }
 
@@ -1049,14 +1081,16 @@ function handleAssetDragStart(event: DragEvent, asset: UserAsset) {
     grid-template-columns: 1fr;
   }
 
-  .asset-toolbar {
+  .asset-modal-header {
     flex-direction: column;
     align-items: stretch;
+    padding-right: 0;
   }
 
-  .asset-toolbar-left,
+  .asset-modal-header-left,
+  .asset-modal-header-right,
   .asset-toolbar-right {
-    justify-content: space-between;
+    width: 100%;
     flex-wrap: wrap;
   }
 
