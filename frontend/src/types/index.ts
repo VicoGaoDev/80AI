@@ -737,6 +737,8 @@ export interface AdminStats {
   active_users: number;
 }
 
+export type ErrorTrendGranularity = "1hour" | "3hour" | "6hour";
+
 export type AdminAnalyticsGranularity = "3hour" | "day" | "week" | "month";
 
 export interface AdminAnalyticsQuery {
@@ -873,7 +875,7 @@ export interface AdminErrorCategoryTimeseriesPoint {
 }
 
 export interface AdminErrorCategoryTimeseries {
-  granularity: AdminAnalyticsGranularity;
+  granularity: ErrorTrendGranularity;
   range_label: string;
   series: AdminErrorCategoryTimeseriesSeries[];
   points: AdminErrorCategoryTimeseriesPoint[];

@@ -48,7 +48,7 @@ function rowKey(record: AdminAnalyticsRedeemRevenueItem) {
   <a-spin :spinning="loading">
     <div class="redeem-revenue-card warm-card motion-card-lift motion-fade-up" style="--motion-delay: 280ms">
       <div class="redeem-revenue-head">
-        <div v-if="showTitle">
+        <div v-if="showTitle" class="redeem-revenue-head-left">
           <div class="redeem-revenue-title">{{ title }}</div>
           <div v-if="data?.range_label" class="redeem-revenue-range">{{ data.range_label }}</div>
         </div>
@@ -95,6 +95,10 @@ function rowKey(record: AdminAnalyticsRedeemRevenueItem) {
           </a-table-summary-row>
         </template>
       </a-table>
+
+      <div v-if="$slots['footer-extra']" class="redeem-revenue-footer">
+        <slot name="footer-extra" />
+      </div>
     </div>
   </a-spin>
 </template>
@@ -162,6 +166,13 @@ function rowKey(record: AdminAnalyticsRedeemRevenueItem) {
 .redeem-revenue-chip-strong {
   color: #a05f00;
   background: rgba(255, 196, 91, 0.18);
+}
+
+.redeem-revenue-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 12px;
 }
 
 .redeem-revenue-table {

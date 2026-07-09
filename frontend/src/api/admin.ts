@@ -4,6 +4,7 @@ import type {
   AdminAnalyticsBreakdown,
   AdminErrorAnalytics,
   AdminErrorCategoryTimeseries,
+  ErrorTrendGranularity,
   AdminErrorTaskList,
   AdminAnalyticsQuery,
   AdminAnalyticsRedeemRevenue,
@@ -299,7 +300,7 @@ export function getAdminErrorAnalytics(params: {
 }
 
 export function getAdminErrorCategoryTimeseries(query: {
-  granularity: "3hour" | "day" | "week" | "month";
+  granularity: ErrorTrendGranularity;
   start_date?: string;
   end_date?: string;
   model?: string;

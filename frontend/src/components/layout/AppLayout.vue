@@ -149,6 +149,8 @@ function getPrimaryMenuIconSrc(item: PrimaryMenuItem) {
   return item.iconSrc;
 }
 
+const ADMIN_USER_DATA_MENU_KEY = "admin-user-data";
+
 const adminMenuItems = computed(() =>
   [
     { key: "/admin/templates", label: "模版管理", icon: PictureOutlined, superAdminOnly: false },
@@ -160,26 +162,43 @@ const adminMenuItems = computed(() =>
     { key: "/admin/general-settings", label: "通用设置", icon: SettingOutlined, superAdminOnly: false },
     { key: "/admin/redeem-keys", label: "兑换码", icon: GiftOutlined, superAdminOnly: false },
     { key: "/admin/revenue", label: "营业额", icon: AccountBookOutlined, superAdminOnly: false },
-    { key: "/admin/payment-orders", label: "购买订单", icon: AccountBookOutlined, superAdminOnly: false },
     { key: "/admin/feedbacks", label: "用户反馈", icon: MessageOutlined, superAdminOnly: false },
     { key: "/admin/system-messages", label: "系统邮件", icon: MailOutlined, superAdminOnly: false },
     { key: "/admin/cos-config", label: "COS 配置", icon: CloudUploadOutlined, superAdminOnly: true },
     { key: "/admin/external-api-configs", label: "接口管理", icon: KeyOutlined, superAdminOnly: true },
   ].filter((item) => !item.superAdminOnly || isSuperAdmin.value)
 );
-const adminMenuBaseItems = computed(() =>
+const adminMenuLeadingItems = computed(() =>
+  adminMenuItems.value.filter((item) => item.key === "/admin/templates")
+);
+const adminMenuUserDataItems = computed(() =>
   adminMenuItems.value.filter((item) => [
-    "/admin/templates",
     "/admin/users",
     "/admin/user-tasks",
     "/admin/user-canvases",
+  ].includes(item.key))
+);
+const adminMenuBaseItems = computed(() =>
+  adminMenuItems.value.filter((item) => [
     "/admin/dashboard",
     "/admin/error-analytics",
     "/admin/general-settings",
   ].includes(item.key))
 );
+const isAdminUserDataRoute = computed(() =>
+  route.path.startsWith("/admin/users")
+  || route.path.startsWith("/admin/user-tasks")
+  || route.path.startsWith("/admin/user-canvases")
+);
+const adminMenuOpenKeys = ref<string[]>(isAdminUserDataRoute.value ? [ADMIN_USER_DATA_MENU_KEY] : []);
+
+watch(isAdminUserDataRoute, (active) => {
+  if (active && !adminMenuOpenKeys.value.includes(ADMIN_USER_DATA_MENU_KEY)) {
+    adminMenuOpenKeys.value = [...adminMenuOpenKeys.value, ADMIN_USER_DATA_MENU_KEY];
+  }
+});
 const adminMenuBusinessItems = computed(() =>
-  adminMenuItems.value.filter((item) => ["/admin/redeem-keys", "/admin/revenue", "/admin/payment-orders"].includes(item.key))
+  adminMenuItems.value.filter((item) => ["/admin/redeem-keys", "/admin/revenue"].includes(item.key))
 );
 const adminMenuNoticeItems = computed(() =>
   adminMenuItems.value.filter((item) => ["/admin/feedbacks", "/admin/system-messages"].includes(item.key))
@@ -289,8 +308,13 @@ function handleMenuClick({ key }: { key: string }) {
 }
 
 function handleAdminMenu({ key }: { key: string }) {
+  if (!key.startsWith("/")) return;
   mobileDrawerOpen.value = false;
   router.push(key);
+}
+
+function handleAdminMenuOpenChange(keys: string[]) {
+  adminMenuOpenKeys.value = keys;
 }
 
 function handleUserMenu({ key }: { key: string }) {
@@ -1121,19 +1145,37 @@ watch(purchaseDialogOpen, (open) => {
               <template #overlay>
                 <a-menu :selected-keys="adminSelectedKeys" @click="handleAdminMenu">
                   <a-menu-item
+                    v-for="item in adminMenuLeadingItems"
+                    :key="item.key"
+                  >
+                    <template #icon><component :is="item.icon" /></template>
+                    {{ item.label }}
+                  </a-menu-item>
+                  <a-sub-menu :key="ADMIN_USER_DATA_MENU_KEY" popup-class-name="warm-dropdown">
+                    <template #icon><TeamOutlined /></template>
+                    <template #title>用户数据</template>
+                    <a-menu-item
+                      v-for="item in adminMenuUserDataItems"
+                      :key="item.key"
+                    >
+                      <template #icon><component :is="item.icon" /></template>
+                      {{ item.label }}
+                    </a-menu-item>
+                  </a-sub-menu>
+                  <a-menu-item
                     v-for="item in adminMenuBaseItems"
                     :key="item.key"
                   >
-                    <component :is="item.icon" />
-                    <span style="margin-left: 8px">{{ item.label }}</span>
+                    <template #icon><component :is="item.icon" /></template>
+                    {{ item.label }}
                   </a-menu-item>
                   <a-menu-divider />
                   <a-menu-item
                     v-for="item in adminMenuBusinessItems"
                     :key="item.key"
                   >
-                    <component :is="item.icon" />
-                    <span style="margin-left: 8px">{{ item.label }}</span>
+                    <template #icon><component :is="item.icon" /></template>
+                    {{ item.label }}
                   </a-menu-item>
                   <a-menu-divider />
                   <a-menu-item
@@ -1141,7 +1183,7 @@ watch(purchaseDialogOpen, (open) => {
                     :key="item.key"
                     :class="{ 'admin-feedback-dropdown-item': item.key === '/admin/feedbacks' }"
                   >
-                    <component :is="item.icon" />
+                    <template #icon><component :is="item.icon" /></template>
                     <span v-if="item.key === '/admin/feedbacks'" class="admin-menu-feedback-label">
                       <span>{{ item.label }}</span>
                       <a-badge
@@ -1150,7 +1192,7 @@ watch(purchaseDialogOpen, (open) => {
                         :number-style="{ backgroundColor: '#ff4d4f', color: '#fff' }"
                       />
                     </span>
-                    <span v-else style="margin-left: 8px">{{ item.label }}</span>
+                    <template v-else>{{ item.label }}</template>
                   </a-menu-item>
                   <template v-if="adminMenuConfigItems.length">
                     <a-menu-divider />
@@ -1158,8 +1200,8 @@ watch(purchaseDialogOpen, (open) => {
                       v-for="item in adminMenuConfigItems"
                       :key="item.key"
                     >
-                      <component :is="item.icon" />
-                      <span style="margin-left: 8px">{{ item.label }}</span>
+                      <template #icon><component :is="item.icon" /></template>
+                      {{ item.label }}
                     </a-menu-item>
                   </template>
                 </a-menu>
@@ -1345,14 +1387,26 @@ watch(purchaseDialogOpen, (open) => {
           </a-badge>
           <template #overlay>
             <a-menu :selected-keys="adminSelectedKeys" @click="handleAdminMenu">
+              <a-menu-item v-for="item in adminMenuLeadingItems" :key="item.key">
+                <template #icon><component :is="item.icon" /></template>
+                {{ item.label }}
+              </a-menu-item>
+              <a-sub-menu :key="ADMIN_USER_DATA_MENU_KEY" popup-class-name="warm-dropdown">
+                <template #icon><TeamOutlined /></template>
+                <template #title>用户数据</template>
+                <a-menu-item v-for="item in adminMenuUserDataItems" :key="item.key">
+                  <template #icon><component :is="item.icon" /></template>
+                  {{ item.label }}
+                </a-menu-item>
+              </a-sub-menu>
               <a-menu-item v-for="item in adminMenuBaseItems" :key="item.key">
-                <component :is="item.icon" />
-                <span style="margin-left: 8px">{{ item.label }}</span>
+                <template #icon><component :is="item.icon" /></template>
+                {{ item.label }}
               </a-menu-item>
               <a-menu-divider />
               <a-menu-item v-for="item in adminMenuBusinessItems" :key="item.key">
-                <component :is="item.icon" />
-                <span style="margin-left: 8px">{{ item.label }}</span>
+                <template #icon><component :is="item.icon" /></template>
+                {{ item.label }}
               </a-menu-item>
               <a-menu-divider />
               <a-menu-item
@@ -1360,7 +1414,7 @@ watch(purchaseDialogOpen, (open) => {
                 :key="item.key"
                 :class="{ 'admin-feedback-dropdown-item': item.key === '/admin/feedbacks' }"
               >
-                <component :is="item.icon" />
+                <template #icon><component :is="item.icon" /></template>
                 <span v-if="item.key === '/admin/feedbacks'" class="admin-menu-feedback-label">
                   <span>{{ item.label }}</span>
                   <a-badge
@@ -1369,13 +1423,13 @@ watch(purchaseDialogOpen, (open) => {
                     :number-style="{ backgroundColor: '#ff4d4f', color: '#fff' }"
                   />
                 </span>
-                <span v-else style="margin-left: 8px">{{ item.label }}</span>
+                <template v-else>{{ item.label }}</template>
               </a-menu-item>
               <template v-if="adminMenuConfigItems.length">
                 <a-menu-divider />
                 <a-menu-item v-for="item in adminMenuConfigItems" :key="item.key">
-                  <component :is="item.icon" />
-                  <span style="margin-left: 8px">{{ item.label }}</span>
+                  <template #icon><component :is="item.icon" /></template>
+                  {{ item.label }}
                 </a-menu-item>
               </template>
             </a-menu>
@@ -1558,21 +1612,35 @@ watch(purchaseDialogOpen, (open) => {
           <a-menu
             mode="inline"
             :selected-keys="adminSelectedKeys"
+            :open-keys="adminMenuOpenKeys"
             class="mobile-drawer-menu"
+            @openChange="handleAdminMenuOpenChange"
             @click="handleAdminMenu"
           >
+            <a-menu-item v-for="item in adminMenuLeadingItems" :key="item.key">
+              <template #icon><component :is="item.icon" /></template>
+              {{ item.label }}
+            </a-menu-item>
+            <a-sub-menu :key="ADMIN_USER_DATA_MENU_KEY">
+              <template #icon><TeamOutlined /></template>
+              <template #title>用户数据</template>
+              <a-menu-item v-for="item in adminMenuUserDataItems" :key="item.key">
+                <template #icon><component :is="item.icon" /></template>
+                {{ item.label }}
+              </a-menu-item>
+            </a-sub-menu>
             <a-menu-item v-for="item in adminMenuBaseItems" :key="item.key">
-              <component :is="item.icon" />
-              <span>{{ item.label }}</span>
+              <template #icon><component :is="item.icon" /></template>
+              {{ item.label }}
             </a-menu-item>
             <a-menu-divider />
             <a-menu-item v-for="item in adminMenuBusinessItems" :key="item.key">
-              <component :is="item.icon" />
-              <span>{{ item.label }}</span>
+              <template #icon><component :is="item.icon" /></template>
+              {{ item.label }}
             </a-menu-item>
             <a-menu-divider />
             <a-menu-item v-for="item in adminMenuNoticeItems" :key="item.key">
-              <component :is="item.icon" />
+              <template #icon><component :is="item.icon" /></template>
               <span v-if="item.key === '/admin/feedbacks'" class="admin-menu-feedback-label">
                 <span>{{ item.label }}</span>
                 <a-badge
@@ -1581,13 +1649,13 @@ watch(purchaseDialogOpen, (open) => {
                   :number-style="{ backgroundColor: '#ff4d4f', color: '#fff' }"
                 />
               </span>
-              <span v-else>{{ item.label }}</span>
+              <template v-else>{{ item.label }}</template>
             </a-menu-item>
             <template v-if="adminMenuConfigItems.length">
               <a-menu-divider />
               <a-menu-item v-for="item in adminMenuConfigItems" :key="item.key">
-                <component :is="item.icon" />
-                <span>{{ item.label }}</span>
+                <template #icon><component :is="item.icon" /></template>
+                {{ item.label }}
               </a-menu-item>
             </template>
           </a-menu>
@@ -2681,15 +2749,46 @@ watch(purchaseDialogOpen, (open) => {
   border-inline-end: none !important;
   background: transparent !important;
 
-  :deep(.ant-menu-item) {
+  :deep(.ant-menu-item),
+  :deep(.ant-menu-submenu-title) {
     display: flex;
     align-items: center;
     height: 48px;
     line-height: 48px;
     margin: 4px 0 !important;
+    padding-inline: 16px !important;
     border-radius: 16px;
     font-weight: 700;
     color: var(--theme-nav-text);
+    gap: 8px;
+  }
+
+  :deep(.ant-menu-item .ant-menu-item-icon),
+  :deep(.ant-menu-submenu-title > .ant-menu-item-icon) {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    margin: 0 !important;
+    font-size: 16px !important;
+    line-height: 1;
+    flex: none;
+  }
+
+  :deep(.ant-menu-submenu-title .ant-menu-title-content) {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 8px;
+  }
+
+  :deep(.ant-menu-sub.ant-menu-inline) {
+    background: transparent !important;
+  }
+
+  :deep(.ant-menu-submenu .ant-menu-item) {
+    padding-left: 40px !important;
   }
 
   :deep(.ant-menu-title-content) {
@@ -2792,7 +2891,7 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
 }
 
 .admin-menu-feedback-label {
-  margin-left: 8px;
+  margin-left: 0;
   width: 100%;
   display: inline-flex;
   align-items: center;
@@ -3925,20 +4024,73 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
   color: var(--theme-title) !important;
 }
 
-.warm-dropdown .ant-dropdown-menu-item {
-  display: flex;
-  align-items: center;
+.warm-dropdown .ant-dropdown-menu-item,
+.warm-dropdown .ant-dropdown-menu-submenu-title {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px;
   min-height: 50px;
-  padding: 10px 16px;
+  margin: 0 !important;
+  padding: 10px 16px !important;
   border-radius: 14px;
   color: var(--theme-title);
   font-weight: 700;
-  gap: 8px;
+  line-height: 1.2;
   transition:
     background var(--motion-duration-fast) var(--motion-ease-soft),
     color var(--motion-duration-fast) var(--motion-ease-soft),
     box-shadow var(--motion-duration-fast) var(--motion-ease-soft),
     transform var(--motion-duration-fast) var(--motion-ease-soft);
+}
+
+.warm-dropdown .ant-dropdown-menu-submenu.ant-dropdown-menu-submenu-vertical {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.warm-dropdown .ant-dropdown-menu-submenu-title {
+  width: 100%;
+  padding-inline-end: 32px !important;
+}
+
+.warm-dropdown .ant-dropdown-menu-item .ant-dropdown-menu-item-icon,
+.warm-dropdown .ant-dropdown-menu-submenu-title > .ant-dropdown-menu-item-icon {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px !important;
+  margin: 0 !important;
+  font-size: 16px !important;
+  line-height: 1;
+  flex: none;
+}
+
+.warm-dropdown .ant-dropdown-menu-item .ant-dropdown-menu-title-content,
+.warm-dropdown .ant-dropdown-menu-submenu-title .ant-dropdown-menu-title-content {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1.2;
+}
+
+.warm-dropdown .ant-dropdown-menu-submenu-title .ant-dropdown-menu-submenu-expand-icon,
+.warm-dropdown .ant-dropdown-menu-submenu-title .ant-menu-submenu-arrow {
+  inset-inline-end: 16px;
+  color: currentColor;
+}
+
+.warm-dropdown .ant-dropdown-menu-submenu-title:hover {
+  background: linear-gradient(180deg, var(--theme-panel-bg-soft), var(--theme-panel-bg-strong));
+  color: var(--theme-accent-text-hover) !important;
+  box-shadow: 0 10px 22px var(--theme-card-shadow);
+  transform: translateY(-1px);
+}
+
+.warm-dropdown .ant-dropdown-menu-submenu-selected > .ant-dropdown-menu-submenu-title {
+  color: var(--theme-accent-text) !important;
 }
 
 .warm-dropdown .ant-dropdown-menu-item:hover {
@@ -3968,8 +4120,10 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
   color: var(--theme-accent-contrast) !important;
 }
 
-.warm-dropdown .ant-dropdown-menu-item .anticon {
-  font-size: 16px;
+.warm-dropdown .ant-dropdown-menu-item .anticon,
+.warm-dropdown .ant-dropdown-menu-submenu-title .anticon {
+  font-size: 16px !important;
+  line-height: 1;
   color: currentColor;
 }
 
@@ -3987,7 +4141,7 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
 }
 
 .warm-dropdown .ant-dropdown-menu-item.admin-feedback-dropdown-item .admin-menu-feedback-label {
-  margin-left: 8px;
+  margin-left: 0;
 }
 
 .warm-dropdown .ant-dropdown-menu-item.user-feedback-dropdown-item,

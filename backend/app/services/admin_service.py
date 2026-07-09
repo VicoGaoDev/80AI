@@ -782,6 +782,27 @@ def _end_of_3hour(value: datetime) -> datetime:
     return start + timedelta(hours=3) - timedelta(microseconds=1)
 
 
+_HOUR_GRANULARITY_BUCKETS = {
+    "1hour": 1,
+    "3hour": 3,
+    "6hour": 6,
+}
+
+
+def _hour_bucket_size(granularity: str) -> int | None:
+    return _HOUR_GRANULARITY_BUCKETS.get(granularity)
+
+
+def _start_of_hour_bucket(value: datetime, hours: int) -> datetime:
+    value = _to_local_datetime(value)
+    return value.replace(hour=(value.hour // hours) * hours, minute=0, second=0, microsecond=0)
+
+
+def _end_of_hour_bucket(value: datetime, hours: int) -> datetime:
+    start = _start_of_hour_bucket(value, hours)
+    return start + timedelta(hours=hours) - timedelta(microseconds=1)
+
+
 def _start_of_week(value: datetime) -> datetime:
     value = _start_of_day(value)
     return value - timedelta(days=value.weekday())
@@ -824,8 +845,9 @@ def _align_range(
 ) -> tuple[datetime, datetime]:
     now = now_local().replace(tzinfo=LOCAL_TZ)
     if start_date is None or end_date is None:
-        if granularity == "3hour":
-            end = _end_of_3hour(now)
+        hour_bucket_size = _hour_bucket_size(granularity)
+        if hour_bucket_size:
+            end = _end_of_hour_bucket(now, hour_bucket_size)
             start = _start_of_day(now)
         elif granularity == "day":
             end = _end_of_day(now)
@@ -838,7 +860,11 @@ def _align_range(
             start = _start_of_month(_shift_months(now, -5))
         return start, end
 
-    if granularity == "3hour":
+    hour_bucket_size = _hour_bucket_size(granularity)
+    if hour_bucket_size:
+        start = _start_of_hour_bucket(start_date, hour_bucket_size)
+        end = _end_of_hour_bucket(end_date, hour_bucket_size)
+    elif granularity == "3hour":
         start = _start_of_3hour(start_date)
         end = _end_of_3hour(end_date)
     elif granularity == "day":
@@ -861,7 +887,10 @@ def _iter_bucket_starts(start: datetime, end: datetime, granularity: str) -> lis
     cursor = start
     while cursor <= end:
         buckets.append(cursor)
-        if granularity == "3hour":
+        hour_bucket_size = _hour_bucket_size(granularity)
+        if hour_bucket_size:
+            cursor += timedelta(hours=hour_bucket_size)
+        elif granularity == "3hour":
             cursor += timedelta(hours=3)
         elif granularity == "day":
             cursor += timedelta(days=1)
@@ -874,7 +903,10 @@ def _iter_bucket_starts(start: datetime, end: datetime, granularity: str) -> lis
 
 def _previous_range(start: datetime, end: datetime, granularity: str) -> tuple[datetime, datetime]:
     bucket_count = len(_iter_bucket_starts(start, end, granularity))
-    if granularity == "3hour":
+    hour_bucket_size = _hour_bucket_size(granularity)
+    if hour_bucket_size:
+        previous_start = start - timedelta(hours=hour_bucket_size * bucket_count)
+    elif granularity == "3hour":
         previous_start = start - timedelta(hours=3 * bucket_count)
     elif granularity == "day":
         previous_start = start - timedelta(days=bucket_count)
@@ -887,6 +919,9 @@ def _previous_range(start: datetime, end: datetime, granularity: str) -> tuple[d
 
 
 def _bucket_start(value: datetime, granularity: str) -> datetime:
+    hour_bucket_size = _hour_bucket_size(granularity)
+    if hour_bucket_size:
+        return _start_of_hour_bucket(value, hour_bucket_size)
     if granularity == "3hour":
         return _start_of_3hour(value)
     if granularity == "day":
@@ -897,6 +932,9 @@ def _bucket_start(value: datetime, granularity: str) -> datetime:
 
 
 def _bucket_end(value: datetime, granularity: str) -> datetime:
+    hour_bucket_size = _hour_bucket_size(granularity)
+    if hour_bucket_size:
+        return _end_of_hour_bucket(value, hour_bucket_size)
     if granularity == "3hour":
         return _end_of_3hour(value)
     if granularity == "day":
@@ -907,7 +945,7 @@ def _bucket_end(value: datetime, granularity: str) -> datetime:
 
 
 def _bucket_label(value: datetime, granularity: str) -> str:
-    if granularity == "3hour":
+    if _hour_bucket_size(granularity) or granularity == "3hour":
         return value.strftime("%m-%d %H:%M")
     if granularity == "day":
         return value.strftime("%m-%d")

@@ -11,10 +11,10 @@ import { VChart } from "@/components/admin/charting";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import { formatGenerationTaskFailureMessage } from "@/lib/generationErrors";
 import type {
-  AdminAnalyticsGranularity,
   AdminErrorAnalytics,
   AdminErrorCategoryTimeseries,
   AdminErrorTaskItem,
+  ErrorTrendGranularity,
   GenerationModelOption,
   TaskSceneConfig,
   UserHistoryCard,
@@ -29,6 +29,7 @@ const analytics = ref<AdminErrorAnalytics | null>(null);
 const errorTrend = ref<AdminErrorCategoryTimeseries | null>(null);
 const modelFilter = ref<string | undefined>(undefined);
 const fallbackOnly = ref(false);
+const trendGranularity = ref<ErrorTrendGranularity>("3hour");
 const selectedErrorCategory = ref<string | undefined>(undefined);
 const selectedBucketLabel = ref<string | undefined>(undefined);
 const drilledDateRange = ref<[Dayjs, Dayjs] | null>(null);
@@ -95,12 +96,13 @@ const summaryCards = computed(() => [
   },
 ]);
 
-const trendGranularity = computed<AdminAnalyticsGranularity>(() => {
-  if (!dateRange.value?.[0] || !dateRange.value?.[1]) return "day";
-  const diffDays = dateRange.value[1].endOf("day").diff(dateRange.value[0].startOf("day"), "day") + 1;
-  if (diffDays > 120) return "month";
-  if (diffDays > 45) return "week";
-  return "day";
+const trendGranularityLabel = computed(() => {
+  const labelMap: Record<ErrorTrendGranularity, string> = {
+    "1hour": "1 小时",
+    "3hour": "3 小时",
+    "6hour": "6 小时",
+  };
+  return labelMap[trendGranularity.value];
 });
 
 const trendLabels = computed(() => errorTrend.value?.points.map((item) => item.label) || []);
@@ -155,6 +157,21 @@ function formatQueryDate(value?: Dayjs) {
   return value ? value.format("YYYY-MM-DDTHH:mm:ss") : undefined;
 }
 
+function getEffectiveQueryRange() {
+  const effectiveRange = drilledDateRange.value || dateRange.value;
+  if (!effectiveRange?.[0] || !effectiveRange?.[1]) return null;
+  if (drilledDateRange.value) {
+    return {
+      start_date: formatQueryDate(effectiveRange[0]),
+      end_date: formatQueryDate(effectiveRange[1]),
+    };
+  }
+  return {
+    start_date: formatQueryDate(effectiveRange[0].startOf("day")),
+    end_date: formatQueryDate(effectiveRange[1].endOf("day")),
+  };
+}
+
 function applyPreset(nextPreset: DatePreset) {
   const now = dayjs();
   preset.value = nextPreset;
@@ -192,6 +209,15 @@ function handleReset() {
   applyPreset("today");
   modelFilter.value = undefined;
   fallbackOnly.value = false;
+  trendGranularity.value = "3hour";
+  selectedErrorCategory.value = undefined;
+  selectedBucketLabel.value = undefined;
+  drilledDateRange.value = null;
+  load();
+}
+
+function handleTrendGranularityChange(value: ErrorTrendGranularity) {
+  trendGranularity.value = value;
   selectedErrorCategory.value = undefined;
   selectedBucketLabel.value = undefined;
   drilledDateRange.value = null;
@@ -220,13 +246,11 @@ async function load() {
   if (!dateRange.value?.[0] || !dateRange.value?.[1]) return;
   loading.value = true;
   try {
-    const effectiveRange = drilledDateRange.value || dateRange.value;
-    const startDate = formatQueryDate(effectiveRange?.[0]?.startOf("day"));
-    const endDate = formatQueryDate(effectiveRange?.[1]?.endOf("day"));
+    const queryRange = getEffectiveQueryRange();
     const [analyticsResult, trendResult] = await Promise.all([
       getAdminErrorAnalytics({
-        start_date: startDate,
-        end_date: endDate,
+        start_date: queryRange?.start_date,
+        end_date: queryRange?.end_date,
         model: modelFilter.value,
         error_category: selectedErrorCategory.value,
         used_fallback_api: fallbackOnly.value ? true : undefined,
@@ -261,12 +285,12 @@ async function loadTaskTable(page = taskTablePage.value) {
   }
   taskTableLoading.value = true;
   try {
-    const effectiveRange = drilledDateRange.value || dateRange.value;
+    const queryRange = getEffectiveQueryRange();
     const res = await getAdminErrorTasks({
       page,
       page_size: TASK_TABLE_PAGE_SIZE,
-      start_date: formatQueryDate(effectiveRange?.[0]?.startOf("day")),
-      end_date: formatQueryDate(effectiveRange?.[1]?.endOf("day")),
+      start_date: queryRange?.start_date,
+      end_date: queryRange?.end_date,
       model: modelFilter.value,
       error_category: selectedErrorCategory.value,
       used_fallback_api: fallbackOnly.value ? true : undefined,
@@ -464,15 +488,27 @@ onMounted(async () => {
           <div class="table-card-desc">
             {{
               fallbackOnly
-                ? `按 ${trendGranularity === "day" ? "天" : trendGranularity === "week" ? "周" : "月"} 展示触发备用接口任务的主接口失败 Top 6 趋势。`
-                : `按 ${trendGranularity === "day" ? "天" : trendGranularity === "week" ? "周" : "月"} 展示当前范围内 Top 6 错误类别变化趋势。`
+                ? `按 ${trendGranularityLabel} 展示触发备用接口任务的主接口失败 Top 6 趋势。`
+                : `按 ${trendGranularityLabel} 展示当前范围内 Top 6 错误类别变化趋势。`
             }}
           </div>
         </div>
-        <div v-if="selectedErrorCategory" class="linked-filter-chip-wrap">
-          <span class="linked-filter-chip">已筛选：{{ selectedErrorCategory }}</span>
-          <span v-if="selectedBucketLabel" class="linked-filter-chip linked-filter-chip-secondary">时间桶：{{ selectedBucketLabel }}</span>
-          <a-button type="link" size="small" class="clear-filter-btn" @click="clearErrorCategoryFilter">清除</a-button>
+        <div class="trend-card-actions">
+          <a-radio-group
+            :value="trendGranularity"
+            class="analytics-segmented-group analytics-segmented-group-secondary trend-granularity-group"
+            button-style="solid"
+            @update:value="handleTrendGranularityChange"
+          >
+            <a-radio-button value="1hour">1 小时</a-radio-button>
+            <a-radio-button value="3hour">3 小时</a-radio-button>
+            <a-radio-button value="6hour">6 小时</a-radio-button>
+          </a-radio-group>
+          <div v-if="selectedErrorCategory" class="linked-filter-chip-wrap">
+            <span class="linked-filter-chip">已筛选：{{ selectedErrorCategory }}</span>
+            <span v-if="selectedBucketLabel" class="linked-filter-chip linked-filter-chip-secondary">时间桶：{{ selectedBucketLabel }}</span>
+            <a-button type="link" size="small" class="clear-filter-btn" @click="clearErrorCategoryFilter">清除</a-button>
+          </div>
         </div>
       </div>
       <div v-if="hasTrendData" class="trend-chart-wrap">
@@ -677,9 +713,24 @@ onMounted(async () => {
 }
 
 .table-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   padding: 18px 20px 14px;
   border-bottom: 1px solid rgba(240, 223, 190, 0.9);
   background: linear-gradient(180deg, rgba(255, 250, 240, 0.88), rgba(255, 255, 255, 0.2));
+}
+
+.trend-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.trend-granularity-group {
+  flex-wrap: nowrap;
 }
 
 .table-card-title {
@@ -813,6 +864,15 @@ onMounted(async () => {
 
 @media (max-width: 768px) {
   .analytics-filter-row {
+    align-items: stretch;
+  }
+
+  .table-card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .trend-card-actions {
     align-items: stretch;
   }
 

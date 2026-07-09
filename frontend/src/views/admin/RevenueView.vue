@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
 import { message, Modal } from "ant-design-vue";
 import datePickerZhCN from "ant-design-vue/es/date-picker/locale/zh_CN";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 import type { Dayjs } from "dayjs";
-import { AccountBookOutlined, BellOutlined, CalendarOutlined, PlusOutlined } from "@ant-design/icons-vue";
+import { AccountBookOutlined, BellOutlined, CalendarOutlined, PlusOutlined, UnorderedListOutlined } from "@ant-design/icons-vue";
 import {
   createOfflineOrder,
   getAdminAnalyticsOfflineOrderRevenue,
@@ -26,6 +27,7 @@ type DatePreset = "today" | "3d" | "7d" | "30d";
 dayjs.locale("zh-cn");
 
 const auth = useAuthStore();
+const router = useRouter();
 const loading = ref(false);
 const sendingDailyReport = ref(false);
 const sendingCurrentPeriodDailyReport = ref(false);
@@ -392,7 +394,14 @@ onMounted(() => {
         :loading="loading"
         title="在线购买营业额"
         count-label="购买"
-      />
+      >
+        <template #footer-extra>
+          <a-button type="primary" class="warm-primary-btn" @click="router.push('/admin/payment-orders')">
+            <template #icon><UnorderedListOutlined /></template>
+            订单详情
+          </a-button>
+        </template>
+      </RedeemRevenueTable>
       <RedeemRevenueTable
         :data="redeemRevenue"
         :loading="loading"

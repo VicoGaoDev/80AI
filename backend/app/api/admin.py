@@ -457,7 +457,7 @@ def admin_error_analytics(
 
 @router.get("/analytics/errors/timeseries", response_model=ErrorCategoryTimeseriesOut)
 def admin_error_category_timeseries(
-    granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
+    granularity: str = Query("3hour", pattern="^(1hour|3hour|6hour)$"),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     model: Optional[str] = Query(None),

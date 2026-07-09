@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { reactive, ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
 import { message } from "ant-design-vue";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
-import { AccountBookOutlined, CopyOutlined } from "@ant-design/icons-vue";
+import { AccountBookOutlined, ArrowLeftOutlined, CopyOutlined } from "@ant-design/icons-vue";
 import { listPaymentOrders } from "@/api/admin";
 import type { AdminPaymentOrder } from "@/types";
+
+const router = useRouter();
 
 type DateShortcut = "today" | "last7Days" | "last30Days" | "thisWeek" | "thisMonth";
 
@@ -208,6 +211,10 @@ onMounted(load);
           <div class="warm-page-desc">查看在线购买积分订单，支持按时间、用户和订单状态筛选。</div>
         </div>
       </div>
+      <a-button class="back-btn" @click="router.push('/admin/revenue')">
+        <template #icon><ArrowLeftOutlined /></template>
+        返回营业额
+      </a-button>
     </div>
 
     <div class="warm-card payment-order-filter-bar motion-fade-up motion-card-lift" style="--motion-delay: 120ms">
@@ -381,6 +388,13 @@ onMounted(load);
 </template>
 
 <style scoped lang="scss">
+.back-btn {
+  border-radius: 12px;
+  border-color: var(--theme-panel-border-strong);
+  background: var(--theme-panel-bg-strong);
+  color: var(--theme-accent-text);
+}
+
 .payment-order-filter-bar {
   display: flex;
   align-items: center;
