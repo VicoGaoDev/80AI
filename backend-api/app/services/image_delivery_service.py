@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import HTTPException
@@ -14,13 +15,26 @@ from app.services.task_service import is_task_generation_failure_credit_refunded
 
 _API_PUBLIC_CDN_HOST = "cdn.12ai.org"
 _API_PUBLIC_DISPLAY_HOST = "api.80ai.net"
+_API_ALIAS_PATTERNS = (
+    re.compile(
+        r"\b(?:new|old|legacy|backup|fallback|test|prod|dev|staging|primary|secondary|v\d+|\d+)[\s_-]*api\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bapi[\s_-]*(?:new|old|legacy|backup|fallback|test|prod|dev|staging|primary|secondary|v\d+|\d+)\b",
+        re.I,
+    ),
+)
 
 
 def sanitize_api_public_message(text: str | None) -> str:
     value = text or ""
-    if not value or _API_PUBLIC_CDN_HOST not in value:
+    if not value:
         return value
-    return value.replace(_API_PUBLIC_CDN_HOST, _API_PUBLIC_DISPLAY_HOST)
+    sanitized = value.replace(_API_PUBLIC_CDN_HOST, _API_PUBLIC_DISPLAY_HOST)
+    for pattern in _API_ALIAS_PATTERNS:
+        sanitized = pattern.sub("生图接口", sanitized)
+    return sanitized
 
 
 def get_optional_cos_config(db: Session) -> CosRuntimeConfig | None:

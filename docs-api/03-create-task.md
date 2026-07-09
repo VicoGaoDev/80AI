@@ -1,10 +1,10 @@
-# 创建生图任务
+# 创建同步生图任务
 
 ## 接口说明
 
-创建文生图或图编辑任务。接口会按场景配置扣除用户积分，并同步等待生图处理完成，直接返回最终任务结果。局部重绘和提示词反推暂不开放 API。
+创建文生图或图编辑任务。接口会等待生图处理完成，直接返回最终任务结果。局部重绘和提示词反推暂不开放 API。
 
-## 请求信息
+### 请求信息
 
 | 项目 | 内容 |
 | --- | --- |
@@ -13,24 +13,24 @@
 | Content-Type | `application/json` |
 | 鉴权 | 需要 API Key |
 
-## Header
+### Header
 
 | 参数名 | 必填 | 示例 | 说明 |
 | --- | --- | --- | --- |
 | `X-API-Key` | 是 | `sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` | 用户 API Key。 |
 
-## Body 参数
+### Body 参数
 
 | 参数名 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `mode` | string | 否 | `generate` | 任务模式。当前仅支持 `generate`。 |
-| `model` | string | 是 | - | 场景标识，<strong>必填</strong>。须根据是否传入 `reference_images` 选择对应取值：<br><br><strong>文生图</strong>（未传 `reference_images` 或传空数组）：<table><thead><tr><th>model</th><th>对应官网模型</th></tr></thead><tbody><tr><td>`gptimage2_high`</td><td>⚡️ Image 2 (顶级)</td></tr><tr><td>`gptimage2_medium`</td><td>⚡️ Image 2 (高质量)</td></tr><tr><td>`gptimage2_low`</td><td>⚡️ Image 2 (性价比)</td></tr><tr><td>`banana_pro`</td><td>🍌 Nano Banana Pro</td></tr><tr><td>`banana2`</td><td>🍌 Nano Banana 2</td></tr><tr><td>`banana`</td><td>🍌 Nano Banana</td></tr></tbody></table><br><strong>图编辑</strong>（传入 `reference_images`）：<table><thead><tr><th>model</th><th>对应官网模型</th></tr></thead><tbody><tr><td>`gptimage2_high_edit`</td><td>⚡️ Image 2 (顶级)</td></tr><tr><td>`gptimage2_medium_edit`</td><td>⚡️ Image 2 (高质量)</td></tr><tr><td>`gptimage2_low_edit`</td><td>⚡️ Image 2 (性价比)</td></tr><tr><td>`banana_pro_edit`</td><td>🍌 Nano Banana Pro</td></tr><tr><td>`banana2_edit`</td><td>🍌 Nano Banana 2</td></tr><tr><td>`banana_edit`</td><td>🍌 Nano Banana</td></tr></tbody></table> |
+| `model` | string | 是 | - | 场景标识，<strong>必填</strong>。须根据是否传入 `reference_images` 选择对应取值：<br><br><strong>文生图</strong>（未传 `reference_images` 或传空数组）：<table><thead><tr><th>model</th><th>对应官网模型</th></tr></thead><tbody><tr><td>`gptimage2_high`</td><td>⚡️ Image 2 (顶级)</td></tr><tr><td>`gptimage2_medium`</td><td>⚡️ Image 2 (高质量)</td></tr><tr><td>`gptimage2_low`</td><td>⚡️ Image 2 (性价比)</td></tr><tr><td>`banana_pro`</td><td>🍌 Nano Banana Pro</td></tr><tr><td>`banana2`</td><td>🍌 Nano Banana 2</td></tr><tr><td>`banana2_lite`</td><td>🍌 Nano Banana 2 Lite</td></tr><tr><td>`banana`</td><td>🍌 Nano Banana</td></tr></tbody></table><br><strong>图编辑</strong>（传入 `reference_images`）：<table><thead><tr><th>model</th><th>对应官网模型</th></tr></thead><tbody><tr><td>`gptimage2_high_edit`</td><td>⚡️ Image 2 (顶级)</td></tr><tr><td>`gptimage2_medium_edit`</td><td>⚡️ Image 2 (高质量)</td></tr><tr><td>`gptimage2_low_edit`</td><td>⚡️ Image 2 (性价比)</td></tr><tr><td>`banana_pro_edit`</td><td>🍌 Nano Banana Pro</td></tr><tr><td>`banana2_edit`</td><td>🍌 Nano Banana 2</td></tr><tr><td>`banana2_edit_lite`</td><td>🍌 Nano Banana 2 Lite</td></tr><tr><td>`banana_edit`</td><td>🍌 Nano Banana</td></tr></tbody></table> |
 | `prompt` | string | 是 | - | 提示词，不能为空，最长 5000 字符。 |
 | `size` | string | 否 | `3:4` | 图片宽高比，例如 `1:1`、`3:4`、`9:16`。可选值见 `GET /api/config/task-scenes` 的 `aspect_ratio_options`。 |
 | `resolution` | string | 否 | `4K` | 清晰度档位，例如 `1K`、`2K`、`4K`。可选值见 `GET /api/config/task-scenes` 的 `image_size_options`。 |
 | `reference_images` | string[] | 否 | `null` | 参考图数组，元素为 base64 字符串或 `data:image/...;base64,...` 形式。<strong>图编辑时必填</strong>（至少 1 张）。 |
 
-## 文生图请求示例
+### 文生图请求示例
 
 ```bash
 curl --request POST \
@@ -46,7 +46,7 @@ curl --request POST \
   }'
 ```
 
-## 图编辑请求示例
+### 图编辑请求示例
 
 ```bash
 curl --request POST \
@@ -65,7 +65,7 @@ curl --request POST \
   }'
 ```
 
-## 成功响应
+### 成功响应
 
 ```json
 [
@@ -100,7 +100,7 @@ curl --request POST \
 ]
 ```
 
-## 响应字段
+### 响应字段
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -130,7 +130,7 @@ curl --request POST \
 
 ```json
 {
-  "detail": "文生图 model 无效，可选值：banana、banana2、banana_pro、gptimage2_high、gptimage2_low、gptimage2_medium"
+  "detail": "文生图 model 无效，可选值：banana、banana2、banana2_lite、banana_pro、gptimage2_high、gptimage2_low、gptimage2_medium"
 }
 ```
 

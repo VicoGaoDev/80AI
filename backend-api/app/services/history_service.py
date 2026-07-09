@@ -25,6 +25,7 @@ from app.services.task_type_service import (
 )
 from app.services.image_delivery_service import (
     get_optional_cos_config,
+    sanitize_api_public_message,
     serialize_asset_urls,
     serialize_image,
 )
@@ -168,7 +169,7 @@ def _serialize_task_history_detail(task: Task, *, cos_config, scene_type_map: di
         "credit_cost": task_credit_cost,
         "credit_refunded": credit_refunded,
         "created_at": task.created_at,
-        "error_message": task.error_message or "",
+        "error_message": sanitize_api_public_message(task.error_message),
         "images": visible_images,
     }
 
@@ -393,7 +394,7 @@ def get_user_history(
             "credit_cost": task_credit_cost,
             "credit_refunded": credit_refunded,
             "created_at": task.created_at,
-            "error_message": task.error_message or "",
+            "error_message": sanitize_api_public_message(task.error_message),
             "images": visible_images,
         })
 
@@ -660,7 +661,7 @@ def get_all_history(
             "custom_size": task.custom_size or "",
             "credit_cost": 0 if task.id in refunded_task_ids else int(task.credit_cost or 0),
             "status": task.status,
-            "error_message": task.error_message or "",
+            "error_message": sanitize_api_public_message(task.error_message),
             "task_is_deleted": bool(task.is_deleted),
             "is_soft_deleted": soft_deleted_count > 0,
             "soft_deleted_count": soft_deleted_count,
@@ -959,7 +960,7 @@ def get_admin_history_cards(
             "credit_cost": task_credit_cost,
             "credit_refunded": credit_refunded,
             "created_at": task.created_at,
-            "error_message": task.error_message or "",
+            "error_message": sanitize_api_public_message(task.error_message),
             "images": visible_images,
         })
 
@@ -1007,7 +1008,7 @@ def get_admin_history_cards(
             "credit_cost": int(task.credit_cost or 0),
             "credit_refunded": False,
             "created_at": task.created_at,
-            "error_message": task.error_message or "",
+            "error_message": sanitize_api_public_message(task.error_message),
             "images": visible_images,
         })
 
@@ -1057,7 +1058,7 @@ def get_admin_history_cards(
             "credit_cost": task_credit_cost,
             "credit_refunded": credit_refunded,
             "created_at": task.created_at,
-            "error_message": task.error_message or "",
+            "error_message": sanitize_api_public_message(task.error_message),
             "images": [],
         })
 
