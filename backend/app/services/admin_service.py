@@ -1828,9 +1828,12 @@ def get_error_analytics(
     used_fallback_api: bool | None = None,
 ) -> dict:
     current_start, current_end = _align_range("day", start_date, end_date)
+    fallback_task_total = 0
+    fallback_success_tasks = 0
+    fallback_failed_tasks = 0
     if used_fallback_api is True:
         query = (
-            db.query(TaskApiAttempt.error_message)
+            db.query(Task.id, Task.status, TaskApiAttempt.error_message)
             .join(Task, Task.id == TaskApiAttempt.task_id)
             .join(User, User.id == Task.user_id)
             .filter(
@@ -1865,6 +1868,7 @@ def get_error_analytics(
     category_count_map: dict[str, int] = defaultdict(int)
     category_sample_map: dict[str, str] = {}
     filtered_total_failed_tasks = 0
+    matched_fallback_task_status_map: dict[int, str] = {}
     for row in rows:
         normalized_message = _normalize_error_message_for_analytics(row.error_message)
         row_error_category = _classify_error_message_for_analytics(normalized_message)
@@ -1874,6 +1878,17 @@ def get_error_analytics(
         raw_error_count_map[normalized_message] += 1
         category_count_map[row_error_category] += 1
         category_sample_map.setdefault(row_error_category, normalized_message)
+        if used_fallback_api is True and row.id is not None:
+            matched_fallback_task_status_map[int(row.id)] = str(row.status or "")
+
+    if used_fallback_api is True:
+        fallback_task_total = len(matched_fallback_task_status_map)
+        fallback_success_tasks = sum(
+            1 for status in matched_fallback_task_status_map.values() if status == "success"
+        )
+        fallback_failed_tasks = sum(
+            1 for status in matched_fallback_task_status_map.values() if status == "failed"
+        )
 
     items = [
         {
@@ -1889,6 +1904,9 @@ def get_error_analytics(
     return {
         "range_label": _format_range_label(current_start, current_end),
         "total_failed_tasks": filtered_total_failed_tasks,
+        "fallback_task_total": fallback_task_total,
+        "fallback_success_tasks": fallback_success_tasks,
+        "fallback_failed_tasks": fallback_failed_tasks,
         "distinct_error_categories": len(items),
         "distinct_error_messages": len(raw_error_count_map),
         "items": items,

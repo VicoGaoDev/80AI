@@ -229,6 +229,9 @@ class ErrorAnalyticsItemOut(BaseModel):
 class ErrorAnalyticsOut(BaseModel):
     range_label: str
     total_failed_tasks: int
+    fallback_task_total: int = 0
+    fallback_success_tasks: int = 0
+    fallback_failed_tasks: int = 0
     distinct_error_categories: int
     distinct_error_messages: int
     items: list[ErrorAnalyticsItemOut]

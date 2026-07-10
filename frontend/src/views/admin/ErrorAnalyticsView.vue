@@ -89,31 +89,79 @@ const filteredFailedTaskCount = computed(() => (
   filteredItems.value.reduce((sum, item) => sum + item.count, 0)
 ));
 
-const summaryCards = computed(() => [
-  {
-    key: "total",
-    label: selectedErrorCategory.value ? "当前钻取失败数" : "失败任务总数",
-    value: selectedErrorCategory.value ? filteredFailedTaskCount.value : (analytics.value?.total_failed_tasks ?? 0),
-    desc: selectedErrorCategory.value
-      ? (fallbackOnly.value ? "当前选中错误类别在所选时间桶内的主接口失败次数" : "当前选中错误类别在所选时间桶内的失败任务数量")
-      : (fallbackOnly.value ? "当前时间范围内触发备用接口的主接口失败次数" : "当前时间范围内状态为失败的任务数量"),
-    color: "#cf3f36",
-  },
-  {
-    key: "categories",
-    label: selectedErrorCategory.value ? "已选错误类别" : "错误类别数",
-    value: selectedErrorCategory.value ? 1 : (analytics.value?.distinct_error_categories ?? 0),
-    desc: selectedErrorCategory.value ? "图表联动后当前锁定的错误类别" : "按错误类别聚合后的不同错误类型数量",
-    color: "#d48806",
-  },
-  {
-    key: "distinct",
-    label: selectedErrorCategory.value ? "该类别原始文案数" : "原始错误文案数",
-    value: filteredItems.value.length,
-    desc: selectedErrorCategory.value ? "当前错误类别下去重后的原始错误文案数量" : "去重后的 error_message 原始文案数量",
-    color: "#7c6cf2",
-  },
-]);
+const summaryCards = computed(() => {
+  if (fallbackOnly.value) {
+    return [
+      {
+        key: "total",
+        label: selectedErrorCategory.value ? "当前钻取任务数" : "触发备用接口任务数",
+        value: analytics.value?.fallback_task_total ?? 0,
+        desc: selectedErrorCategory.value
+          ? "当前选中错误类别在所选时间桶内触发备用接口的任务数量"
+          : "当前时间范围内触发备用接口的任务数量",
+        color: "#cf3f36",
+      },
+      {
+        key: "success",
+        label: "最终成功数",
+        value: analytics.value?.fallback_success_tasks ?? 0,
+        desc: selectedErrorCategory.value
+          ? "当前选中错误类别对应任务里，最终成功的数量"
+          : "当前时间范围内触发备用接口后最终成功的任务数量",
+        color: "#389e0d",
+      },
+      {
+        key: "failed",
+        label: "最终失败数",
+        value: analytics.value?.fallback_failed_tasks ?? 0,
+        desc: selectedErrorCategory.value
+          ? "当前选中错误类别对应任务里，最终失败的数量"
+          : "当前时间范围内触发备用接口后最终失败的任务数量",
+        color: "#d48806",
+      },
+      {
+        key: "categories",
+        label: selectedErrorCategory.value ? "已选错误类别" : "错误类别数",
+        value: selectedErrorCategory.value ? 1 : (analytics.value?.distinct_error_categories ?? 0),
+        desc: selectedErrorCategory.value ? "图表联动后当前锁定的错误类别" : "按主接口错误聚合后的不同错误类型数量",
+        color: "#1677ff",
+      },
+      {
+        key: "distinct",
+        label: selectedErrorCategory.value ? "该类别原始文案数" : "原始错误文案数",
+        value: filteredItems.value.length,
+        desc: selectedErrorCategory.value ? "当前错误类别下去重后的原始错误文案数量" : "去重后的主接口错误文案数量",
+        color: "#7c6cf2",
+      },
+    ];
+  }
+
+  return [
+    {
+      key: "total",
+      label: selectedErrorCategory.value ? "当前钻取失败数" : "失败任务总数",
+      value: selectedErrorCategory.value ? filteredFailedTaskCount.value : (analytics.value?.total_failed_tasks ?? 0),
+      desc: selectedErrorCategory.value
+        ? "当前选中错误类别在所选时间桶内的失败任务数量"
+        : "当前时间范围内状态为失败的任务数量",
+      color: "#cf3f36",
+    },
+    {
+      key: "categories",
+      label: selectedErrorCategory.value ? "已选错误类别" : "错误类别数",
+      value: selectedErrorCategory.value ? 1 : (analytics.value?.distinct_error_categories ?? 0),
+      desc: selectedErrorCategory.value ? "图表联动后当前锁定的错误类别" : "按错误类别聚合后的不同错误类型数量",
+      color: "#d48806",
+    },
+    {
+      key: "distinct",
+      label: selectedErrorCategory.value ? "该类别原始文案数" : "原始错误文案数",
+      value: filteredItems.value.length,
+      desc: selectedErrorCategory.value ? "当前错误类别下去重后的原始错误文案数量" : "去重后的 error_message 原始文案数量",
+      color: "#7c6cf2",
+    },
+  ];
+});
 
 const trendGranularityLabel = computed(() => {
   const labelMap: Record<ErrorTrendGranularity, string> = {
@@ -612,7 +660,15 @@ onMounted(async () => {
           </div>
         </div>
         <div class="history-summary">
-          <span class="history-summary-chip">筛选结果 {{ taskTableTotal }} 条</span>
+          <span class="history-summary-chip">
+            {{ fallbackOnly ? `触发备用接口 ${analytics?.fallback_task_total ?? 0} 条` : `筛选结果 ${taskTableTotal} 条` }}
+          </span>
+          <span v-if="fallbackOnly" class="history-summary-chip history-summary-chip-success">
+            成功 {{ analytics?.fallback_success_tasks ?? 0 }}
+          </span>
+          <span v-if="fallbackOnly" class="history-summary-chip history-summary-chip-danger">
+            失败 {{ analytics?.fallback_failed_tasks ?? 0 }}
+          </span>
         </div>
       </div>
       <a-table
@@ -903,6 +959,16 @@ onMounted(async () => {
   color: #9a6b17;
   font-size: 12px;
   font-weight: 700;
+}
+
+.history-summary-chip-success {
+  background: rgba(240, 255, 244, 0.96);
+  color: #389e0d;
+}
+
+.history-summary-chip-danger {
+  background: rgba(255, 242, 239, 0.96);
+  color: #cf3f36;
 }
 
 .table-single-line {

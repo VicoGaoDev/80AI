@@ -884,6 +884,9 @@ export interface AdminErrorAnalyticsItem {
 export interface AdminErrorAnalytics {
   range_label: string;
   total_failed_tasks: number;
+  fallback_task_total: number;
+  fallback_success_tasks: number;
+  fallback_failed_tasks: number;
   distinct_error_categories: number;
   distinct_error_messages: number;
   items: AdminErrorAnalyticsItem[];
