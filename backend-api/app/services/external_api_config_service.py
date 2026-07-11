@@ -22,6 +22,7 @@ from app.schemas.external_api_config import (
     ExternalApiSceneBindingUpdate,
     GenerationModelOptionOut,
     RenderedExternalApiConfig,
+    RenderedPollExternalApiConfig,
     TaskSceneConfigOut,
 )
 
@@ -387,7 +388,36 @@ def _render_json_template(template: Any, variables: dict[str, Any]) -> Any:
 
 
 def _serialize_config(config: ExternalApiConfig) -> ExternalApiConfigOut:
-    return ExternalApiConfigOut.model_validate(config)
+    return ExternalApiConfigOut(
+        id=int(config.id),
+        name=(config.name or "").strip(),
+        description=(config.description or "").strip(),
+        group_name=(config.group_name or "").strip() or "默认",
+        request_url=(config.request_url or "").strip(),
+        request_format=((config.request_format or "json").strip().lower() or "json"),
+        headers_json=(config.headers_json or "{}"),
+        payload_json=(config.payload_json or "{}"),
+        response_json=(config.response_json or "{}"),
+        result_base64_field=(config.result_base64_field or "").strip(),
+        call_mode=((config.call_mode or "sync").strip().lower() or "sync"),
+        submit_success_statuses_json=(config.submit_success_statuses_json or "[200, 201, 202]"),
+        poll_url=(config.poll_url or "").strip(),
+        poll_method=((config.poll_method or "GET").strip().upper() or "GET"),
+        poll_headers_json=(config.poll_headers_json or "{}"),
+        poll_payload_json=(config.poll_payload_json or "{}"),
+        task_id_field=(config.task_id_field or "").strip(),
+        result_status_field=(config.result_status_field or "").strip(),
+        result_success_values_json=(config.result_success_values_json or '["success", "succeeded", "completed"]'),
+        result_failed_values_json=(config.result_failed_values_json or '["failed", "error", "cancelled"]'),
+        result_error_field=(config.result_error_field or "").strip(),
+        poll_result_base64_field=(config.poll_result_base64_field or "").strip(),
+        poll_result_url_field=(config.poll_result_url_field or "").strip(),
+        poll_interval_seconds=max(int(config.poll_interval_seconds or 5), 1),
+        poll_timeout_seconds=max(int(config.poll_timeout_seconds or 600), 1),
+        status=((config.status or "enabled").strip().lower() or "enabled"),
+        created_at=config.created_at,
+        updated_at=config.updated_at,
+    )
 
 
 def get_default_credit_cost(scene_key: str, scene_type: str | None = None) -> int:
@@ -412,6 +442,7 @@ def _resolve_scene_copy(binding: ExternalApiSceneBinding) -> tuple[str, str]:
 def _serialize_scene_binding(
     binding: ExternalApiSceneBinding,
     config: ExternalApiConfig | None,
+    backup_config: ExternalApiConfig | None = None,
 ) -> ExternalApiSceneBindingOut:
     scene_label, scene_description = _resolve_scene_copy(binding)
     aspect_ratio_options_json, image_size_options_json, custom_size_options_json = _get_scene_option_json(
@@ -437,6 +468,10 @@ def _serialize_scene_binding(
         api_config_name=config.name if config else "",
         api_group_name=config.group_name if config else "",
         api_status=config.status if config else None,
+        backup_api_config_id=backup_config.id if backup_config else None,
+        backup_api_config_name=backup_config.name if backup_config else "",
+        backup_api_group_name=backup_config.group_name if backup_config else "",
+        backup_api_status=backup_config.status if backup_config else None,
         credit_cost=binding.credit_cost,
         max_reference_images=max(0, int(binding.max_reference_images or 0)),
         aspect_ratio_options_json=aspect_ratio_options_json,
@@ -545,6 +580,11 @@ def delete_config(db: Session, config_id: int) -> None:
         .filter(ExternalApiSceneBinding.api_config_id == config.id)
         .update({"api_config_id": None}, synchronize_session=False)
     )
+    (
+        db.query(ExternalApiSceneBinding)
+        .filter(ExternalApiSceneBinding.backup_api_config_id == config.id)
+        .update({"backup_api_config_id": None}, synchronize_session=False)
+    )
     db.delete(config)
     db.commit()
 
@@ -559,9 +599,40 @@ def list_scene_bindings(db: Session) -> list[ExternalApiSceneBindingOut]:
     )
     configs = {row.id: row for row in db.query(ExternalApiConfig).all()}
     return [
-        _serialize_scene_binding(binding, configs.get(binding.api_config_id) if binding.api_config_id else None)
+        _serialize_scene_binding(
+            binding,
+            configs.get(binding.api_config_id) if binding.api_config_id else None,
+            configs.get(binding.backup_api_config_id) if binding.backup_api_config_id else None,
+        )
         for binding in bindings
     ]
+
+
+def _validate_enabled_binding_config(
+    db: Session,
+    config_id: int | None,
+    *,
+    field_label: str,
+) -> ExternalApiConfig | None:
+    if config_id is None:
+        return None
+    config = get_config_or_404(db, config_id)
+    if config.status != "enabled":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"只能绑定启用状态的{field_label}")
+    return config
+
+
+def _validate_scene_binding_configs(
+    db: Session,
+    *,
+    api_config_id: int | None,
+    backup_api_config_id: int | None,
+) -> tuple[ExternalApiConfig | None, ExternalApiConfig | None]:
+    if api_config_id is not None and backup_api_config_id is not None and api_config_id == backup_api_config_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="主接口和备用接口不能绑定同一个接口")
+    primary_config = _validate_enabled_binding_config(db, api_config_id, field_label="主接口")
+    backup_config = _validate_enabled_binding_config(db, backup_api_config_id, field_label="备用接口")
+    return primary_config, backup_config
 
 
 def list_public_task_scene_configs(db: Session) -> list[TaskSceneConfigOut]:
@@ -601,10 +672,11 @@ def create_scene_binding(
     if not body.scene_label.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="场景名称不能为空")
 
-    if body.api_config_id is not None:
-        config = get_config_or_404(db, body.api_config_id)
-        if config.status != "enabled":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只能绑定启用状态的接口")
+    primary_config, backup_config = _validate_scene_binding_configs(
+        db,
+        api_config_id=body.api_config_id,
+        backup_api_config_id=body.backup_api_config_id,
+    )
 
     binding = ExternalApiSceneBinding(
         scene_key=body.scene_key,
@@ -617,6 +689,7 @@ def create_scene_binding(
         hide_custom_size=body.hide_custom_size,
         status=body.status,
         api_config_id=body.api_config_id,
+        backup_api_config_id=body.backup_api_config_id,
         display_name=body.display_name,
         subtitle=body.subtitle,
         credit_cost=body.credit_cost,
@@ -629,8 +702,7 @@ def create_scene_binding(
     )
     db.add(binding)
     db.commit()
-    config = get_config_or_404(db, body.api_config_id) if body.api_config_id else None
-    return _serialize_scene_binding(binding, config)
+    return _serialize_scene_binding(binding, primary_config, backup_config)
 
 
 def _require_custom_scene_binding(db: Session, scene_key: str) -> ExternalApiSceneBinding:
@@ -667,19 +739,20 @@ def set_scene_binding(
     if not binding:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="调用场景不存在")
 
-    if body.api_config_id is not None:
-        config = get_config_or_404(db, body.api_config_id)
-        if config.status != "enabled":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只能绑定启用状态的接口")
+    primary_config, backup_config = _validate_scene_binding_configs(
+        db,
+        api_config_id=body.api_config_id,
+        backup_api_config_id=body.backup_api_config_id,
+    )
 
     binding.api_config_id = body.api_config_id
+    binding.backup_api_config_id = body.backup_api_config_id
     binding.display_name = body.display_name
     binding.subtitle = body.subtitle
     binding.credit_cost = body.credit_cost
     binding.resolution_credit_costs_json = body.resolution_credit_costs_json
     db.commit()
-    config = get_config_or_404(db, body.api_config_id) if body.api_config_id else None
-    return _serialize_scene_binding(binding, config)
+    return _serialize_scene_binding(binding, primary_config, backup_config)
 
 
 def update_scene_binding_meta(
@@ -714,7 +787,8 @@ def update_scene_binding_meta(
     binding.resolution_credit_costs_json = body.resolution_credit_costs_json
     db.commit()
     config = get_config_or_404(db, binding.api_config_id) if binding.api_config_id else None
-    return _serialize_scene_binding(binding, config)
+    backup_config = get_config_or_404(db, binding.backup_api_config_id) if binding.backup_api_config_id else None
+    return _serialize_scene_binding(binding, config, backup_config)
 
 
 def set_scene_binding_status(
@@ -726,7 +800,8 @@ def set_scene_binding_status(
     binding.status = body.status
     db.commit()
     config = get_config_or_404(db, binding.api_config_id) if binding.api_config_id else None
-    return _serialize_scene_binding(binding, config)
+    backup_config = get_config_or_404(db, binding.backup_api_config_id) if binding.backup_api_config_id else None
+    return _serialize_scene_binding(binding, config, backup_config)
 
 
 def delete_scene_binding(db: Session, scene_key: str) -> None:
@@ -735,6 +810,7 @@ def delete_scene_binding(db: Session, scene_key: str) -> None:
         binding.is_deleted = True
         binding.status = "disabled"
         binding.api_config_id = None
+        binding.backup_api_config_id = None
         db.commit()
         return
     db.delete(binding)
@@ -763,6 +839,14 @@ def get_scene_credit_cost(db: Session, scene_key: str, resolution: str = "") -> 
 
 
 def require_scene_config(db: Session, scene_key: str) -> ExternalApiConfig:
+    config, _backup_config = resolve_scene_generation_configs(db, scene_key)
+    return config
+
+
+def resolve_scene_generation_configs(
+    db: Session,
+    scene_key: str,
+) -> tuple[ExternalApiConfig, ExternalApiConfig | None]:
     _ensure_scene_bindings(db)
     binding = (
         db.query(ExternalApiSceneBinding)
@@ -790,7 +874,15 @@ def require_scene_config(db: Session, scene_key: str) -> ExternalApiConfig:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"场景 {scene_key} 当前绑定的接口已停用，请联系超级管理员调整绑定",
         )
-    return config
+    backup_config: ExternalApiConfig | None = None
+    if binding.backup_api_config_id and binding.backup_api_config_id != binding.api_config_id:
+        try:
+            candidate = get_config_or_404(db, binding.backup_api_config_id)
+        except HTTPException:
+            candidate = None
+        if candidate and candidate.status == "enabled":
+            backup_config = candidate
+    return config, backup_config
 
 
 def render_config(config: ExternalApiConfig, variables: dict[str, Any]) -> RenderedExternalApiConfig:
@@ -806,6 +898,86 @@ def render_config(config: ExternalApiConfig, variables: dict[str, Any]) -> Rende
         headers=_normalize_headers(rendered_headers),
         payload=rendered_payload,
     )
+
+
+def render_poll_config(config: ExternalApiConfig, variables: dict[str, Any]) -> RenderedPollExternalApiConfig:
+    headers_template = _load_json(config.poll_headers_json or "{}", "轮询 Header JSON")
+    payload_template = _load_json(config.poll_payload_json or "{}", "轮询请求 JSON")
+
+    rendered_request_url = _render_string((config.poll_url or "").strip(), variables)
+    rendered_headers = _render_json_template(headers_template, variables)
+    rendered_payload = _render_json_template(payload_template, variables)
+
+    return RenderedPollExternalApiConfig(
+        request_url=str(rendered_request_url or "").strip(),
+        method=((config.poll_method or "GET").strip().upper() or "GET"),
+        headers=_normalize_headers(rendered_headers),
+        payload=rendered_payload,
+    )
+
+
+def parse_http_statuses_json(raw: str | None) -> list[int]:
+    candidate = (raw or "").strip() or "[]"
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    normalized: list[int] = []
+    for item in parsed:
+        if isinstance(item, bool):
+            continue
+        try:
+            value = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 100 <= value <= 599:
+            normalized.append(value)
+    return normalized
+
+
+def parse_string_list_json(raw: str | None) -> list[str]:
+    candidate = (raw or "").strip() or "[]"
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    normalized: list[str] = []
+    for item in parsed:
+        cleaned = str(item or "").strip()
+        if cleaned:
+            normalized.append(cleaned)
+    return normalized
+
+
+def split_response_path(field_path: str) -> list[str]:
+    normalized = re.sub(r"\[(\d+)\]", r".\1", (field_path or "").strip()).strip(".")
+    return [segment for segment in normalized.split(".") if segment]
+
+
+def read_value_by_path(payload: object, field_path: str) -> tuple[object | None, object | None]:
+    current = payload
+    parent: object | None = None
+    for segment in split_response_path(field_path):
+        parent = current
+        if isinstance(current, dict):
+            if segment not in current:
+                return None, parent
+            current = current[segment]
+            continue
+        if isinstance(current, list):
+            if not segment.isdigit():
+                return None, parent
+            index = int(segment)
+            if index < 0 or index >= len(current):
+                return None, parent
+            current = current[index]
+            continue
+        return None, parent
+    return current, parent
 
 
 def _detect_image_mime(data: bytes, fallback: str = "image/png") -> str:
@@ -930,6 +1102,23 @@ def build_external_request_kwargs(rendered: RenderedExternalApiConfig) -> dict[s
     }
 
 
+def build_external_poll_request_kwargs(rendered: RenderedPollExternalApiConfig) -> dict[str, Any]:
+    method = (rendered.method or "GET").strip().upper()
+    if method == "GET":
+        if isinstance(rendered.payload, dict):
+            return {
+                "headers": rendered.headers,
+                "params": rendered.payload,
+            }
+        return {
+            "headers": rendered.headers,
+        }
+    return {
+        "headers": rendered.headers,
+        "json": rendered.payload,
+    }
+
+
 def build_secret_variables(db: Session) -> dict[str, str]:
     record = db.query(ApiKey).first()
     generation_key = (record.key or "").strip() if record else ""
@@ -959,6 +1148,9 @@ def _build_test_variables(db: Session) -> dict[str, Any]:
         "reference_image_1": sample_inline_image,
         "reference_image_2": sample_inline_image,
         "reference_image_3": sample_inline_image,
+        "reference_image_1_url": "https://example.com/reference-image-1.png",
+        "reference_image_2_url": "https://example.com/reference-image-2.png",
+        "reference_image_3_url": "https://example.com/reference-image-3.png",
         "reference_image_1_base64": one_pixel_png,
         "reference_image_2_base64": one_pixel_png,
         "reference_image_3_base64": one_pixel_png,
@@ -969,6 +1161,7 @@ def _build_test_variables(db: Session) -> dict[str, Any]:
         "reference_image_2_data_url": f"data:image/png;base64,{one_pixel_png}",
         "reference_image_3_data_url": f"data:image/png;base64,{one_pixel_png}",
         "reference_image_count": 3,
+        "source_image_url": "https://example.com/source-image.png",
         "image_data_url": f"data:image/png;base64,{one_pixel_png}",
         "prompt_reverse_text": "请返回测试提示词",
         **build_secret_variables(db),
@@ -977,7 +1170,8 @@ def _build_test_variables(db: Session) -> dict[str, Any]:
 
 def test_external_api_config(db: Session, body: ExternalApiConfigCreate) -> ExternalApiConfigTestResult:
     config = ExternalApiConfig(**body.model_dump())
-    rendered = render_config(config, _build_test_variables(db))
+    variables = _build_test_variables(db)
+    rendered = render_config(config, variables)
 
     try:
         with httpx.Client(timeout=20, trust_env=False) as client:
@@ -986,6 +1180,21 @@ def test_external_api_config(db: Session, body: ExternalApiConfigCreate) -> Exte
                 **build_external_request_kwargs(rendered),
             )
         preview = response.text[:1200]
+        is_async = (config.call_mode or "sync").strip().lower() == "async"
+        success_statuses = parse_http_statuses_json(config.submit_success_statuses_json) or [200, 201, 202]
+        if is_async:
+            try:
+                payload = response.json()
+            except Exception:
+                payload = None
+            task_id_value, _parent = read_value_by_path(payload, config.task_id_field or "") if payload else (None, None)
+            has_task_id = isinstance(task_id_value, (str, int)) and str(task_id_value).strip() != ""
+            return ExternalApiConfigTestResult(
+                success=response.status_code in success_statuses and has_task_id,
+                request_url=rendered.request_url,
+                status_code=response.status_code,
+                response_preview=preview or "(空响应)",
+            )
         return ExternalApiConfigTestResult(
             success=200 <= response.status_code < 300,
             request_url=rendered.request_url,

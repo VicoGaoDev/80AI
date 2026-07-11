@@ -103,6 +103,7 @@ def _run_startup_schema_sync():
     _ensure_prompt_history_columns()
     _ensure_image_required_columns()
     _ensure_task_credit_cost_column()
+    _ensure_task_api_attempt_schema()
     _ensure_external_api_config_required_columns()
     _ensure_scene_binding_required_columns()
     _ensure_template_required_columns()
@@ -151,6 +152,24 @@ def _ensure_schema_compat():
             conn.execute(text("ALTER TABLE tasks ADD COLUMN credit_cost INTEGER DEFAULT 0"))
         if "error_message" not in task_columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN error_message TEXT"))
+        if "provider_api_config_id" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_api_config_id INTEGER NULL"))
+        if "provider_task_id" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_task_id VARCHAR(255) DEFAULT ''"))
+        if "provider_status" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_status VARCHAR(50) DEFAULT ''"))
+        if "provider_error_message" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_error_message TEXT"))
+        if "provider_response_preview" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_response_preview TEXT"))
+        if "poll_count" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN poll_count INTEGER NOT NULL DEFAULT 0"))
+        if "last_polled_at" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN last_polled_at DATETIME"))
+        if "next_poll_at" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN next_poll_at DATETIME"))
+        if "used_fallback_api" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN used_fallback_api BOOLEAN NOT NULL DEFAULT 0"))
         if "is_deleted" not in task_columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
         if "enqueued_at" not in task_columns:
@@ -229,10 +248,103 @@ def _ensure_schema_compat():
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN response_json TEXT"))
             if "result_base64_field" not in external_api_columns:
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_base64_field VARCHAR(255) DEFAULT ''"))
+            if "call_mode" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN call_mode VARCHAR(20) DEFAULT 'sync'"))
+            if "submit_success_statuses_json" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN submit_success_statuses_json TEXT"))
+            if "poll_url" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_url VARCHAR(500) DEFAULT ''"))
+            if "poll_method" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_method VARCHAR(10) DEFAULT 'GET'"))
+            if "poll_headers_json" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_headers_json TEXT"))
+            if "poll_payload_json" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_payload_json TEXT"))
+            if "task_id_field" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN task_id_field VARCHAR(255) DEFAULT ''"))
+            if "result_status_field" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_status_field VARCHAR(255) DEFAULT ''"))
+            if "result_success_values_json" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_success_values_json TEXT"))
+            if "result_failed_values_json" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_failed_values_json TEXT"))
+            if "result_error_field" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_error_field VARCHAR(255) DEFAULT ''"))
+            if "poll_result_base64_field" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_result_base64_field VARCHAR(255) DEFAULT ''"))
+            if "poll_result_url_field" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_result_url_field VARCHAR(255) DEFAULT ''"))
+            if "poll_interval_seconds" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_interval_seconds INTEGER DEFAULT 5"))
+            if "poll_timeout_seconds" not in external_api_columns:
+                conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_timeout_seconds INTEGER DEFAULT 600"))
             if "supports_inpaint" not in external_api_columns:
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN supports_inpaint BOOLEAN DEFAULT 0"))
             if "is_active_inpaint" not in external_api_columns:
                 conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN is_active_inpaint BOOLEAN DEFAULT 0"))
+            conn.execute(
+                text(
+                    """
+                    UPDATE external_api_configs
+                    SET call_mode = 'sync'
+                    WHERE call_mode IS NULL OR call_mode = ''
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE external_api_configs
+                    SET submit_success_statuses_json = '[200, 201, 202]'
+                    WHERE submit_success_statuses_json IS NULL OR submit_success_statuses_json = ''
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE external_api_configs
+                    SET poll_headers_json = '{}'
+                    WHERE poll_headers_json IS NULL OR poll_headers_json = ''
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE external_api_configs
+                    SET poll_payload_json = '{}'
+                    WHERE poll_payload_json IS NULL
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE external_api_configs
+                    SET result_success_values_json = '["success", "succeeded", "completed"]'
+                    WHERE result_success_values_json IS NULL OR result_success_values_json = ''
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE external_api_configs
+                    SET result_failed_values_json = '["failed", "error", "cancelled"]'
+                    WHERE result_failed_values_json IS NULL OR result_failed_values_json = ''
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE external_api_configs
+                    SET poll_method = 'GET'
+                    WHERE poll_method IS NULL OR poll_method = ''
+                    """
+                )
+            )
             conn.execute(
                 text(
                     """
@@ -892,6 +1004,15 @@ def _ensure_task_credit_cost_column():
         and "request_started_at" in task_columns
         and "request_finished_at" in task_columns
         and "source" in task_columns
+        and "provider_api_config_id" in task_columns
+        and "provider_task_id" in task_columns
+        and "provider_status" in task_columns
+        and "provider_error_message" in task_columns
+        and "provider_response_preview" in task_columns
+        and "poll_count" in task_columns
+        and "last_polled_at" in task_columns
+        and "next_poll_at" in task_columns
+        and "used_fallback_api" in task_columns
     ):
         return
 
@@ -908,6 +1029,68 @@ def _ensure_task_credit_cost_column():
             conn.execute(text("ALTER TABLE tasks ADD COLUMN request_finished_at DATETIME"))
         if "source" not in task_columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN source VARCHAR(20) DEFAULT 'web'"))
+        if "provider_api_config_id" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_api_config_id INTEGER NULL"))
+        if "provider_task_id" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_task_id VARCHAR(255) DEFAULT ''"))
+        if "provider_status" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_status VARCHAR(50) DEFAULT ''"))
+        if "provider_error_message" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_error_message TEXT"))
+        if "provider_response_preview" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN provider_response_preview TEXT"))
+        if "poll_count" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN poll_count INTEGER NOT NULL DEFAULT 0"))
+        if "last_polled_at" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN last_polled_at DATETIME"))
+        if "next_poll_at" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN next_poll_at DATETIME"))
+        if "used_fallback_api" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN used_fallback_api BOOLEAN NOT NULL DEFAULT 0"))
+        conn.execute(text("UPDATE tasks SET used_fallback_api = 0 WHERE used_fallback_api IS NULL"))
+        if "provider_task_id" in task_columns:
+            conn.execute(text("UPDATE tasks SET provider_task_id = '' WHERE provider_task_id IS NULL"))
+        if "provider_status" in task_columns:
+            conn.execute(text("UPDATE tasks SET provider_status = '' WHERE provider_status IS NULL"))
+        if "poll_count" in task_columns:
+            conn.execute(text("UPDATE tasks SET poll_count = 0 WHERE poll_count IS NULL"))
+
+
+def _ensure_task_api_attempt_schema():
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "tasks" not in table_names:
+        return
+    if "task_api_attempts" not in table_names:
+        from app.models.task_api_attempt import TaskApiAttempt
+
+        TaskApiAttempt.__table__.create(bind=engine)
+        inspector = inspect(engine)
+
+    attempt_columns = {col["name"] for col in inspector.get_columns("task_api_attempts")}
+    with engine.begin() as conn:
+        if "image_id" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN image_id INTEGER NULL"))
+        if "image_index" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN image_index INTEGER NULL"))
+        if "api_config_id" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN api_config_id INTEGER NULL"))
+        if "api_config_name" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN api_config_name VARCHAR(100) NOT NULL DEFAULT ''"))
+        if "attempt_index" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN attempt_index INTEGER NOT NULL DEFAULT 1"))
+        if "is_fallback" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN is_fallback BOOLEAN NOT NULL DEFAULT 0"))
+        if "status" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'failed'"))
+        if "http_status" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN http_status INTEGER NULL"))
+        if "error_message" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN error_message TEXT"))
+        if "duration_ms" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN duration_ms INTEGER NULL"))
+        if "created_at" not in attempt_columns:
+            conn.execute(text("ALTER TABLE task_api_attempts ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
 
 
 def _ensure_external_api_config_required_columns():
@@ -919,12 +1102,105 @@ def _ensure_external_api_config_required_columns():
     with engine.begin() as conn:
         if "request_format" not in external_api_columns:
             conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN request_format VARCHAR(20) DEFAULT 'json'"))
+        if "call_mode" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN call_mode VARCHAR(20) DEFAULT 'sync'"))
+        if "submit_success_statuses_json" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN submit_success_statuses_json TEXT"))
+        if "poll_url" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_url VARCHAR(500) DEFAULT ''"))
+        if "poll_method" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_method VARCHAR(10) DEFAULT 'GET'"))
+        if "poll_headers_json" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_headers_json TEXT"))
+        if "poll_payload_json" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_payload_json TEXT"))
+        if "task_id_field" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN task_id_field VARCHAR(255) DEFAULT ''"))
+        if "result_status_field" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_status_field VARCHAR(255) DEFAULT ''"))
+        if "result_success_values_json" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_success_values_json TEXT"))
+        if "result_failed_values_json" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_failed_values_json TEXT"))
+        if "result_error_field" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN result_error_field VARCHAR(255) DEFAULT ''"))
+        if "poll_result_base64_field" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_result_base64_field VARCHAR(255) DEFAULT ''"))
+        if "poll_result_url_field" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_result_url_field VARCHAR(255) DEFAULT ''"))
+        if "poll_interval_seconds" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_interval_seconds INTEGER DEFAULT 5"))
+        if "poll_timeout_seconds" not in external_api_columns:
+            conn.execute(text("ALTER TABLE external_api_configs ADD COLUMN poll_timeout_seconds INTEGER DEFAULT 600"))
         conn.execute(
             text(
                 """
                 UPDATE external_api_configs
                 SET request_format = 'json'
                 WHERE request_format IS NULL OR request_format = ''
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE external_api_configs
+                SET call_mode = 'sync'
+                WHERE call_mode IS NULL OR call_mode = ''
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE external_api_configs
+                SET submit_success_statuses_json = '[200, 201, 202]'
+                WHERE submit_success_statuses_json IS NULL OR submit_success_statuses_json = ''
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE external_api_configs
+                SET poll_headers_json = '{}'
+                WHERE poll_headers_json IS NULL OR poll_headers_json = ''
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE external_api_configs
+                SET poll_payload_json = '{}'
+                WHERE poll_payload_json IS NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE external_api_configs
+                SET result_success_values_json = '["success", "succeeded", "completed"]'
+                WHERE result_success_values_json IS NULL OR result_success_values_json = ''
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE external_api_configs
+                SET result_failed_values_json = '["failed", "error", "cancelled"]'
+                WHERE result_failed_values_json IS NULL OR result_failed_values_json = ''
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE external_api_configs
+                SET poll_method = 'GET'
+                WHERE poll_method IS NULL OR poll_method = ''
                 """
             )
         )
@@ -939,6 +1215,8 @@ def _ensure_scene_binding_required_columns():
     with engine.begin() as conn:
         if "is_deleted" not in scene_binding_columns:
             conn.execute(text("ALTER TABLE external_api_scene_bindings ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
+        if "backup_api_config_id" not in scene_binding_columns:
+            conn.execute(text("ALTER TABLE external_api_scene_bindings ADD COLUMN backup_api_config_id INTEGER"))
         if "hide_aspect_ratio" not in scene_binding_columns:
             conn.execute(text("ALTER TABLE external_api_scene_bindings ADD COLUMN hide_aspect_ratio BOOLEAN DEFAULT 0"))
         if "hide_resolution" not in scene_binding_columns:

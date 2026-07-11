@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import re
+import json
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import HTTPException
@@ -10,31 +10,8 @@ from app.config import settings
 from app.models.image import Image
 from app.models.task import Task
 from app.services.business_id_service import task_external_id
-from app.services.cos_service import CosRuntimeConfig, get_cos_config
+from app.services.cos_service import CosRuntimeConfig, build_cos_public_url, get_cos_config
 from app.services.task_service import is_task_generation_failure_credit_refunded
-
-_API_PUBLIC_CDN_HOST = "cdn.12ai.org"
-_API_PUBLIC_DISPLAY_HOST = "api.80ai.net"
-_API_ALIAS_PATTERNS = (
-    re.compile(
-        r"\b(?:new|old|legacy|backup|fallback|test|prod|dev|staging|primary|secondary|v\d+|\d+)[\s_-]*api\b",
-        re.I,
-    ),
-    re.compile(
-        r"\bapi[\s_-]*(?:new|old|legacy|backup|fallback|test|prod|dev|staging|primary|secondary|v\d+|\d+)\b",
-        re.I,
-    ),
-)
-
-
-def sanitize_api_public_message(text: str | None) -> str:
-    value = text or ""
-    if not value:
-        return value
-    sanitized = value.replace(_API_PUBLIC_CDN_HOST, _API_PUBLIC_DISPLAY_HOST)
-    for pattern in _API_ALIAS_PATTERNS:
-        sanitized = pattern.sub("生图接口", sanitized)
-    return sanitized
 
 
 def get_optional_cos_config(db: Session) -> CosRuntimeConfig | None:
@@ -46,6 +23,27 @@ def get_optional_cos_config(db: Session) -> CosRuntimeConfig | None:
 
 def _normalize_url(value: str | None) -> str:
     return (value or "").strip()
+
+
+def normalize_external_image_url(
+    image_url: str | None,
+    *,
+    cos_config: CosRuntimeConfig | None = None,
+) -> str:
+    canonical_url = _normalize_url(image_url)
+    if not canonical_url:
+        return ""
+
+    parsed = urlparse(canonical_url)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return canonical_url
+    if canonical_url.startswith("data:"):
+        return canonical_url
+    if canonical_url.startswith("/uploads/") or canonical_url.startswith("uploads/"):
+        return canonical_url
+    if cos_config:
+        return build_cos_public_url(cos_config, canonical_url)
+    return canonical_url
 
 
 def _looks_like_cos_url(image_url: str, cos_config: CosRuntimeConfig | None) -> bool:
@@ -119,7 +117,7 @@ def serialize_asset_urls(
     *,
     cos_config: CosRuntimeConfig | None = None,
 ) -> dict[str, str]:
-    canonical_url = _normalize_url(image_url)
+    canonical_url = normalize_external_image_url(image_url, cos_config=cos_config)
     return {
         "image_url": canonical_url,
         "thumb_url": build_thumb_url(canonical_url, cos_config=cos_config),
@@ -136,11 +134,21 @@ def serialize_image(image: Image, *, cos_config: CosRuntimeConfig | None = None)
         "preview_url": exposed_preview_url,
         "thumb_url": build_thumb_url(image_url, preview_url=preview_url, cos_config=cos_config),
         "status": image.status,
-        "error_message": sanitize_api_public_message(image.error_message),
+        "error_message": image.error_message or "",
         "image_format": image.image_format or "",
         "image_size_bytes": int(image.image_size_bytes or 0),
         "is_deleted": bool(image.is_deleted),
     }
+
+
+def _parse_reference_images(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    try:
+        refs = json.loads(raw)
+        return refs if isinstance(refs, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 def serialize_task(
@@ -156,19 +164,31 @@ def serialize_task(
     elif task.status == "failed" and task_credit_cost > 0:
         db = Session.object_session(task)
         resolved_credit_refunded = bool(db and is_task_generation_failure_credit_refunded(db, task.id))
+    source_asset = serialize_asset_urls(task.source_image or "", cos_config=cos_config)
+    mask_asset = serialize_asset_urls(task.mask_image or "", cos_config=cos_config)
+    reference_assets = [serialize_asset_urls(ref, cos_config=cos_config) for ref in _parse_reference_images(task.reference_images)]
 
     return {
         "id": task_external_id(task),
+        "canvas_id": getattr(task, "canvas_id", None),
         "mode": task.mode or "generate",
         "model": task.model or "",
         "source": (task.source or "web"),
         "prompt": task.prompt or "",
+        "num_images": task.num_images,
         "size": task.size,
         "resolution": task.resolution or "",
+        "custom_size": task.custom_size or "",
+        "reference_images": [asset["image_url"] for asset in reference_assets],
+        "reference_image_thumbs": [asset["thumb_url"] for asset in reference_assets],
+        "source_image": source_asset["image_url"],
+        "source_image_thumb": source_asset["thumb_url"],
+        "mask_image": mask_asset["image_url"],
+        "mask_image_thumb": mask_asset["thumb_url"],
         "credit_cost": task_credit_cost,
         "credit_refunded": resolved_credit_refunded,
         "status": task.status,
-        "error_message": sanitize_api_public_message(task.error_message),
+        "error_message": task.error_message or "",
         "created_at": task.created_at,
         "enqueued_at": task.enqueued_at,
         "request_started_at": task.request_started_at,
