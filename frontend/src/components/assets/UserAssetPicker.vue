@@ -593,6 +593,7 @@ function handleAssetDragStart(event: DragEvent, asset: UserAsset) {
     :width="1120"
     :mask="mask"
     centered
+    wrap-class-name="asset-library-modal-wrap"
     @update:open="emit('update:open', $event)"
     @cancel="closeDialog"
   >

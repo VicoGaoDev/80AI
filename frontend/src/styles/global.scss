@@ -338,6 +338,9 @@ html, body, #app {
 }
 
 .ant-modal .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 64px);
   border-radius: 28px;
   overflow: hidden;
   border: 1px solid var(--theme-panel-border);
@@ -351,6 +354,7 @@ html, body, #app {
 }
 
 .ant-modal .ant-modal-header {
+  flex-shrink: 0;
   background: var(--theme-modal-header-bg);
   border-bottom: 1px solid var(--theme-border);
   padding: 22px 24px 18px;
@@ -365,11 +369,17 @@ html, body, #app {
 }
 
 .ant-modal .ant-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 20px 24px 24px;
   transition: background var(--motion-duration-base) var(--motion-ease-soft);
 }
 
 .ant-modal .ant-modal-footer {
+  flex-shrink: 0;
   border-top: 1px solid var(--theme-border);
   padding: 16px 24px 22px;
   transition:
@@ -386,6 +396,20 @@ html, body, #app {
   background: var(--theme-accent) !important;
   border: none !important;
   box-shadow: 0 14px 24px var(--theme-shadow-strong) !important;
+}
+
+// Library pickers manage their own internal scroll on desktop.
+.asset-library-modal-wrap .ant-modal-body,
+.user-prompt-library-modal-wrap .ant-modal-body {
+  overflow: visible;
+}
+
+@media (max-width: 960px) {
+  .asset-library-modal-wrap .ant-modal-body,
+  .user-prompt-library-modal-wrap .ant-modal-body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
 }
 
 .ant-table-wrapper {
