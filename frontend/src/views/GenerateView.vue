@@ -168,7 +168,6 @@ interface GeneratedTaskItem {
   sourceImage?: string;
   maskImage?: string;
   createdAt: string;
-  requestFinishedAt?: string;
   status: GeneratedTaskStatus;
   errorMessage?: string;
   creditRefunded?: boolean;
@@ -492,7 +491,7 @@ type GenerateTaskPayload = {
   board_id?: number | null;
 };
 
-type GeneratedTaskDraft = Omit<GeneratedTaskItem, "localId" | "taskId" | "createdAt" | "requestFinishedAt" | "status" | "images">;
+type GeneratedTaskDraft = Omit<GeneratedTaskItem, "localId" | "taskId" | "createdAt" | "status" | "images">;
 
 function createPendingImages(count: number) {
   return Array.from({ length: count }, (_, index) => ({
@@ -542,7 +541,6 @@ function createLocalGeneratedTask(taskDraft: GeneratedTaskDraft): GeneratedTaskI
     ...taskDraft,
     numImages: 1,
     createdAt: new Date().toISOString(),
-    requestFinishedAt: undefined,
     status: "submitting",
     errorMessage: "",
     creditRefunded: false,
@@ -652,7 +650,6 @@ function syncTaskFromResult(taskId: string, data: TaskResult) {
     errorMessage: nextErrorMessage,
     creditRefunded: Boolean(data.credit_refunded),
     createdAt: data.created_at || task.createdAt,
-    requestFinishedAt: data.request_finished_at || task.requestFinishedAt,
     model: data.model || task.model,
     size: data.size || task.size,
     resolution: data.resolution || task.resolution,
@@ -706,19 +703,11 @@ function convertHistoryCardToGeneratedTask(item: UserHistoryCard): GeneratedTask
     sourceImage: item.source_image || undefined,
     maskImage: item.mask_image || undefined,
     createdAt: item.created_at,
-    requestFinishedAt: item.request_finished_at || undefined,
     status: item.status as GeneratedTaskStatus,
     errorMessage: item.error_message || item.images.find((image) => image.status === "failed" && image.error_message)?.error_message || "",
     creditRefunded: Boolean(item.credit_refunded),
     images: item.images.length ? item.images : createPendingImages(fallbackImageCount),
   };
-}
-
-function getTaskSuccessTimeLabel(task: Pick<GeneratedTaskItem, "status" | "requestFinishedAt" | "createdAt">) {
-  if (task.status !== "success") return "";
-  const finishedAt = task.requestFinishedAt || task.createdAt;
-  if (!finishedAt) return "";
-  return dayjs(finishedAt).format("MM-DD HH:mm");
 }
 
 function getGeneratedTaskFailureMessage(task: GeneratedTaskItem, image: ImageResult) {
@@ -3098,9 +3087,6 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
                     v-if="item.taskId || item.image.status !== 'pending'"
                     class="result-top-actions"
                   >
-                    <div v-if="getTaskSuccessTimeLabel(item.task)" class="result-success-time">
-                      完成 {{ getTaskSuccessTimeLabel(item.task) }}
-                    </div>
                     <a-tooltip
                       v-if="canCreateTemplateFromTask && item.image.status === 'success'"
                       :title="isGeneratedTaskExpired(item.task) ? '原图已过期，无法创建模版' : '设为创意模版'"
@@ -5294,25 +5280,7 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
   right: 12px;
   z-index: 3;
   display: flex;
-  align-items: center;
   gap: 8px;
-}
-
-.result-success-time {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(76, 52, 26, 0.58);
-  border: 1px solid rgba(255, 240, 214, 0.18);
-  color: #fff7ea;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-  box-shadow: 0 10px 20px rgba(34, 22, 10, 0.18);
-  backdrop-filter: blur(10px);
-  white-space: nowrap;
 }
 
 .frame-state {
