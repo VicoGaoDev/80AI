@@ -398,6 +398,25 @@ function formatRunTime(seconds?: number | null) {
   return `${minutes}分${remainSeconds}秒`;
 }
 
+function formatClockTime(value?: string | null) {
+  return value ? dayjs(value).format("HH:mm:ss") : "";
+}
+
+function getHistoryCardRunTimeLabel(item: UserHistoryCard) {
+  return formatRunTime(item.run_time);
+}
+
+function getHistoryCardRunTimeTitle(item: UserHistoryCard) {
+  const durationLabel = formatRunTime(item.run_time);
+  if (!durationLabel) return "";
+  const startedAt = formatClockTime(item.request_started_at || item.created_at);
+  const finishedAt = formatClockTime(item.request_finished_at);
+  if (startedAt && finishedAt) {
+    return `接口调用耗时 ${durationLabel}（${startedAt} - ${finishedAt}）`;
+  }
+  return `接口调用耗时 ${durationLabel}`;
+}
+
 function statusLabel(status: UserHistoryCard["status"]) {
   const mapping: Record<string, string> = {
     pending: "等待中",
@@ -1188,11 +1207,11 @@ function handleEditImage(item: UserHistoryCard) {
               {{ getModelLabel(item.model) }}
             </div>
             <div
-              v-if="isAdminHistoryView && formatRunTime(item.run_time)"
+              v-if="isAdminHistoryView && getHistoryCardRunTimeLabel(item)"
               class="result-card-run-time"
-              :title="formatRunTime(item.run_time)"
+              :title="getHistoryCardRunTimeTitle(item)"
             >
-              {{ formatRunTime(item.run_time) }}
+              {{ getHistoryCardRunTimeLabel(item) }}
             </div>
             <div
               v-if="showSoftDeletedBadge(item)"

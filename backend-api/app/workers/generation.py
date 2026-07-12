@@ -2006,8 +2006,8 @@ def _finish_task_after_async_poll(db, task: Task, image: Image, call_result: Api
         task.error_message = image.error_message
         db.commit()
 
-    _mark_task_request_finished(task)
     db.refresh(task)
+    _mark_task_request_finished(task)
     task.status = _resolve_task_status(list(task.images))
     task.error_message = "" if task.status == "success" else (image.error_message or task.error_message)
     if task.status == "success":

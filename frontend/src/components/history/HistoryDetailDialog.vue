@@ -114,6 +114,9 @@ function detailMetaList(item: UserHistoryCard) {
     item.item_type === "task" && item.api_attempts?.length
       ? `备用接口：${item.used_fallback_api ? "已调用" : "未调用"}`
       : "",
+    item.run_time != null ? `接口调用耗时：${formatDuration((item.run_time || 0) * 1000)}` : "",
+    item.request_started_at ? `开始时间：${formatTime(item.request_started_at)}` : "",
+    item.request_finished_at ? `完成时间：${formatTime(item.request_finished_at)}` : "",
     `时间：${formatTime(item.created_at)}`,
   ].filter(Boolean);
 }

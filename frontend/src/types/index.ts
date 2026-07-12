@@ -192,6 +192,7 @@ export interface UserHistoryCard {
   used_fallback_api?: boolean;
   created_at: string;
   request_finished_at?: string | null;
+  request_started_at?: string | null;
   run_time?: number | null;
   error_message?: string;
   images: ImageResult[];

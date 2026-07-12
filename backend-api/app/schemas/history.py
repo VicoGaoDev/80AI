@@ -88,6 +88,9 @@ class UserHistoryCardItem(BaseModel):
     credit_cost: int = 0
     credit_refunded: bool = False
     created_at: datetime | None = None
+    request_started_at: datetime | None = None
+    request_finished_at: datetime | None = None
+    run_time: int | None = None
     error_message: str = ""
     images: list[HistoryImageOut] = []
 

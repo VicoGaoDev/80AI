@@ -60,6 +60,15 @@ def _resolve_history_card_status(task_status: str | None, image_status: str | No
     return image_status or task_status or "pending"
 
 
+def _calculate_task_run_time(task: Task | None) -> int | None:
+    if not task or not task.request_finished_at:
+        return None
+    started_at = task.request_started_at or task.created_at
+    if not started_at:
+        return None
+    return max(0, int((task.request_finished_at - started_at).total_seconds()))
+
+
 def _build_history_pin_key(item_type: str, image_id: int | None = None, history_id: int | None = None) -> str:
     if item_type == "task" and isinstance(image_id, int):
         return f"task:{image_id}"
@@ -169,6 +178,9 @@ def _serialize_task_history_detail(task: Task, *, cos_config, scene_type_map: di
         "credit_cost": task_credit_cost,
         "credit_refunded": credit_refunded,
         "created_at": task.created_at,
+        "request_started_at": task.request_started_at,
+        "request_finished_at": task.request_finished_at,
+        "run_time": _calculate_task_run_time(task),
         "error_message": sanitize_api_public_message(task.error_message),
         "images": visible_images,
     }
@@ -394,6 +406,9 @@ def get_user_history(
             "credit_cost": task_credit_cost,
             "credit_refunded": credit_refunded,
             "created_at": task.created_at,
+            "request_started_at": task.request_started_at,
+            "request_finished_at": task.request_finished_at,
+            "run_time": _calculate_task_run_time(task),
             "error_message": sanitize_api_public_message(task.error_message),
             "images": visible_images,
         })
@@ -1008,6 +1023,9 @@ def get_admin_history_cards(
             "credit_cost": int(task.credit_cost or 0),
             "credit_refunded": False,
             "created_at": task.created_at,
+            "request_started_at": task.request_started_at,
+            "request_finished_at": task.request_finished_at,
+            "run_time": _calculate_task_run_time(task),
             "error_message": sanitize_api_public_message(task.error_message),
             "images": visible_images,
         })
@@ -1058,6 +1076,9 @@ def get_admin_history_cards(
             "credit_cost": task_credit_cost,
             "credit_refunded": credit_refunded,
             "created_at": task.created_at,
+            "request_started_at": task.request_started_at,
+            "request_finished_at": task.request_finished_at,
+            "run_time": _calculate_task_run_time(task),
             "error_message": sanitize_api_public_message(task.error_message),
             "images": [],
         })

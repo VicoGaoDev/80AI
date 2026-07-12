@@ -62,9 +62,12 @@ def _resolve_history_card_status(task_status: str | None, image_status: str | No
 
 
 def _calculate_task_run_time(task: Task | None) -> int | None:
-    if not task or not task.created_at or not task.request_finished_at:
+    if not task or not task.request_finished_at:
         return None
-    return max(0, int((task.request_finished_at - task.created_at).total_seconds()))
+    started_at = task.request_started_at or task.created_at
+    if not started_at:
+        return None
+    return max(0, int((task.request_finished_at - started_at).total_seconds()))
 
 
 def _get_task_canvas_project_id(task: Task | None) -> str:
@@ -250,7 +253,9 @@ def _serialize_task_history_detail(
         "credit_refunded": credit_refunded,
         "used_fallback_api": bool(task.used_fallback_api),
         "created_at": task.created_at,
+        "request_started_at": task.request_started_at,
         "request_finished_at": task.request_finished_at,
+        "run_time": _calculate_task_run_time(task),
         "error_message": task.error_message or "",
         "images": visible_images,
         "api_attempts": _serialize_task_api_attempts(resolved_attempts or []),
@@ -1081,6 +1086,8 @@ def get_admin_history_cards(
             "credit_refunded": credit_refunded,
             "used_fallback_api": bool(task.used_fallback_api),
             "created_at": task.created_at,
+            "request_started_at": task.request_started_at,
+            "request_finished_at": task.request_finished_at,
             "run_time": _calculate_task_run_time(task),
             "error_message": task.error_message or "",
             "images": visible_images,
@@ -1135,6 +1142,8 @@ def get_admin_history_cards(
             "credit_refunded": False,
             "used_fallback_api": bool(task.used_fallback_api),
             "created_at": task.created_at,
+            "request_started_at": task.request_started_at,
+            "request_finished_at": task.request_finished_at,
             "run_time": _calculate_task_run_time(task),
             "error_message": task.error_message or "",
             "images": visible_images,
@@ -1189,6 +1198,8 @@ def get_admin_history_cards(
             "credit_refunded": credit_refunded,
             "used_fallback_api": bool(task.used_fallback_api),
             "created_at": task.created_at,
+            "request_started_at": task.request_started_at,
+            "request_finished_at": task.request_finished_at,
             "run_time": _calculate_task_run_time(task),
             "error_message": task.error_message or "",
             "images": [],
