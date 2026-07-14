@@ -36,7 +36,6 @@ import { createTask, getTasks } from "@/api/tasks";
 import { createTemplateFromTaskImage, listTemplateTags, type TemplatePayload } from "@/api/templates";
 import { deleteImage, getDisplayImageUrl, getDownloadUrl, getPreviewImageSrc, resolveImageUrl } from "@/api/images";
 import { reversePrompt } from "@/api/promptReverse";
-import { getUserAssetStats, uploadUserAssetFile } from "@/api/userAssets";
 import {
   isImageUploadTooLarge,
   MAX_IMAGE_UPLOAD_SIZE_TEXT,
@@ -55,11 +54,6 @@ import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import TemplateFormDialog from "@/components/templates/TemplateFormDialog.vue";
 import { withBaseUrl } from "@/lib/assets";
-import {
-  getAssetQuotaFullMessage,
-  getAssetQuotaTruncatedMessage,
-  resolveAssetQuotaErrorMessage,
-} from "@/lib/userAssetQuota";
 import {
   formatGenerationErrorMessage,
   formatGenerationTaskFailureMessage,
@@ -1122,31 +1116,19 @@ async function uploadReferenceFiles(files: File[]) {
     return;
   }
 
-  const quota = await getUserAssetStats();
-  if (quota.remaining <= 0) {
-    message.warning(getAssetQuotaFullMessage(quota));
-    return;
-  }
-
   const referenceLimitedFiles = imageFiles.slice(0, remainingSlots);
-  const acceptedFiles = referenceLimitedFiles.slice(0, quota.remaining);
   const skippedDueToModel = imageFiles.length - referenceLimitedFiles.length;
-  const skippedDueToQuota = referenceLimitedFiles.length - acceptedFiles.length;
 
   if (skippedDueToModel > 0) {
     message.warning(`当前模型最多支持 ${maxReferenceImages.value} 张参考图，本次仅上传前 ${referenceLimitedFiles.length} 张`);
   }
-  if (skippedDueToQuota > 0) {
-    message.warning(getAssetQuotaTruncatedMessage(acceptedFiles.length, quota.remaining));
-  }
-  if (!acceptedFiles.length) return;
+  if (!referenceLimitedFiles.length) return;
 
   let uploadedCount = 0;
   let failedCount = 0;
   let oversizedCount = 0;
-  let quotaErrorShown = false;
 
-  for (const file of acceptedFiles) {
+  for (const file of referenceLimitedFiles) {
     if (isImageUploadTooLarge(file)) {
       oversizedCount += 1;
       continue;
@@ -1163,24 +1145,18 @@ async function uploadReferenceFiles(files: File[]) {
     referenceItems.value.push(item);
 
     try {
-      const res = await uploadUserAssetFile(file);
+      const res = await uploadReferenceImage(file, "ref");
       revokeObjectUrl(objectUrl);
       updateReferenceItem(item.id, {
         objectUrl: undefined,
-        localUrl: res.asset.thumb_url || res.asset.image_url,
-        remoteUrl: res.asset.image_url,
+        localUrl: res.url,
+        remoteUrl: res.url,
         status: "success",
       });
       uploadedCount += 1;
     } catch (err: any) {
       updateReferenceItem(item.id, { status: "failed" });
       failedCount += 1;
-      const quotaMessage = resolveAssetQuotaErrorMessage(err);
-      if (quotaMessage) {
-        message.warning(quotaMessage);
-        quotaErrorShown = true;
-        break;
-      }
     }
   }
 
@@ -1190,7 +1166,7 @@ async function uploadReferenceFiles(files: File[]) {
   if (oversizedCount > 0) {
     message.warning(`${oversizedCount} 张图片超过 ${MAX_IMAGE_UPLOAD_SIZE_TEXT}，已跳过`);
   }
-  if (failedCount > 0 && !quotaErrorShown) {
+  if (failedCount > 0) {
     message.error(`${failedCount} 张参考图上传失败，请重试`);
   }
 }
