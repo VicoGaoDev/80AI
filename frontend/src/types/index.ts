@@ -764,6 +764,7 @@ export interface AdminStats {
   total_users: number;
   total_tasks: number;
   total_credit_cost: number;
+  total_remain_credits: number;
   active_users: number;
 }
 

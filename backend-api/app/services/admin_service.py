@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.task import Task
 from app.models.credit_log import CreditLog
 from app.models.credit_redeem_key import CreditRedeemKey
+from app.models.user_credit import DEFAULT_USER_CREDIT_STATUS, UserCredit
 from app.services.business_id_service import get_user_by_business_id, task_external_id, user_external_id
 from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION,
@@ -25,6 +26,7 @@ from app.services.task_type_service import (
     resolve_task_type_for_task,
 )
 from app.services.user_credit_service import (
+    DEFAULT_CREDIT_TYPE,
     change_user_credit_balance,
     create_default_credit_account,
     get_user_credit_balance,
@@ -376,6 +378,17 @@ def get_credit_logs(
 def get_stats(db: Session) -> dict:
     now = datetime.now(timezone.utc)
     total_users = db.query(func.count(User.id)).filter(User.role != "superadmin", _non_whitelisted_user_filter()).scalar()
+    total_remain_credits = (
+        db.query(func.coalesce(func.sum(UserCredit.remain_credit), 0))
+        .join(User, User.id == UserCredit.user_id)
+        .filter(
+            User.role != "superadmin",
+            _non_whitelisted_user_filter(),
+            UserCredit.type == DEFAULT_CREDIT_TYPE,
+            UserCredit.status == DEFAULT_USER_CREDIT_STATUS,
+        )
+        .scalar()
+    )
     total_generation_tasks = (
         db.query(func.count(Task.id))
         .join(User, User.id == Task.user_id)
@@ -460,6 +473,7 @@ def get_stats(db: Session) -> dict:
             int(total_generation_credit_cost or 0) - int(total_refunded_generation_credit or 0),
             0,
         ) + int(total_prompt_reverse_credit_cost or 0),
+        "total_remain_credits": int(total_remain_credits or 0),
         "active_users": len(active_task_user_ids | active_prompt_reverse_user_ids),
     }
 

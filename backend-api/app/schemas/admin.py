@@ -97,6 +97,7 @@ class StatsOut(BaseModel):
     total_users: int
     total_tasks: int
     total_credit_cost: int
+    total_remain_credits: int
     active_users: int
 
 

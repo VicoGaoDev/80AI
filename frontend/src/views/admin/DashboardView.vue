@@ -149,6 +149,13 @@ const overviewStats = computed(() => {
       color: "#722ed1",
     },
     {
+      key: "total_remain_credits",
+      label: "所有用户剩余积分总和",
+      value: stats.value.total_remain_credits,
+      desc: "当前系统内非超级管理员用户的可用积分合计",
+      color: "#eb2f96",
+    },
+    {
       key: "active_users",
       label: "近 7 天活跃用户",
       value: stats.value.active_users,
