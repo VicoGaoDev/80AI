@@ -232,7 +232,7 @@ const composerModeSwitching = ref(false);
 const selectedModel = ref("");
 const prompt = ref("");
 const numImages = ref(1);
-const size = ref("9:16");
+const size = ref("");
 const resolution = ref("2K");
 const customSize = ref("");
 const promptSourceNodeId = ref<number | null>(null);
@@ -4023,7 +4023,7 @@ watch(generationModels, (models) => {
 }, { immediate: true });
 
 watch(sizeOptions, (options) => {
-  if (options.length && !options.some((item) => item.value === size.value)) {
+  if (options.length && (!size.value || !options.some((item) => item.value === size.value))) {
     size.value = options[0].value;
   }
 }, { immediate: true });

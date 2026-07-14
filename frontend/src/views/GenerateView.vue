@@ -155,7 +155,7 @@ const TASK_PROMPT_MAX_LENGTH = 5000;
 const selectedModel = ref("");
 const numImages = ref(1);
 const resolution = ref("2K");
-const size = ref("9:16");
+const size = ref("");
 const customSize = ref("");
 const selectedNumImages = computed({
   get: () => String(numImages.value),
@@ -712,7 +712,7 @@ function convertHistoryCardToGeneratedTask(item: UserHistoryCard): GeneratedTask
     prompt: item.prompt || "",
     model: item.model || undefined,
     numImages: fallbackImageCount,
-    size: item.size || "9:16",
+    size: item.size || "1:1",
     resolution: item.resolution || "2K",
     customSize: item.custom_size || "",
     referenceImages: Array.isArray(item.reference_images) ? item.reference_images : [],
@@ -1620,7 +1620,7 @@ async function handleGenerate() {
 
 function handleReeditTask(task: GeneratedTaskItem) {
   generateMode.value = task.mode;
-  size.value = task.size || "9:16";
+  size.value = task.size || sizeOptions.value[0]?.value || "1:1";
   resolution.value = task.resolution || "2K";
   customSize.value = task.customSize || "";
 
@@ -1663,7 +1663,7 @@ function handleEditImageTask(task: GeneratedTaskItem, image: ImageResult) {
   generateMode.value = "imageEdit";
   prompt.value = task.prompt;
   repaintPrompt.value = "";
-  size.value = task.size || "9:16";
+  size.value = task.size || sizeOptions.value[0]?.value || "1:1";
   resolution.value = task.resolution || "2K";
   customSize.value = task.customSize || "";
   numImages.value = Math.min(MAX_ACTIVE_GENERATION_IMAGES, Math.max(1, Number(task.numImages || 1)));
@@ -1807,7 +1807,7 @@ async function openTemplateDialogFromGeneratedImage(task: GeneratedTaskItem, img
     model: task.model || templateModelOptions.value[0]?.model_key || "banana_pro",
     reference_images: [...task.referenceImages],
     num_images: 1,
-    size: task.size || "9:16",
+    size: task.size || "1:1",
     resolution: task.resolution || "2K",
     custom_size: task.customSize || "",
     result_image: img.image_url || img.preview_url || "",
@@ -1923,7 +1923,7 @@ function applyDraft(raw: string | null, successText: string, storageKey: string)
           ? "imageEdit"
           : "textGenerate";
     generateMode.value = draftMode;
-    size.value = draft.size || "9:16";
+    size.value = draft.size || sizeOptions.value[0]?.value || "1:1";
     resolution.value = draft.resolution || "2K";
     customSize.value = draft.custom_size || "";
 
@@ -2066,7 +2066,7 @@ watch(generationModels, (models) => {
 
 watch(sizeOptions, (options) => {
   if (hideAspectRatio.value || !options.length) return;
-  if (!options.some((item) => item.value === size.value)) {
+  if (!size.value || !options.some((item) => item.value === size.value)) {
     size.value = options[0].value;
   }
 }, { immediate: true });
