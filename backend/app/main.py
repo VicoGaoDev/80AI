@@ -110,6 +110,11 @@ def _run_startup_schema_sync():
     _ensure_task_api_attempt_schema()
     _ensure_external_api_config_required_columns()
     _ensure_scene_binding_required_columns()
+    _ensure_video_external_api_config_schema()
+    _ensure_video_scene_binding_schema()
+    _ensure_video_task_schema()
+    _ensure_video_result_schema()
+    _ensure_video_task_api_attempt_schema()
     _ensure_template_required_columns()
     _ensure_feedback_schema()
     _ensure_system_message_schema()
@@ -1536,6 +1541,162 @@ def _ensure_scene_binding_required_columns():
         )
 
 
+def _ensure_video_external_api_config_schema():
+    inspector = inspect(engine)
+    if "video_external_api_configs" in inspector.get_table_names():
+        return
+    from app.models.video_external_api_config import VideoExternalApiConfig
+
+    VideoExternalApiConfig.__table__.create(bind=engine)
+
+
+def _ensure_video_scene_binding_schema():
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "video_external_api_configs" not in table_names:
+        _ensure_video_external_api_config_schema()
+        inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
+    if "video_external_api_scene_bindings" in table_names:
+        video_scene_columns = {col["name"] for col in inspector.get_columns("video_external_api_scene_bindings")}
+        with engine.begin() as conn:
+            if "hide_aspect_ratio" not in video_scene_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE video_external_api_scene_bindings "
+                        "ADD COLUMN hide_aspect_ratio BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
+            if "credit_billing_mode" not in video_scene_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE video_external_api_scene_bindings "
+                        "ADD COLUMN credit_billing_mode VARCHAR(20) NOT NULL DEFAULT 'fixed'"
+                    )
+                )
+            if "per_second_credit_cost" not in video_scene_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE video_external_api_scene_bindings "
+                        "ADD COLUMN per_second_credit_cost INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "aspect_ratio_options_json" not in video_scene_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE video_external_api_scene_bindings "
+                        "ADD COLUMN aspect_ratio_options_json TEXT"
+                    )
+                )
+            if "max_reference_images" not in video_scene_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE video_external_api_scene_bindings "
+                        "ADD COLUMN max_reference_images INTEGER NOT NULL DEFAULT 1"
+                    )
+                )
+            if "availability_mode" not in video_scene_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE video_external_api_scene_bindings "
+                        "ADD COLUMN availability_mode VARCHAR(20) NOT NULL DEFAULT 'both'"
+                    )
+                )
+            conn.execute(
+                text(
+                    "UPDATE video_external_api_scene_bindings "
+                    "SET credit_billing_mode = 'fixed' "
+                    "WHERE credit_billing_mode IS NULL OR credit_billing_mode = ''"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE video_external_api_scene_bindings "
+                    "SET per_second_credit_cost = 0 "
+                    "WHERE per_second_credit_cost IS NULL"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE video_external_api_scene_bindings "
+                    "SET aspect_ratio_options_json = '[]' "
+                    "WHERE aspect_ratio_options_json IS NULL"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE video_external_api_scene_bindings "
+                    "SET max_reference_images = 1 "
+                    "WHERE max_reference_images IS NULL"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE video_external_api_scene_bindings "
+                    "SET availability_mode = 'both' "
+                    "WHERE availability_mode IS NULL OR availability_mode = ''"
+                )
+            )
+        return
+    from app.models.video_external_api_scene_binding import VideoExternalApiSceneBinding
+
+    VideoExternalApiSceneBinding.__table__.create(bind=engine)
+
+
+def _ensure_video_task_schema():
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "users" not in table_names:
+        return
+    if "video_tasks" in table_names:
+        video_task_columns = {col["name"] for col in inspector.get_columns("video_tasks")}
+        with engine.begin() as conn:
+            if "aspect_ratio" not in video_task_columns:
+                conn.execute(text("ALTER TABLE video_tasks ADD COLUMN aspect_ratio VARCHAR(20) NOT NULL DEFAULT ''"))
+            if "reference_images" not in video_task_columns:
+                conn.execute(text("ALTER TABLE video_tasks ADD COLUMN reference_images TEXT"))
+        return
+    from app.models.video_task import VideoTask
+
+    VideoTask.__table__.create(bind=engine)
+
+
+def _ensure_video_result_schema():
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "video_tasks" not in table_names:
+        _ensure_video_task_schema()
+        inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
+    if "video_results" in table_names:
+        return
+    from app.models.video_result import VideoResult
+
+    VideoResult.__table__.create(bind=engine)
+
+
+def _ensure_video_task_api_attempt_schema():
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "video_tasks" not in table_names:
+        _ensure_video_task_schema()
+        inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
+    if "video_results" not in table_names:
+        _ensure_video_result_schema()
+        inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
+    if "video_external_api_configs" not in table_names:
+        _ensure_video_external_api_config_schema()
+        inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
+    if "video_task_api_attempts" in table_names:
+        return
+    from app.models.video_task_api_attempt import VideoTaskApiAttempt
+
+    VideoTaskApiAttempt.__table__.create(bind=engine)
+
+
 def _ensure_feedback_schema():
     inspector = inspect(engine)
     if "feedback" not in inspector.get_table_names():
@@ -2145,6 +2306,10 @@ def _backfill_task_credit_costs():
     from app.models.task import Task
     from app.models.credit_log import CreditLog
 
+    # Backfill queries the ORM Task model directly, so ensure async-provider
+    # columns exist first on older databases before issuing SELECT tasks.*.
+    _ensure_task_credit_cost_column()
+
     db = SessionLocal()
     try:
         tasks = db.query(Task).order_by(Task.id.asc()).all()
@@ -2249,7 +2414,7 @@ upload_path = Path(settings.UPLOAD_DIR)
 upload_path.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(upload_path)), name="uploads")
 
-from app.api import auth, boards, canvases, tasks, images, history, admin, upload, api_key, templates, prompt_reverse, external_api_config, feedback, system_messages, user_api_keys, payment, example_canvases, user_assets, user_prompts  # noqa: E402
+from app.api import auth, boards, canvases, tasks, video_tasks, images, history, admin, upload, api_key, templates, prompt_reverse, external_api_config, video_external_api_config, feedback, system_messages, user_api_keys, payment, example_canvases, user_assets, user_prompts  # noqa: E402
 app.include_router(auth.router)
 app.include_router(user_api_keys.router)
 app.include_router(templates.router)
@@ -2261,6 +2426,7 @@ app.include_router(user_prompts.router)
 app.include_router(example_canvases.router)
 app.include_router(canvases.router)
 app.include_router(tasks.router)
+app.include_router(video_tasks.router)
 app.include_router(images.router)
 app.include_router(history.router)
 app.include_router(payment.router)
@@ -2278,3 +2444,6 @@ app.include_router(prompt_reverse.router)
 app.include_router(external_api_config.router)
 app.include_router(external_api_config.scene_router)
 app.include_router(external_api_config.public_router)
+app.include_router(video_external_api_config.router)
+app.include_router(video_external_api_config.scene_router)
+app.include_router(video_external_api_config.public_router)

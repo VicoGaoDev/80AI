@@ -55,6 +55,7 @@ class TaskOut(BaseModel):
     mask_image_thumb: str = ""
     credit_cost: int = 0
     credit_refunded: bool = False
+    failure_refund_remaining_count: int | None = None
     status: str
     error_message: str = ""
     created_at: datetime | None = None

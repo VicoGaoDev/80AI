@@ -20,6 +20,7 @@ from app.services.task_service import (
     mark_tasks_enqueue_failed,
     mark_tasks_queued,
 )
+from app.services.failure_refund_service import get_current_failure_refund_remaining_count
 
 router = APIRouter(prefix="/api/tasks", tags=["生成任务"])
 task_logger = logging.getLogger("app.task")
@@ -148,7 +149,16 @@ def get_task(
     db: Session = Depends(get_db),
 ):
     task = get_task_detail(db, task_id, user.id)
-    return serialize_task(task, cos_config=get_optional_cos_config(db))
+    failure_refund_remaining_count = (
+        get_current_failure_refund_remaining_count(db, user.id)
+        if task.status == "failed" and int(task.credit_cost or 0) > 0
+        else None
+    )
+    return serialize_task(
+        task,
+        cos_config=get_optional_cos_config(db),
+        failure_refund_remaining_count=failure_refund_remaining_count,
+    )
 
 
 @router.get("", response_model=list[TaskOut])
@@ -159,4 +169,20 @@ def get_tasks(
 ):
     tasks = get_task_details(db, task_ids, user.id)
     cos_config = get_optional_cos_config(db)
-    return [serialize_task(task, cos_config=cos_config) for task in tasks]
+    failure_refund_remaining_count = (
+        get_current_failure_refund_remaining_count(db, user.id)
+        if any(task.status == "failed" and int(task.credit_cost or 0) > 0 for task in tasks)
+        else None
+    )
+    return [
+        serialize_task(
+            task,
+            cos_config=cos_config,
+            failure_refund_remaining_count=(
+                failure_refund_remaining_count
+                if task.status == "failed" and int(task.credit_cost or 0) > 0
+                else None
+            ),
+        )
+        for task in tasks
+    ]

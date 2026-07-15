@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_
 from fastapi import HTTPException, status
 from app.models.user import User
 from app.models.task import Task
@@ -14,6 +14,7 @@ from app.models.credit_log import CreditLog
 from app.models.credit_redeem_key import CreditRedeemKey
 from app.models.offline_order import OfflineOrder
 from app.models.payment_order import PaymentOrder
+from app.models.video_task import VideoTask
 from app.models.user_credit import DEFAULT_USER_CREDIT_STATUS, UserCredit
 from app.services.business_id_service import get_user_by_business_id, task_external_id, user_external_id
 from app.services.prompt_reverse_service import (
@@ -39,6 +40,10 @@ from app.services.user_credit_service import (
     get_user_credit_balance,
     get_user_credits_map,
 )
+from app.services.video_task_service import (
+    VIDEO_TASK_ENQUEUE_REFUND_PREFIX,
+    VIDEO_TASK_FAILURE_REFUND_PREFIX,
+)
 from app.services.wecom_notify_service import send_wecom_markdown
 from app.utils.datetime_utils import LOCAL_TZ, now_local, to_local_naive
 from app.utils.security import hash_password
@@ -51,6 +56,10 @@ TASK_CREDIT_REFUND_DESCRIPTIONS = (
 
 def _non_whitelisted_user_filter():
     return User.is_whitelisted.is_(False)
+
+
+def _analytics_user_filter():
+    return User.role == "user", _non_whitelisted_user_filter()
 
 
 def _get_first_admin_id(db: Session) -> int | None:
@@ -68,6 +77,10 @@ class AnalyticsRecord:
     task_type: str
     credit_cost: int
     created_at: datetime
+
+
+VIDEO_TASK_TYPE_TEXT_TO_VIDEO = "text_to_video"
+VIDEO_TASK_TYPE_IMAGE_TO_VIDEO = "image_to_video"
 
 
 def _get_refunded_task_ids(db: Session, task_ids: list[int]) -> set[int]:
@@ -665,13 +678,12 @@ def list_payment_orders(
 
 def get_stats(db: Session) -> dict:
     now = datetime.now(timezone.utc)
-    total_users = db.query(func.count(User.id)).filter(User.role != "superadmin", _non_whitelisted_user_filter()).scalar()
+    total_users = db.query(func.count(User.id)).filter(*_analytics_user_filter()).scalar()
     total_remain_credits = (
         db.query(func.coalesce(func.sum(UserCredit.remain_credit), 0))
         .join(User, User.id == UserCredit.user_id)
         .filter(
-            User.role != "superadmin",
-            _non_whitelisted_user_filter(),
+            *_analytics_user_filter(),
             UserCredit.type == DEFAULT_CREDIT_TYPE,
             UserCredit.status == DEFAULT_USER_CREDIT_STATUS,
         )
@@ -680,7 +692,7 @@ def get_stats(db: Session) -> dict:
     total_generation_tasks = (
         db.query(func.count(Task.id))
         .join(User, User.id == Task.user_id)
-        .filter(User.role != "superadmin", _non_whitelisted_user_filter())
+        .filter(*_analytics_user_filter())
         .scalar()
     )
     total_prompt_reverse_tasks = (
@@ -689,15 +701,14 @@ def get_stats(db: Session) -> dict:
         .filter(
             CreditLog.type == "consume",
             CreditLog.description.in_([PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION, f"API {PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION}"]),
-            User.role != "superadmin",
-            _non_whitelisted_user_filter(),
+            *_analytics_user_filter(),
         )
         .scalar()
     )
     total_generation_credit_cost = (
         db.query(func.coalesce(func.sum(Task.credit_cost), 0))
         .join(User, User.id == Task.user_id)
-        .filter(User.role != "superadmin", _non_whitelisted_user_filter())
+        .filter(*_analytics_user_filter())
         .scalar()
     )
     total_refunded_generation_credit = (
@@ -707,8 +718,7 @@ def get_stats(db: Session) -> dict:
             CreditLog.type == "allocate",
             CreditLog.task_id.is_not(None),
             CreditLog.description.in_(TASK_CREDIT_REFUND_DESCRIPTIONS),
-            User.role != "superadmin",
-            _non_whitelisted_user_filter(),
+            *_analytics_user_filter(),
         )
         .scalar()
     )
@@ -718,8 +728,7 @@ def get_stats(db: Session) -> dict:
         .filter(
             CreditLog.type == "consume",
             CreditLog.description.in_([PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION, f"API {PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION}"]),
-            User.role != "superadmin",
-            _non_whitelisted_user_filter(),
+            *_analytics_user_filter(),
         )
         .scalar()
     )
@@ -730,8 +739,7 @@ def get_stats(db: Session) -> dict:
             .join(User, User.id == Task.user_id)
             .filter(
                 Task.created_at >= now - timedelta(days=7),
-                User.role != "superadmin",
-                _non_whitelisted_user_filter(),
+                *_analytics_user_filter(),
             )
             .distinct()
             .all()
@@ -746,8 +754,7 @@ def get_stats(db: Session) -> dict:
                 CreditLog.type == "consume",
                 CreditLog.description.in_([PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION, f"API {PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION}"]),
                 CreditLog.created_at >= now - timedelta(days=7),
-                User.role != "superadmin",
-                _non_whitelisted_user_filter(),
+                *_analytics_user_filter(),
             )
             .distinct()
             .all()
@@ -994,8 +1001,7 @@ def _task_query(
     query = db.query(Task).join(User, User.id == Task.user_id).filter(
         Task.created_at >= _to_db_datetime(start_date),
         Task.created_at <= _to_db_datetime(end_date),
-        User.role != "superadmin",
-        _non_whitelisted_user_filter(),
+        *_analytics_user_filter(),
     )
     scene_type_map = get_task_scene_type_map(db)
     if status_filter:
@@ -1049,8 +1055,7 @@ def _prompt_reverse_query(
         CreditLog.description.in_([PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION, f"API {PROMPT_REVERSE_CREDIT_LOG_DESCRIPTION}"]),
         CreditLog.created_at >= _to_db_datetime(start_date),
         CreditLog.created_at <= _to_db_datetime(end_date),
-        User.role != "superadmin",
-        _non_whitelisted_user_filter(),
+        *_analytics_user_filter(),
     )
     if user_id:
         query = query.filter(CreditLog.user_id == user_id)
@@ -1064,7 +1069,7 @@ def _user_query(
     end_date: datetime | None = None,
     user_id: int | None = None,
 ):
-    query = db.query(User).filter(User.role != "superadmin", _non_whitelisted_user_filter())
+    query = db.query(User).filter(*_analytics_user_filter())
     if start_date is not None:
         query = query.filter(User.created_at >= _to_db_datetime(start_date))
     if end_date is not None:
@@ -1392,6 +1397,338 @@ def get_analytics_breakdown(
         reverse=True,
     )
 
+    return {
+        "range_label": _format_range_label(current_start, current_end),
+        "status_breakdown": _sorted_breakdown(status_breakdown),
+        "source_breakdown": _sorted_breakdown(source_breakdown),
+        "mode_breakdown": _sorted_breakdown(mode_breakdown),
+        "model_breakdown": _sorted_breakdown(model_breakdown, limit=8),
+        "top_users_by_tasks": top_users_by_tasks,
+        "top_users_by_credit": top_users_by_credit[:8],
+    }
+
+
+def _video_task_type_for_task(task: VideoTask) -> str:
+    reference_images = (task.reference_images or "").strip()
+    if reference_images and reference_images != "[]":
+        return VIDEO_TASK_TYPE_IMAGE_TO_VIDEO
+    return VIDEO_TASK_TYPE_TEXT_TO_VIDEO
+
+
+def _get_refunded_video_task_ids(db: Session, task_ids: list[int]) -> set[int]:
+    normalized_ids = [int(task_id) for task_id in task_ids if task_id]
+    if not normalized_ids:
+        return set()
+    rows = (
+        db.query(CreditLog.description)
+        .filter(
+            CreditLog.type == "allocate",
+            or_(
+                CreditLog.description.like(f"{VIDEO_TASK_FAILURE_REFUND_PREFIX} %"),
+                CreditLog.description.like(f"{VIDEO_TASK_ENQUEUE_REFUND_PREFIX} %"),
+            ),
+        )
+        .all()
+    )
+    refunded_business_ids = {
+        (description or "").rsplit(" ", 1)[-1].strip()
+        for (description,) in rows
+        if description and " " in description
+    }
+    if not refunded_business_ids:
+        return set()
+    return {
+        int(task.id)
+        for task in db.query(VideoTask.id, VideoTask.business_id).filter(VideoTask.id.in_(normalized_ids)).all()
+        if (task.business_id or "") in refunded_business_ids
+    }
+
+
+def get_video_stats(db: Session) -> dict:
+    now = datetime.now(timezone.utc)
+    base_query = (
+        db.query(VideoTask)
+        .join(User, User.id == VideoTask.user_id)
+        .filter(
+            *_analytics_user_filter(),
+            VideoTask.is_deleted.is_(False),
+        )
+    )
+    total_tasks = base_query.count()
+    refunded_video_task_ids = _get_refunded_video_task_ids(db, [task_id for (task_id,) in base_query.with_entities(VideoTask.id).all()])
+    total_credit_cost = sum(
+        max(0, int(task.credit_cost or 0) - (int(task.credit_cost or 0) if task.id in refunded_video_task_ids else 0))
+        for task in base_query.with_entities(VideoTask.id, VideoTask.credit_cost).all()
+    )
+    total_users = (
+        db.query(func.count(func.distinct(VideoTask.user_id)))
+        .join(User, User.id == VideoTask.user_id)
+        .filter(
+            *_analytics_user_filter(),
+            VideoTask.is_deleted.is_(False),
+        )
+        .scalar()
+    )
+    active_users = (
+        db.query(func.count(func.distinct(VideoTask.user_id)))
+        .join(User, User.id == VideoTask.user_id)
+        .filter(
+            *_analytics_user_filter(),
+            VideoTask.is_deleted.is_(False),
+            VideoTask.created_at >= now - timedelta(days=7),
+        )
+        .scalar()
+    )
+    success_tasks = base_query.filter(VideoTask.status == "success").count()
+    failed_tasks = base_query.filter(VideoTask.status == "failed").count()
+    return {
+        "total_users": int(total_users or 0),
+        "total_tasks": int(total_tasks or 0),
+        "total_credit_cost": int(total_credit_cost or 0),
+        "active_users": int(active_users or 0),
+        "success_tasks": int(success_tasks or 0),
+        "failed_tasks": int(failed_tasks or 0),
+    }
+
+
+def _video_task_query(
+    db: Session,
+    *,
+    start_date: datetime,
+    end_date: datetime,
+    status_filter: str | None = None,
+    user_id: int | None = None,
+    source: str | None = None,
+    model: str | None = None,
+    mode: str | None = None,
+):
+    query = db.query(VideoTask).join(User, User.id == VideoTask.user_id).filter(
+        VideoTask.created_at >= _to_db_datetime(start_date),
+        VideoTask.created_at <= _to_db_datetime(end_date),
+        VideoTask.is_deleted.is_(False),
+        *_analytics_user_filter(),
+    )
+    if status_filter:
+        query = query.filter(VideoTask.status == status_filter)
+    if user_id:
+        query = query.filter(VideoTask.user_id == user_id)
+    if source:
+        query = query.filter(VideoTask.source == source)
+    if model:
+        query = query.filter(VideoTask.model == model)
+    if mode == VIDEO_TASK_TYPE_TEXT_TO_VIDEO:
+        query = query.filter((VideoTask.reference_images == "") | (VideoTask.reference_images == "[]"))
+    elif mode == VIDEO_TASK_TYPE_IMAGE_TO_VIDEO:
+        query = query.filter(VideoTask.reference_images.is_not(None), VideoTask.reference_images.notin_(["", "[]"]))
+    return query
+
+
+def _build_video_analytics_records(
+    db: Session,
+    *,
+    start_date: datetime,
+    end_date: datetime,
+    status_filter: str | None = None,
+    user_id: int | None = None,
+    source: str | None = None,
+    model: str | None = None,
+    mode: str | None = None,
+) -> list[AnalyticsRecord]:
+    tasks = _video_task_query(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        status_filter=status_filter,
+        user_id=user_id,
+        source=source,
+        model=model,
+        mode=mode,
+    ).all()
+    refunded_task_ids = _get_refunded_video_task_ids(db, [task.id for task in tasks])
+    return [
+        AnalyticsRecord(
+            user_id=task.user_id,
+            status=task.status or "pending",
+            source=task.source or "web",
+            model=task.model or "未设置",
+            mode=_video_task_type_for_task(task),
+            task_type=_video_task_type_for_task(task),
+            credit_cost=0 if task.id in refunded_task_ids else int(task.credit_cost or 0),
+            created_at=task.created_at,
+        )
+        for task in tasks
+    ]
+
+
+def get_video_analytics_summary(
+    db: Session,
+    *,
+    granularity: str = "day",
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    user_id: int | None = None,
+    source: str | None = None,
+    model: str | None = None,
+    mode: str | None = None,
+    status_filter: str | None = None,
+) -> dict:
+    current_start, current_end = _align_range(granularity, start_date, end_date)
+    previous_start, previous_end = _previous_range(current_start, current_end, granularity)
+    current_records = _build_video_analytics_records(
+        db,
+        start_date=current_start,
+        end_date=current_end,
+        status_filter=status_filter,
+        user_id=user_id,
+        source=source,
+        model=model,
+        mode=mode,
+    )
+    previous_records = _build_video_analytics_records(
+        db,
+        start_date=previous_start,
+        end_date=previous_end,
+        status_filter=status_filter,
+        user_id=user_id,
+        source=source,
+        model=model,
+        mode=mode,
+    )
+    current_metrics = _task_summary_metrics(current_records)
+    previous_metrics = _task_summary_metrics(previous_records)
+    total_users = (
+        db.query(func.count(func.distinct(VideoTask.user_id)))
+        .join(User, User.id == VideoTask.user_id)
+        .filter(
+            *_analytics_user_filter(),
+            VideoTask.is_deleted.is_(False),
+        )
+        .scalar()
+    )
+    zero_metric = _metric_payload(0, 0)
+    return {
+        "granularity": granularity,
+        "current_range_label": _format_range_label(current_start, current_end),
+        "previous_range_label": _format_range_label(previous_start, previous_end),
+        "total_users": int(total_users or 0),
+        "tasks_created": _metric_payload(current_metrics["tasks_created"], previous_metrics["tasks_created"]),
+        "success_tasks": _metric_payload(current_metrics["success_tasks"], previous_metrics["success_tasks"]),
+        "failed_tasks": _metric_payload(current_metrics["failed_tasks"], previous_metrics["failed_tasks"]),
+        "credits_consumed": _metric_payload(current_metrics["credits_consumed"], previous_metrics["credits_consumed"]),
+        "new_users": zero_metric,
+        "active_users": _metric_payload(current_metrics["active_users"], previous_metrics["active_users"]),
+    }
+
+
+def get_video_analytics_timeseries(
+    db: Session,
+    *,
+    granularity: str = "day",
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    user_id: int | None = None,
+    source: str | None = None,
+    model: str | None = None,
+    mode: str | None = None,
+    status_filter: str | None = None,
+) -> dict:
+    current_start, current_end = _align_range(granularity, start_date, end_date)
+    previous_start, previous_end = _previous_range(current_start, current_end, granularity)
+    current_bucket_starts = _iter_bucket_starts(current_start, current_end, granularity)
+    previous_bucket_starts = _iter_bucket_starts(previous_start, previous_end, granularity)
+    current_records = _build_video_analytics_records(
+        db,
+        start_date=current_start,
+        end_date=current_end,
+        status_filter=status_filter,
+        user_id=user_id,
+        source=source,
+        model=model,
+        mode=mode,
+    )
+    previous_records = _build_video_analytics_records(
+        db,
+        start_date=previous_start,
+        end_date=previous_end,
+        status_filter=status_filter,
+        user_id=user_id,
+        source=source,
+        model=model,
+        mode=mode,
+    )
+    return {
+        "granularity": granularity,
+        "current_range_label": _format_range_label(current_start, current_end),
+        "previous_range_label": _format_range_label(previous_start, previous_end),
+        "current": _build_timeseries_points(
+            current_bucket_starts,
+            granularity=granularity,
+            records=current_records,
+            users=[],
+        ),
+        "previous": _build_timeseries_points(
+            previous_bucket_starts,
+            granularity=granularity,
+            records=previous_records,
+            users=[],
+        ),
+    }
+
+
+def get_video_analytics_breakdown(
+    db: Session,
+    *,
+    granularity: str = "day",
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    user_id: int | None = None,
+    source: str | None = None,
+    model: str | None = None,
+    mode: str | None = None,
+    status_filter: str | None = None,
+) -> dict:
+    current_start, current_end = _align_range(granularity, start_date, end_date)
+    records = _build_video_analytics_records(
+        db,
+        start_date=current_start,
+        end_date=current_end,
+        status_filter=status_filter,
+        user_id=user_id,
+        source=source,
+        model=model,
+        mode=mode,
+    )
+    relevant_user_ids = {record.user_id for record in records}
+    users_by_id = {
+        user.id: user
+        for user in db.query(User).filter(User.id.in_(relevant_user_ids)).all()
+    } if relevant_user_ids else {}
+    status_breakdown: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "credit_cost": 0})
+    source_breakdown: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "credit_cost": 0})
+    mode_breakdown: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "credit_cost": 0})
+    model_breakdown: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "credit_cost": 0})
+    user_task_breakdown: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "credit_cost": 0})
+    for record in records:
+        task_cost = record.credit_cost
+        status_breakdown[record.status or "unknown"]["count"] += 1
+        status_breakdown[record.status or "unknown"]["credit_cost"] += task_cost
+        source_breakdown[record.source or "web"]["count"] += 1
+        source_breakdown[record.source or "web"]["credit_cost"] += task_cost
+        mode_breakdown[record.task_type or VIDEO_TASK_TYPE_TEXT_TO_VIDEO]["count"] += 1
+        mode_breakdown[record.task_type or VIDEO_TASK_TYPE_TEXT_TO_VIDEO]["credit_cost"] += task_cost
+        model_breakdown[record.model or "未设置"]["count"] += 1
+        model_breakdown[record.model or "未设置"]["credit_cost"] += task_cost
+        user = users_by_id.get(record.user_id)
+        if user and user.role != "superadmin":
+            user_task_breakdown[user.username]["count"] += 1
+            user_task_breakdown[user.username]["credit_cost"] += task_cost
+    user_breakdown_rows = _sorted_breakdown(user_task_breakdown)
+    top_users_by_tasks = user_breakdown_rows[:8]
+    top_users_by_credit = sorted(
+        user_breakdown_rows,
+        key=lambda item: (item["credit_cost"], item["count"], item["name"]),
+        reverse=True,
+    )
     return {
         "range_label": _format_range_label(current_start, current_end),
         "status_breakdown": _sorted_breakdown(status_breakdown),

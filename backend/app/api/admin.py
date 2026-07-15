@@ -13,6 +13,7 @@ from app.schemas.admin import (
     CreateOfflineOrderRequest, OfflineOrderOut,
     AnalyticsSummaryOut, AnalyticsTimeseriesOut, AnalyticsBreakdownOut, AnalyticsRedeemRevenueOut, ErrorAnalyticsOut, ErrorCategoryTimeseriesOut, ErrorTaskListOut, DailyReportTestOut, DailyReportRangeRequest,
     AdminUserPromoDashboardOut,
+    VideoStatsOut,
 )
 from app.schemas.canvas import CanvasListResponse
 from app.schemas.feedback import (
@@ -22,6 +23,7 @@ from app.schemas.feedback import (
     FeedbackUpdateRequest,
 )
 from app.schemas.history import HistoryResponse, UserHistoryCardItem, UserHistoryResponse
+from app.schemas.video_task import AdminVideoTaskListOut
 from app.services.business_id_service import get_user_by_business_id
 from app.services.admin_service import (
     create_user, list_users, update_user_status, update_user_role,
@@ -29,6 +31,7 @@ from app.services.admin_service import (
     list_payment_orders, create_offline_order, list_offline_orders,
     get_analytics_summary, get_analytics_timeseries, get_analytics_breakdown, get_analytics_redeem_revenue,
     get_analytics_payment_revenue, get_analytics_offline_order_revenue, get_error_analytics, get_error_category_timeseries, get_error_tasks,
+    get_video_stats, get_video_analytics_summary, get_video_analytics_timeseries, get_video_analytics_breakdown,
 )
 from app.services.credit_redeem_service import create_redeem_key_batch, list_redeem_keys, update_redeem_key_status
 from app.services.promo_service import get_user_promo_dashboard_for_admin
@@ -41,6 +44,7 @@ from app.services.feedback_service import (
 from app.services.history_service import get_admin_history_cards, get_admin_history_detail, get_all_history
 from app.services.canvas_service import list_all_canvases
 from app.services.daily_report_service import DailyReportSendResult, send_previous_day_report, send_range_report
+from app.services.video_task_service import expire_stale_video_tasks, list_admin_video_tasks
 
 router = APIRouter(prefix="/api/admin", tags=["管理员"])
 
@@ -306,6 +310,14 @@ def admin_stats(
     return get_stats(db)
 
 
+@router.get("/video-stats", response_model=VideoStatsOut)
+def admin_video_stats(
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return get_video_stats(db)
+
+
 @router.get("/analytics/summary", response_model=AnalyticsSummaryOut)
 def admin_analytics_summary(
     granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
@@ -375,6 +387,87 @@ def admin_analytics_breakdown(
 ):
     resolved_user_id = _resolve_optional_user_id(db, user_id)
     return get_analytics_breakdown(
+        db,
+        granularity=granularity,
+        start_date=start_date,
+        end_date=end_date,
+        user_id=resolved_user_id,
+        source=source,
+        model=model,
+        mode=mode,
+        status_filter=status,
+    )
+
+
+@router.get("/video-analytics/summary", response_model=AnalyticsSummaryOut)
+def admin_video_analytics_summary(
+    granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    user_id: Optional[str] = Query(None),
+    source: Optional[str] = Query(None, pattern="^(web|app|api)$"),
+    model: Optional[str] = Query(None),
+    mode: Optional[str] = Query(None, pattern="^(text_to_video|image_to_video)$"),
+    status: Optional[str] = Query(None, pattern="^(pending|queued|processing|success|failed)$"),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    resolved_user_id = _resolve_optional_user_id(db, user_id)
+    return get_video_analytics_summary(
+        db,
+        granularity=granularity,
+        start_date=start_date,
+        end_date=end_date,
+        user_id=resolved_user_id,
+        source=source,
+        model=model,
+        mode=mode,
+        status_filter=status,
+    )
+
+
+@router.get("/video-analytics/timeseries", response_model=AnalyticsTimeseriesOut)
+def admin_video_analytics_timeseries(
+    granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    user_id: Optional[str] = Query(None),
+    source: Optional[str] = Query(None, pattern="^(web|app|api)$"),
+    model: Optional[str] = Query(None),
+    mode: Optional[str] = Query(None, pattern="^(text_to_video|image_to_video)$"),
+    status: Optional[str] = Query(None, pattern="^(pending|queued|processing|success|failed)$"),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    resolved_user_id = _resolve_optional_user_id(db, user_id)
+    return get_video_analytics_timeseries(
+        db,
+        granularity=granularity,
+        start_date=start_date,
+        end_date=end_date,
+        user_id=resolved_user_id,
+        source=source,
+        model=model,
+        mode=mode,
+        status_filter=status,
+    )
+
+
+@router.get("/video-analytics/breakdown", response_model=AnalyticsBreakdownOut)
+def admin_video_analytics_breakdown(
+    granularity: str = Query("day", pattern="^(3hour|day|week|month)$"),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    user_id: Optional[str] = Query(None),
+    source: Optional[str] = Query(None, pattern="^(web|app|api)$"),
+    model: Optional[str] = Query(None),
+    mode: Optional[str] = Query(None, pattern="^(text_to_video|image_to_video)$"),
+    status: Optional[str] = Query(None, pattern="^(pending|queued|processing|success|failed)$"),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    resolved_user_id = _resolve_optional_user_id(db, user_id)
+    return get_video_analytics_breakdown(
         db,
         granularity=granularity,
         start_date=start_date,
@@ -572,6 +665,39 @@ def admin_history_cards(
         mode=mode,
         source=source,
         model=model,
+        prompt=prompt,
+        status=status,
+        used_fallback_api=used_fallback_api,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+@router.get("/video-tasks", response_model=AdminVideoTaskListOut)
+def admin_video_tasks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    source: Optional[str] = Query(None, pattern="^(web|app|api)$"),
+    model: Optional[str] = Query(None),
+    mode: Optional[str] = Query(None, pattern="^(text_to_video|image_to_video)$"),
+    prompt: Optional[str] = Query(None),
+    status: Optional[str] = Query(None, pattern="^(pending|queued|processing|success|failed)$"),
+    user_id: Optional[str] = Query(None),
+    used_fallback_api: Optional[bool] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    _user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    expire_stale_video_tasks(db)
+    return list_admin_video_tasks(
+        db,
+        page=page,
+        page_size=page_size,
+        user_id=_resolve_optional_user_id(db, user_id),
+        source=source,
+        model=model,
+        mode=mode,
         prompt=prompt,
         status=status,
         used_fallback_api=used_fallback_api,

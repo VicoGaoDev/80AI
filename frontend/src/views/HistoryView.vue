@@ -8,12 +8,12 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
-  EyeOutlined,
   LoadingOutlined,
   MessageOutlined,
   PictureOutlined,
   PushpinOutlined,
   ReloadOutlined,
+  VideoCameraOutlined,
 } from "@ant-design/icons-vue";
 import { useRouter } from "vue-router";
 import { getAdminHistoryCards, listUsers } from "@/api/admin";
@@ -34,6 +34,7 @@ import {
   readStoredGridColumnCount,
   writeStoredGridColumnCount,
 } from "@/lib/gridColumnPreference";
+import { saveImageToVideoDraft } from "@/lib/videoGenerateDraft";
 import { boardIdFromKey, boardKeyFromId, DEFAULT_BOARD_KEY } from "@/lib/boardPreference";
 import type { AdminUser, BoardKey, GenerationModelOption, TaskSceneConfig, TaskSource, TaskType, TemplateTag, UserBoardSummary, UserHistoryCard } from "@/types";
 
@@ -569,12 +570,28 @@ function openFeedbackDialog(item: UserHistoryCard) {
   feedbackDialogOpen.value = true;
 }
 
-function canHistoryViewOriginal(item: UserHistoryCard) {
-  return Boolean(getHistoryCardPreview(item));
-}
-
 function canEditHistoryImage(item: UserHistoryCard) {
   return item.status !== "failed" && !isHistoryItemExpired(item);
+}
+
+function canGenerateVideoFromHistoryItem(item: UserHistoryCard) {
+  if (isAdminHistoryView.value) return false;
+  if (item.item_type !== "task" || item.mode === "promptReverse" || item.status !== "success") return false;
+  if (isHistoryItemExpired(item)) return false;
+  return Boolean(item.image_url || item.preview_url || item.thumb_url);
+}
+
+function handleGenerateVideo(item: UserHistoryCard) {
+  const referenceImage = item.image_url || item.preview_url || item.thumb_url || "";
+  if (!referenceImage) {
+    message.warning("当前结果图暂不可用于生成视频");
+    return;
+  }
+  if (!saveImageToVideoDraft({ referenceImage, prompt: item.prompt || "" })) {
+    message.warning("当前结果图暂不可用于生成视频");
+    return;
+  }
+  router.push("/video-generate");
 }
 
 function canCreateTemplateFromHistoryItem(item: UserHistoryCard) {
@@ -635,12 +652,6 @@ async function handleSaveHistoryTemplate(payload: TemplatePayload) {
   } finally {
     templateDialogSaving.value = false;
   }
-}
-
-function handleViewOriginal(item: UserHistoryCard) {
-  const url = getHistoryCardPreview(item);
-  if (!url) return;
-  openPreview(url);
 }
 
 function isSelected(imageId: number) {
@@ -1270,9 +1281,9 @@ function handleEditImage(item: UserHistoryCard) {
             </div>
 
             <div class="history-overlay-actions history-overlay-actions-bottom">
-              <a-tooltip v-if="canHistoryViewOriginal(item)" title="查看原图">
-                <a-button shape="circle" type="text" class="history-overlay-btn" @click.stop="handleViewOriginal(item)">
-                  <template #icon><EyeOutlined /></template>
+              <a-tooltip v-if="canGenerateVideoFromHistoryItem(item)" title="生成视频">
+                <a-button shape="circle" type="text" class="history-overlay-btn" @click.stop="handleGenerateVideo(item)">
+                  <template #icon><VideoCameraOutlined /></template>
                 </a-button>
               </a-tooltip>
               <a-tooltip v-if="item.status === 'success' && canEditHistoryImage(item)" title="结果图编辑">

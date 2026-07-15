@@ -1,7 +1,7 @@
 # web实时任务情况 
-select u.username,t.model,t.size,t.resolution,t.status,TIMESTAMPDIFF(SECOND, t.created_at, t.updated_at) as run_time,
+select t.business_id,u.username,t.model,t.size,t.resolution,t.status,TIMESTAMPDIFF(SECOND, t.created_at, t.updated_at) as run_time,
         TIMESTAMPDIFF(SECOND, t.request_started_at, t.request_finished_at) as request_time,
-        t.created_at,t.error_message 
+        t.created_at,t.error_message
     from tasks t
     join users u on t.user_id = u.id
     where t.source = 'web'
@@ -173,15 +173,79 @@ WHERE uc.type = 0
   AND u.role NOT IN ('admin', 'superadmin');
 
 # user_boards
-select * from user_boards;
+select
+    b.created_at,
+    u.username,
+    b.id as board_id,
+    b.name,
+    count(t.id) as task_count
+from user_boards b
+join users u on b.user_id = u.id
+left join tasks t
+    on t.board_id = b.id
+   and t.is_deleted = 0
+group by b.id, b.created_at, u.username, b.name
+order by b.created_at desc
+limit 30;
 
-
-# 用户canvas
-select c.created_at,u.username,c.project_id,c.name
-    from user_canvas c
-    join users u on c.user_id = u.id
-    order by c.created_at desc limit 30;
-    
+# 用户canvas情况查看，节点
+select
+    c.created_at,
+    u.username,
+    c.project_id,
+    c.name,
+    count(n.id) as node_count
+from user_canvas c
+join users u on c.user_id = u.id
+left join canvas_nodes n on n.canvas_id = c.id
+group by c.id, c.created_at, u.username, c.project_id, c.name
+order by c.created_at desc
+limit 30;
     
 select * from user_api_key order by created_at desc;
+
+select * from user_prompts;
+
+
+select * FROM user_assets where user_id = 895;
+select count(*) FROM user_assets where user_id = 895 and is_deleted = 1;
+
+select * from users where business_id = 'aef23818897343ae83e5562f741af907';
+
+
+# 统计2000分以上用户信息
+SELECT
+  u.created_at AS register_at,
+  u.username,
+  u.email,
+  COALESCE(p.purchase_count, 0) AS online_purchase_count,
+  COALESCE(r.redeem_count, 0) AS redeem_count,
+  COALESCE(p.purchase_credits, 0) + COALESCE(r.redeem_credits, 0) AS total_credits
+FROM users u
+LEFT JOIN (
+  SELECT
+    user_id,
+    COUNT(*) AS purchase_count,
+    COALESCE(SUM(credits), 0) AS purchase_credits
+  FROM payment_orders
+  WHERE status IN ('paid', 'credited')
+    AND credited_at IS NOT NULL
+  GROUP BY user_id
+) p ON p.user_id = u.id
+LEFT JOIN (
+  SELECT
+    used_by_user_id AS user_id,
+    COUNT(*) AS redeem_count,
+    COALESCE(SUM(credit_amount), 0) AS redeem_credits
+  FROM credit_redeem_keys
+  WHERE used_at IS NOT NULL
+    AND used_by_user_id IS NOT NULL
+  GROUP BY used_by_user_id
+) r ON r.user_id = u.id
+WHERE u.is_whitelisted = 0
+  AND u.role NOT IN ('admin', 'superadmin')
+  AND COALESCE(p.purchase_credits, 0) + COALESCE(r.redeem_credits, 0) >= 2000
+ORDER BY total_credits DESC;
+
+
 

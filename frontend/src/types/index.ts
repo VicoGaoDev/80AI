@@ -72,6 +72,7 @@ export interface TaskResult {
   mask_image_thumb?: string;
   credit_cost: number;
   credit_refunded?: boolean;
+  failure_refund_remaining_count?: number | null;
   status: "pending" | "queued" | "processing" | "success" | "failed";
   error_message?: string;
   created_at: string;
@@ -191,8 +192,8 @@ export interface UserHistoryCard {
   credit_refunded?: boolean;
   used_fallback_api?: boolean;
   created_at: string;
-  request_finished_at?: string | null;
   request_started_at?: string | null;
+  request_finished_at?: string | null;
   run_time?: number | null;
   error_message?: string;
   images: ImageResult[];
@@ -768,6 +769,18 @@ export interface AdminStats {
   active_users: number;
 }
 
+export type VideoTaskModeFilter = "text_to_video" | "image_to_video";
+export type VideoSceneAvailabilityMode = "text_to_video" | "image_to_video" | "both";
+
+export interface VideoStats {
+  total_users: number;
+  total_tasks: number;
+  total_credit_cost: number;
+  active_users: number;
+  success_tasks: number;
+  failed_tasks: number;
+}
+
 export type ErrorTrendGranularity = "1hour" | "3hour" | "6hour";
 
 export type AdminAnalyticsGranularity = "3hour" | "day" | "week" | "month";
@@ -780,6 +793,17 @@ export interface AdminAnalyticsQuery {
   source?: TaskSource;
   model?: string;
   mode?: TaskType;
+  status?: string;
+}
+
+export interface VideoAnalyticsQuery {
+  granularity: AdminAnalyticsGranularity;
+  start_date?: string;
+  end_date?: string;
+  user_id?: string;
+  source?: TaskSource;
+  model?: string;
+  mode?: VideoTaskModeFilter;
   status?: string;
 }
 
@@ -1012,8 +1036,8 @@ export interface CosConfig {
   cos_secret_id: string;
   cos_secret_key: string;
   cos_bucket: string;
-  cos_upload_domain: string;
   cos_region: string;
+  cos_upload_domain: string;
   cos_public_base_url: string;
   updated_at?: string | null;
 }
@@ -1204,6 +1228,255 @@ export interface TaskSceneConfig {
   aspect_ratio_options: SceneOptionItem[];
   image_size_options: SceneOptionItem[];
   custom_size_options: SceneOptionItem[];
+}
+
+export interface VideoExternalApiConfig {
+  id: number;
+  name: string;
+  description: string;
+  group_name: string;
+  request_url: string;
+  request_format: ExternalApiRequestFormat;
+  headers_json: string;
+  payload_json: string;
+  response_json: string;
+  result_video_url_field: string;
+  result_video_base64_field: string;
+  result_cover_url_field: string;
+  call_mode: "async";
+  submit_success_statuses_json: string;
+  poll_url: string;
+  poll_method: ExternalApiPollMethod;
+  poll_headers_json: string;
+  poll_payload_json: string;
+  task_id_field: string;
+  result_status_field: string;
+  result_success_values_json: string;
+  result_failed_values_json: string;
+  result_error_field: string;
+  poll_result_video_url_field: string;
+  poll_result_video_base64_field: string;
+  poll_result_cover_url_field: string;
+  poll_interval_seconds: number;
+  poll_timeout_seconds: number;
+  status: ExternalApiConfigStatus;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface VideoExternalApiConfigPayload {
+  name: string;
+  description: string;
+  group_name: string;
+  request_url: string;
+  request_format: ExternalApiRequestFormat;
+  headers_json: string;
+  payload_json: string;
+  response_json: string;
+  result_video_url_field: string;
+  result_video_base64_field: string;
+  result_cover_url_field: string;
+  call_mode: "async";
+  submit_success_statuses_json: string;
+  poll_url: string;
+  poll_method: ExternalApiPollMethod;
+  poll_headers_json: string;
+  poll_payload_json: string;
+  task_id_field: string;
+  result_status_field: string;
+  result_success_values_json: string;
+  result_failed_values_json: string;
+  result_error_field: string;
+  poll_result_video_url_field: string;
+  poll_result_video_base64_field: string;
+  poll_result_cover_url_field: string;
+  poll_interval_seconds: number;
+  poll_timeout_seconds: number;
+  status: ExternalApiConfigStatus;
+}
+
+export interface VideoExternalApiSceneBinding {
+  scene_key: string;
+  scene_label: string;
+  scene_description: string;
+  display_name: string;
+  subtitle: string;
+  sort_order: number;
+  hide_aspect_ratio: boolean;
+  hide_duration: boolean;
+  hide_resolution: boolean;
+  availability_mode: VideoSceneAvailabilityMode;
+  max_reference_images: number;
+  status: ExternalApiConfigStatus;
+  is_builtin: boolean;
+  api_config_id?: number | null;
+  api_config_name: string;
+  api_group_name: string;
+  api_status?: ExternalApiConfigStatus | null;
+  backup_api_config_id?: number | null;
+  backup_api_config_name: string;
+  backup_api_group_name: string;
+  backup_api_status?: ExternalApiConfigStatus | null;
+  credit_billing_mode: "fixed" | "per_second";
+  credit_cost: number;
+  per_second_credit_cost: number;
+  aspect_ratio_options_json: string;
+  duration_options_json: string;
+  resolution_options_json: string;
+  resolution_mapping_json: string;
+  resolution_credit_costs_json: string;
+}
+
+export interface VideoExternalApiSceneBindingCreatePayload {
+  scene_key: string;
+  scene_label: string;
+  scene_description: string;
+  sort_order: number;
+  hide_aspect_ratio: boolean;
+  hide_duration: boolean;
+  hide_resolution: boolean;
+  availability_mode: VideoSceneAvailabilityMode;
+  max_reference_images: number;
+  api_config_id: number | null;
+  backup_api_config_id: number | null;
+  display_name: string;
+  subtitle: string;
+  credit_billing_mode: "fixed" | "per_second";
+  credit_cost: number;
+  per_second_credit_cost: number;
+  aspect_ratio_options_json: string;
+  duration_options_json: string;
+  resolution_options_json: string;
+  resolution_mapping_json: string;
+  resolution_credit_costs_json: string;
+  status: ExternalApiConfigStatus;
+}
+
+export interface VideoExternalApiSceneBindingMetaPayload {
+  scene_key: string;
+  scene_label: string;
+  scene_description: string;
+  sort_order: number;
+  hide_aspect_ratio: boolean;
+  hide_duration: boolean;
+  hide_resolution: boolean;
+  availability_mode: VideoSceneAvailabilityMode;
+  max_reference_images: number;
+  credit_billing_mode: "fixed" | "per_second";
+  credit_cost: number;
+  per_second_credit_cost: number;
+  aspect_ratio_options_json: string;
+  duration_options_json: string;
+  resolution_options_json: string;
+  resolution_mapping_json: string;
+  resolution_credit_costs_json: string;
+}
+
+export interface VideoExternalApiConfigTestResult {
+  success: boolean;
+  request_url: string;
+  status_code?: number | null;
+  response_preview: string;
+}
+
+export interface VideoGenerationModelOption {
+  model_key: string;
+  model_label: string;
+  model_description: string;
+  display_name: string;
+  subtitle: string;
+  sort_order: number;
+  hide_aspect_ratio: boolean;
+  hide_duration: boolean;
+  hide_resolution: boolean;
+  availability_mode: VideoSceneAvailabilityMode;
+  max_reference_images: number;
+  credit_billing_mode: "fixed" | "per_second";
+  credit_cost: number;
+  per_second_credit_cost: number;
+  aspect_ratio_options: SceneOptionItem[];
+  resolution_credit_costs: Record<string, number>;
+  duration_options: SceneOptionItem[];
+  resolution_options: SceneOptionItem[];
+}
+
+export interface VideoTaskSceneConfig {
+  scene_key: string;
+  scene_label: string;
+  scene_description: string;
+  display_name: string;
+  subtitle: string;
+  sort_order: number;
+  hide_aspect_ratio: boolean;
+  hide_duration: boolean;
+  hide_resolution: boolean;
+  availability_mode: VideoSceneAvailabilityMode;
+  max_reference_images: number;
+  credit_billing_mode: "fixed" | "per_second";
+  credit_cost: number;
+  per_second_credit_cost: number;
+  aspect_ratio_options: SceneOptionItem[];
+  resolution_credit_costs: Record<string, number>;
+  duration_options: SceneOptionItem[];
+  resolution_options: SceneOptionItem[];
+}
+
+export interface VideoResult {
+  id: number;
+  video_url: string;
+  cover_url: string;
+  video_format?: string;
+  video_size_bytes?: number;
+  duration_seconds?: number | null;
+  status: "pending" | "success" | "failed";
+  error_message?: string;
+}
+
+export interface VideoTaskApiAttempt {
+  id?: number | null;
+  api_config_id?: number | null;
+  api_config_name: string;
+  attempt_index: number;
+  is_fallback: boolean;
+  status: "success" | "failed" | string;
+  http_status?: number | null;
+  error_message?: string;
+  duration_ms?: number | null;
+  created_at?: string | null;
+}
+
+export interface VideoTaskResult {
+  id: string;
+  model: string;
+  source: TaskSource;
+  prompt: string;
+  duration_seconds: number;
+  aspect_ratio: string;
+  resolution: string;
+  reference_images?: string[];
+  credit_cost: number;
+  credit_refunded?: boolean;
+  failure_refund_remaining_count?: number | null;
+  used_fallback_api?: boolean;
+  status: "pending" | "queued" | "processing" | "success" | "failed";
+  error_message?: string;
+  created_at: string;
+  enqueued_at?: string | null;
+  request_started_at?: string | null;
+  request_finished_at?: string | null;
+  videos: VideoResult[];
+  api_attempts?: VideoTaskApiAttempt[];
+}
+
+export interface AdminVideoTaskResult extends VideoTaskResult {
+  user_id: string;
+  username?: string;
+  avatar_url?: string;
+}
+
+export interface AdminVideoTaskListResponse {
+  total: number;
+  items: AdminVideoTaskResult[];
 }
 
 export type UploadPurpose = "ref" | "source" | "mask" | "reverse" | "misc" | "template";

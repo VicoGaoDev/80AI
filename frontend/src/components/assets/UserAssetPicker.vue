@@ -1402,81 +1402,164 @@ function handleAssetDragStart(event: DragEvent, asset: UserAsset) {
   min-height: 40px !important;
 }
 
-:global(html[data-theme="dark"]) .asset-card,
-:global(html[data-theme="midnight"]) .asset-card {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card {
   background: var(--theme-panel-bg-soft);
   border-color: var(--theme-panel-border);
   box-shadow: 0 12px 28px var(--theme-shadow-soft);
 }
 
-:global(html[data-theme="dark"]) .asset-card-action,
-:global(html[data-theme="midnight"]) .asset-card-action {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card-action {
   background: rgba(46, 38, 28, 0.72);
   border-color: rgba(255, 240, 214, 0.12);
 }
 
-:global(html[data-theme="dark"]) .asset-card-action:hover,
-:global(html[data-theme="dark"]) .asset-card-action:focus,
-:global(html[data-theme="midnight"]) .asset-card-action:hover,
-:global(html[data-theme="midnight"]) .asset-card-action:focus {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card-action:hover,
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card-action:focus {
   background: rgba(64, 53, 39, 0.86);
 }
 
-:global(html[data-theme="dark"]) .asset-card-more-btn,
-:global(html[data-theme="midnight"]) .asset-card-more-btn {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card-more-btn {
   background: var(--theme-panel-bg);
   border-color: var(--theme-panel-border);
   color: var(--text-secondary);
 }
 
-:global(html[data-theme="dark"]) .asset-card-more-btn:hover,
-:global(html[data-theme="dark"]) .asset-card-more-btn:focus,
-:global(html[data-theme="midnight"]) .asset-card-more-btn:hover,
-:global(html[data-theme="midnight"]) .asset-card-more-btn:focus {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card-more-btn:hover,
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card-more-btn:focus {
   background: var(--theme-control-hover-bg);
   border-color: var(--theme-border-strong);
   color: var(--theme-title);
 }
 
-:global(html[data-theme="dark"]) .asset-search,
-:global(html[data-theme="midnight"]) .asset-search {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search {
   background: var(--theme-panel-bg);
   border-color: var(--theme-panel-border);
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.16);
 }
 
-:global(html[data-theme="dark"]) .asset-search:hover,
-:global(html[data-theme="dark"]) .asset-search:focus-within,
-:global(html[data-theme="midnight"]) .asset-search:hover,
-:global(html[data-theme="midnight"]) .asset-search:focus-within {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search:hover,
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search:focus-within {
   border-color: var(--theme-border-strong);
 }
 
-:global(html[data-theme="dark"]) .asset-search :deep(.ant-input),
-:global(html[data-theme="dark"]) .asset-search :deep(.ant-input-affix-wrapper),
-:global(html[data-theme="midnight"]) .asset-search :deep(.ant-input),
-:global(html[data-theme="midnight"]) .asset-search :deep(.ant-input-affix-wrapper) {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search :deep(.ant-input),
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search :deep(.ant-input-affix-wrapper) {
   color: var(--theme-title) !important;
 }
 
-:global(html[data-theme="dark"]) .asset-search :deep(.ant-input::placeholder),
-:global(html[data-theme="midnight"]) .asset-search :deep(.ant-input::placeholder) {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search :deep(.ant-input::placeholder) {
   color: var(--theme-text-secondary);
 }
 
-:global(html[data-theme="dark"]) .asset-search-btn,
-:global(html[data-theme="midnight"]) .asset-search-btn {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search-btn {
   background: linear-gradient(180deg, rgba(61, 49, 31, 0.96), rgba(46, 37, 24, 0.96));
   border-left-color: rgba(214, 168, 84, 0.28);
   color: var(--theme-title);
 }
 
-:global(html[data-theme="dark"]) .asset-search-btn:hover,
-:global(html[data-theme="dark"]) .asset-search-btn:focus,
-:global(html[data-theme="midnight"]) .asset-search-btn:hover,
-:global(html[data-theme="midnight"]) .asset-search-btn:focus {
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search-btn:hover,
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-search-btn:focus {
   background: linear-gradient(180deg, rgba(78, 62, 38, 0.98), rgba(58, 46, 29, 0.98));
   color: #ffd995;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-sidebar {
+  background: var(--theme-panel-bg-soft);
+  border-color: var(--theme-panel-border);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-sidebar-title {
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-side-icon-btn {
+  background: var(--theme-panel-bg);
+  border-color: var(--theme-panel-border);
+  color: var(--theme-text-secondary);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-side-icon-btn:hover,
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-side-icon-btn:focus {
+  background: var(--theme-control-hover-bg);
+  border-color: var(--theme-border-strong);
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-side-icon-btn.danger {
+  color: #de8f84;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-category-btn {
+  background: var(--theme-panel-bg);
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-category-btn.active {
+  background: var(--theme-panel-bg-strong);
+  border-color: var(--theme-panel-border-strong);
+  color: #ffd995;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-drop-hint {
+  color: var(--theme-text-secondary);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-drop-overlay {
+  background: rgba(var(--theme-surface-strong-rgb), 0.82);
+  border-color: rgba(255, 187, 77, 0.56);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-drop-overlay-text {
+  background: var(--theme-panel-bg-strong);
+  color: var(--theme-title);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-batch-bar {
+  background: var(--theme-panel-bg-soft);
+  border-color: var(--theme-panel-border);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-batch-summary {
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-loading-mask {
+  background: rgba(var(--theme-surface-strong-rgb), 0.42);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-quota-pill {
+  background: var(--theme-panel-bg-strong);
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-toolbar-right :deep(.ant-btn-text) {
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-batch-toggle-active {
+  background: var(--theme-control-hover-bg);
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card-thumb {
+  background: var(--theme-panel-bg-muted);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-card-name {
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-category-dialog-hint {
+  color: var(--theme-text-secondary);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-empty {
+  color: var(--theme-text-secondary);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .asset-empty-title {
+  color: var(--theme-title);
 }
 
 .asset-empty {

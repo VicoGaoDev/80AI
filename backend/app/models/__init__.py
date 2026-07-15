@@ -15,6 +15,8 @@ from app.models.regenerate_log import RegenerateLog
 from app.models.api_key import ApiKey
 from app.models.external_api_config import ExternalApiConfig
 from app.models.external_api_scene_binding import ExternalApiSceneBinding
+from app.models.video_external_api_config import VideoExternalApiConfig
+from app.models.video_external_api_scene_binding import VideoExternalApiSceneBinding
 from app.models.credit_log import CreditLog
 from app.models.credit_redeem_key import CreditRedeemKey
 from app.models.offline_order import OfflineOrder
@@ -30,6 +32,9 @@ from app.models.template import Template
 from app.models.template_tag import TemplateTag
 from app.models.template_tag_relation import TemplateTagRelation
 from app.models.example_canvas_project import ExampleCanvasProject
+from app.models.video_task import VideoTask
+from app.models.video_result import VideoResult
+from app.models.video_task_api_attempt import VideoTaskApiAttempt
 
 __all__ = [
     "User",
@@ -49,6 +54,8 @@ __all__ = [
     "ApiKey",
     "ExternalApiConfig",
     "ExternalApiSceneBinding",
+    "VideoExternalApiConfig",
+    "VideoExternalApiSceneBinding",
     "CreditLog",
     "CreditRedeemKey",
     "OfflineOrder",
@@ -65,4 +72,7 @@ __all__ = [
     "TemplateTag",
     "TemplateTagRelation",
     "ExampleCanvasProject",
+    "VideoTask",
+    "VideoResult",
+    "VideoTaskApiAttempt",
 ]

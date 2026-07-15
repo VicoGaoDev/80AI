@@ -3,6 +3,7 @@ import { ref, computed, defineComponent, h, inject, nextTick, onActivated, onBef
 import { message, Modal, notification } from "ant-design-vue";
 import dayjs from "dayjs";
 import { useRouter } from "vue-router";
+import { saveImageToVideoDraft } from "@/lib/videoGenerateDraft";
 import {
   FontSizeOutlined,
   CloseOutlined,
@@ -12,7 +13,6 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
-  EyeOutlined,
   PictureOutlined,
   SearchOutlined,
   HighlightOutlined,
@@ -28,6 +28,7 @@ import {
   MessageOutlined,
   PlusOutlined,
   UnorderedListOutlined,
+  VideoCameraOutlined,
 } from "@ant-design/icons-vue";
 import { createBoard, listBoards, updateBoard } from "@/api/boards";
 import { getTaskScenes } from "@/api/config";
@@ -185,10 +186,13 @@ interface GeneratedTaskItem {
   status: GeneratedTaskStatus;
   errorMessage?: string;
   creditRefunded?: boolean;
+  failureRefundRemainingCount?: number | null;
   images: ImageResult[];
 }
 
 const generatedTasks = ref<GeneratedTaskItem[]>([]);
+const failureRefundRemainingCount = ref<number | null>(null);
+
 const taskPollTimer = ref<ReturnType<typeof setInterval> | null>(null);
 const taskPollingInFlight = ref(false);
 const activeStatusPollTimer = ref<ReturnType<typeof setInterval> | null>(null);
@@ -554,6 +558,7 @@ function createLocalGeneratedTask(taskDraft: GeneratedTaskDraft): GeneratedTaskI
     status: "submitting",
     errorMessage: "",
     creditRefunded: false,
+    failureRefundRemainingCount: null,
     images: createPendingImages(1),
   };
 }
@@ -653,16 +658,24 @@ function handleExtendedToolMenuClick({ key }: { key: string }) {
   }
 }
 
+function syncFailureRefundRemainingCount(value: number | null | undefined) {
+  if (typeof value === "number" && value >= 0) {
+    failureRefundRemainingCount.value = value;
+  }
+}
+
 function syncTaskFromResult(taskId: string, data: TaskResult) {
   const current = generatedTasks.value.find((task) => task.taskId === taskId);
   if (!current) return;
   const previousStatus = current.status;
   const nextErrorMessage = data.error_message || data.images.find((image) => image.status === "failed" && image.error_message)?.error_message || "";
+  syncFailureRefundRemainingCount(data.failure_refund_remaining_count);
   updateGeneratedTaskByTaskId(taskId, (task) => ({
     ...task,
     status: data.status,
     errorMessage: nextErrorMessage,
     creditRefunded: Boolean(data.credit_refunded),
+    failureRefundRemainingCount: data.failure_refund_remaining_count ?? task.failureRefundRemainingCount ?? null,
     createdAt: data.created_at || task.createdAt,
     model: data.model || task.model,
     size: data.size || task.size,
@@ -690,6 +703,13 @@ function syncTaskFromResult(taskId: string, data: TaskResult) {
 
 function syncTasksFromResults(items: TaskResult[]) {
   items.forEach((item) => syncTaskFromResult(item.id, item));
+}
+
+async function syncFailureRefundRemainingCountFromTaskIds(taskIds: string[]) {
+  const normalizedTaskIds = Array.from(new Set(taskIds.filter(Boolean)));
+  if (!normalizedTaskIds.length) return;
+  const items = await getTasks(normalizedTaskIds);
+  items.forEach((item) => syncFailureRefundRemainingCount(item.failure_refund_remaining_count));
 }
 
 async function refreshTasks(taskIds = activePollingTaskIds.value) {
@@ -735,6 +755,7 @@ function convertHistoryCardToGeneratedTask(item: UserHistoryCard): GeneratedTask
     status: item.status as GeneratedTaskStatus,
     errorMessage: item.error_message || item.images.find((image) => image.status === "failed" && image.error_message)?.error_message || "",
     creditRefunded: Boolean(item.credit_refunded),
+    failureRefundRemainingCount: null,
     images: item.images.length ? item.images : createPendingImages(fallbackImageCount),
   };
 }
@@ -920,6 +941,17 @@ async function loadRecentGeneratedTasks() {
       .map(convertHistoryCardToGeneratedTask);
 
     generatedTasks.value = limitGeneratedTasks(recentTasks);
+
+    const failedTaskIds = recentHistoryItems
+      .filter((item) => item.status === "failed" && item.task_id)
+      .map((item) => String(item.task_id));
+    if (failedTaskIds.length) {
+      try {
+        await syncFailureRefundRemainingCountFromTaskIds(failedTaskIds);
+      } catch {
+        // Ignore remaining-count sync failures; the page can still render history normally.
+      }
+    }
 
     if (!activePollingTaskIds.value.length) {
       stopAllTaskPolling();
@@ -1437,7 +1469,7 @@ const generateButtonText = computed(() => {
   if (remainingGenerationImageSlots.value <= 0) {
     return "生成队列已满";
   }
-  return isSuperAdmin.value ? "开始生成" : `开始生成 · ${actualSubmitCreditCost.value} 积分`;
+  return `开始生成 · ${actualSubmitCreditCost.value} 积分`;
 });
 const promptReverseButtonText = computed(() => {
   if (reverseLoading.value) return "提示词反推中...";
@@ -1490,6 +1522,19 @@ function applyReversePrompt() {
   message.success("已带入到文生图");
 }
 
+function promptSwitchToTextGenerate(messageText: string) {
+  Modal.confirm({
+    title: "当前为图编辑",
+    content: messageText,
+    centered: true,
+    okText: "去文生图",
+    cancelText: "取消",
+    onOk: () => {
+      generateMode.value = "textGenerate";
+    },
+  });
+}
+
 async function handleGenerate() {
   if (isImageEditMode.value && hasPendingReferenceUploads.value) {
     message.warning("参考图仍在上传中，请稍候再发起任务");
@@ -1500,7 +1545,7 @@ async function handleGenerate() {
     return;
   }
   if (isImageEditMode.value && !referenceUrls.value.length) {
-    message.warning("请先上传参考图片，再开始图编辑；如无需上传图片，请切换到文生图");
+    promptSwitchToTextGenerate("图编辑必须先上传参考图。若你现在没有参考图，请切换到文生图发起任务。");
     return;
   }
   if (!activePrompt.value.trim()) {
@@ -1866,6 +1911,23 @@ function getGeneratedResultDisplayUrl(task: GeneratedTaskItem, img: ImageResult)
 
 function canEditGeneratedImage(task: GeneratedTaskItem, img: ImageResult) {
   return img.status === "success" && !isGeneratedTaskExpired(task) && !!(img.image_url || img.preview_url);
+}
+
+function canGenerateVideoFromGeneratedImage(task: GeneratedTaskItem, img: ImageResult) {
+  return canEditGeneratedImage(task, img) && !!(img.image_url || img.preview_url || img.thumb_url);
+}
+
+function handleGenerateVideoFromGeneratedImage(task: GeneratedTaskItem, img: ImageResult) {
+  const referenceImage = img.image_url || img.preview_url || img.thumb_url || "";
+  if (!referenceImage) {
+    message.warning("当前结果图暂不可用于生成视频");
+    return;
+  }
+  if (!saveImageToVideoDraft({ referenceImage, prompt: task.prompt || "" })) {
+    message.warning("当前结果图暂不可用于生成视频");
+    return;
+  }
+  router.push("/video-generate");
 }
 
 async function ensureTemplateTagsLoaded() {
@@ -3139,6 +3201,7 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
             <div class="result-tips">
               <div class="result-tip-line">
                 每日前 <span class="result-tip-highlight">20</span> 次失败任务不扣积分
+                <span v-if="failureRefundRemainingCount !== null">（剩余{{ failureRefundRemainingCount }}次）</span>
               </div>
             </div>
           </div>
@@ -3238,9 +3301,9 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
                     <template v-if="item.image.status === 'success' && getGeneratedResultDisplayUrl(item.task, item.image)">
                       <img :src="getGeneratedResultDisplayUrl(item.task, item.image)" alt="生成结果" loading="lazy" />
                       <div class="result-actions">
-                        <a-tooltip title="查看详情">
-                          <a-button shape="circle" class="icon-chip" @click.stop="openGeneratedTaskDetail(item.task, item.image)">
-                            <template #icon><EyeOutlined /></template>
+                        <a-tooltip v-if="canGenerateVideoFromGeneratedImage(item.task, item.image)" title="生成视频">
+                          <a-button shape="circle" class="icon-chip" @click.stop="handleGenerateVideoFromGeneratedImage(item.task, item.image)">
+                            <template #icon><VideoCameraOutlined /></template>
                           </a-button>
                         </a-tooltip>
                         <a-tooltip v-if="canEditGeneratedImage(item.task, item.image)" title="结果图编辑">
@@ -3916,8 +3979,13 @@ watch(() => auth.isLoggedIn, async (isLoggedIn) => {
     box-shadow: 0 0 0 3px var(--theme-focus-ring);
   }
 
+  :deep(.ant-input-textarea-show-count) {
+    color: var(--theme-title) !important;
+  }
+
+  :deep(.ant-input-textarea-show-count)::after,
   :deep(.ant-input-data-count) {
-    color: var(--text-muted);
+    color: var(--theme-title) !important;
     font-size: 12px;
   }
 
@@ -6192,8 +6260,13 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .generate-page .generate-c
     box-shadow: none !important;
   }
 
+  :deep(.ant-input-textarea-show-count) {
+    color: var(--theme-title) !important;
+  }
+
+  :deep(.ant-input-textarea-show-count)::after,
   :deep(.ant-input-data-count) {
-    color: var(--text-muted);
+    color: var(--theme-title) !important;
   }
 
   :deep(textarea) {

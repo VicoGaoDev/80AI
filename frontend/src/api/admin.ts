@@ -27,6 +27,12 @@ import type {
   ExternalApiSceneBindingMetaPayload,
   ExternalApiConfigStatus,
   ExternalApiConfigTestResult,
+  VideoExternalApiConfig,
+  VideoExternalApiConfigPayload,
+  VideoExternalApiSceneBinding,
+  VideoExternalApiSceneBindingCreatePayload,
+  VideoExternalApiSceneBindingMetaPayload,
+  VideoExternalApiConfigTestResult,
   AdminDailyReportTestResult,
   AdminDailyReportRangePayload,
   FeedbackDetail,
@@ -40,9 +46,26 @@ import type {
   AdminUserPromoDashboard,
   CreateOfflineOrderPayload,
   UserCanvasListResponse,
+  AdminVideoTaskListResponse,
+  VideoStats,
+  VideoAnalyticsQuery,
 } from "@/types";
 
 function buildAnalyticsParams(query: AdminAnalyticsQuery): Record<string, unknown> {
+  const params: Record<string, unknown> = {
+    granularity: query.granularity,
+  };
+  if (query.start_date) params.start_date = query.start_date;
+  if (query.end_date) params.end_date = query.end_date;
+  if (query.user_id) params.user_id = query.user_id;
+  if (query.source) params.source = query.source;
+  if (query.model) params.model = query.model;
+  if (query.mode) params.mode = query.mode;
+  if (query.status) params.status = query.status;
+  return params;
+}
+
+function buildVideoAnalyticsParams(query: VideoAnalyticsQuery): Record<string, unknown> {
   const params: Record<string, unknown> = {
     granularity: query.granularity,
   };
@@ -169,6 +192,10 @@ export function getStats(): Promise<AdminStats> {
   return client.get("/admin/stats");
 }
 
+export function getVideoStats(): Promise<VideoStats> {
+  return client.get("/admin/video-stats");
+}
+
 export function getAdminHistory(
   page: number = 1,
   pageSize: number = 20,
@@ -222,6 +249,38 @@ export function getAdminHistoryCards(
   });
 }
 
+export function getAdminVideoTasks(
+  page: number = 1,
+  pageSize: number = 20,
+  filters: {
+    source?: "web" | "app" | "api";
+    model?: string;
+    mode?: "text_to_video" | "image_to_video";
+    prompt?: string;
+    status?: "pending" | "queued" | "processing" | "success" | "failed";
+    user_id?: string;
+    used_fallback_api?: boolean;
+    start_date?: string;
+    end_date?: string;
+  } = {},
+): Promise<AdminVideoTaskListResponse> {
+  return client.get("/admin/video-tasks", {
+    params: {
+      page,
+      page_size: pageSize,
+      source: filters.source,
+      model: filters.model,
+      mode: filters.mode,
+      prompt: filters.prompt?.trim() || undefined,
+      status: filters.status,
+      user_id: filters.user_id,
+      used_fallback_api: filters.used_fallback_api,
+      start_date: filters.start_date,
+      end_date: filters.end_date,
+    },
+  });
+}
+
 export function listAdminFeedbacks(
   page = 1,
   pageSize = 20,
@@ -257,6 +316,18 @@ export function getAdminAnalyticsTimeseries(query: AdminAnalyticsQuery): Promise
 
 export function getAdminAnalyticsBreakdown(query: AdminAnalyticsQuery): Promise<AdminAnalyticsBreakdown> {
   return client.get("/admin/analytics/breakdown", { params: buildAnalyticsParams(query) });
+}
+
+export function getAdminVideoAnalyticsSummary(query: VideoAnalyticsQuery): Promise<AdminAnalyticsSummary> {
+  return client.get("/admin/video-analytics/summary", { params: buildVideoAnalyticsParams(query) });
+}
+
+export function getAdminVideoAnalyticsTimeseries(query: VideoAnalyticsQuery): Promise<AdminAnalyticsTimeseries> {
+  return client.get("/admin/video-analytics/timeseries", { params: buildVideoAnalyticsParams(query) });
+}
+
+export function getAdminVideoAnalyticsBreakdown(query: VideoAnalyticsQuery): Promise<AdminAnalyticsBreakdown> {
+  return client.get("/admin/video-analytics/breakdown", { params: buildVideoAnalyticsParams(query) });
 }
 
 export function getAdminAnalyticsRedeemRevenue(query: AdminAnalyticsQuery): Promise<AdminAnalyticsRedeemRevenue> {
@@ -442,4 +513,74 @@ export function updateExternalApiSceneBinding(
 
 export function testExternalApiConfig(payload: ExternalApiConfigPayload): Promise<ExternalApiConfigTestResult> {
   return client.post("/admin/external-api-configs/test", payload);
+}
+
+export function listVideoExternalApiConfigs(): Promise<VideoExternalApiConfig[]> {
+  return client.get("/admin/video-external-api-configs");
+}
+
+export function createVideoExternalApiConfig(payload: VideoExternalApiConfigPayload): Promise<VideoExternalApiConfig> {
+  return client.post("/admin/video-external-api-configs", payload);
+}
+
+export function updateVideoExternalApiConfig(configId: number, payload: VideoExternalApiConfigPayload): Promise<VideoExternalApiConfig> {
+  return client.put(`/admin/video-external-api-configs/${configId}`, payload);
+}
+
+export function updateVideoExternalApiConfigStatus(configId: number, status: ExternalApiConfigStatus): Promise<VideoExternalApiConfig> {
+  return client.patch(`/admin/video-external-api-configs/${configId}/status`, { status });
+}
+
+export function deleteVideoExternalApiConfig(configId: number): Promise<void> {
+  return client.delete(`/admin/video-external-api-configs/${configId}`);
+}
+
+export function listVideoExternalApiSceneBindings(): Promise<VideoExternalApiSceneBinding[]> {
+  return client.get("/admin/video-external-api-scene-bindings");
+}
+
+export function createVideoExternalApiSceneBinding(
+  payload: VideoExternalApiSceneBindingCreatePayload,
+): Promise<VideoExternalApiSceneBinding> {
+  return client.post("/admin/video-external-api-scene-bindings", payload);
+}
+
+export function updateVideoExternalApiSceneBindingMeta(
+  sceneKey: VideoExternalApiSceneBinding["scene_key"],
+  payload: VideoExternalApiSceneBindingMetaPayload,
+): Promise<VideoExternalApiSceneBinding> {
+  return client.patch(`/admin/video-external-api-scene-bindings/${sceneKey}/meta`, payload);
+}
+
+export function updateVideoExternalApiSceneBindingStatus(
+  sceneKey: VideoExternalApiSceneBinding["scene_key"],
+  status: ExternalApiConfigStatus,
+): Promise<VideoExternalApiSceneBinding> {
+  return client.patch(`/admin/video-external-api-scene-bindings/${sceneKey}/status`, { status });
+}
+
+export function deleteVideoExternalApiSceneBinding(
+  sceneKey: VideoExternalApiSceneBinding["scene_key"],
+): Promise<void> {
+  return client.delete(`/admin/video-external-api-scene-bindings/${sceneKey}`);
+}
+
+export function updateVideoExternalApiSceneBinding(
+  sceneKey: VideoExternalApiSceneBinding["scene_key"],
+  payload: {
+    api_config_id: number | null;
+    backup_api_config_id: number | null;
+    credit_billing_mode: "fixed" | "per_second";
+    credit_cost: number;
+    per_second_credit_cost: number;
+    display_name: string;
+    subtitle: string;
+    status: ExternalApiConfigStatus;
+  },
+): Promise<VideoExternalApiSceneBinding> {
+  return client.put(`/admin/video-external-api-scene-bindings/${sceneKey}`, payload);
+}
+
+export function testVideoExternalApiConfig(payload: VideoExternalApiConfigPayload): Promise<VideoExternalApiConfigTestResult> {
+  return client.post("/admin/video-external-api-configs/test", payload);
 }

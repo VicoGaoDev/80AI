@@ -156,6 +156,7 @@ def serialize_task(
     *,
     cos_config: CosRuntimeConfig | None = None,
     credit_refunded: bool | None = None,
+    failure_refund_remaining_count: int | None = None,
 ) -> dict:
     task_credit_cost = int(task.credit_cost or 0)
     resolved_credit_refunded = False
@@ -187,6 +188,7 @@ def serialize_task(
         "mask_image_thumb": mask_asset["thumb_url"],
         "credit_cost": task_credit_cost,
         "credit_refunded": resolved_credit_refunded,
+        "failure_refund_remaining_count": failure_refund_remaining_count,
         "status": task.status,
         "error_message": task.error_message or "",
         "created_at": task.created_at,

@@ -9,19 +9,23 @@ from app.models.image import Image
 from app.models.external_api_config import ExternalApiConfig
 from app.models.user import User
 from app.models.credit_log import CreditLog
+from app.services.failure_refund_service import (
+    DAILY_FAILURE_REFUND_LIMIT,
+    IMAGE_TASK_FAILURE_REFUND_DESCRIPTION,
+    get_today_failure_refund_count,
+)
 from app.services.business_id_service import task_external_id, user_external_id
 from app.services.board_service import validate_user_board_id
 from app.services.distributed_lock_service import RedisLockHandle, acquire_redis_lock, release_redis_lock
 from app.services.external_api_config_service import SCENE_INPAINT, get_scene_credit_cost
 from app.services.user_credit_service import apply_user_credit_delta, get_user_credit_account
-from app.utils.datetime_utils import now_local
 from app.utils.business_id import normalize_business_id
+from app.utils.datetime_utils import now_local
 
 ACTIVE_TASK_STATUSES = ("pending", "queued", "processing")
 MAX_TASK_PROMPT_LENGTH = 5000
 ENQUEUE_FAILURE_DESCRIPTION = "任务入队失败，返还积分"
 TASK_FAILURE_REFUND_DESCRIPTION = "任务失败，返还积分"
-DAILY_TASK_FAILURE_REFUND_LIMIT = 20
 TASK_SUBMISSION_LOCK_PREFIX = "banana:tasks:submission:user"
 TASK_SUBMISSION_LOCK_TIMEOUT_SECONDS = 30
 TASK_SUBMISSION_LOCK_BLOCKING_TIMEOUT_SECONDS = 5
@@ -64,28 +68,6 @@ def is_task_generation_failure_credit_refunded(db: Session, task_id: int) -> boo
     )
 
 
-def _today_failure_refund_window() -> tuple:
-    today_start = now_local().replace(hour=0, minute=0, second=0, microsecond=0)
-    return today_start, today_start + timedelta(days=1)
-
-
-def get_today_task_failure_refund_count(db: Session, user_id: int) -> int:
-    today_start, tomorrow_start = _today_failure_refund_window()
-    rows = (
-        db.query(CreditLog.id)
-        .filter(
-            CreditLog.user_id == user_id,
-            CreditLog.type == "allocate",
-            CreditLog.description == TASK_FAILURE_REFUND_DESCRIPTION,
-            CreditLog.created_at >= today_start,
-            CreditLog.created_at < tomorrow_start,
-        )
-        .with_for_update()
-        .all()
-    )
-    return len(rows)
-
-
 def refund_task_credit_for_generation_failure_if_needed(
     db: Session,
     task: Task,
@@ -102,8 +84,8 @@ def refund_task_credit_for_generation_failure_if_needed(
     try:
         with db.begin_nested():
             get_user_credit_account(db, task.user_id, for_update=True)
-            today_refund_count = get_today_task_failure_refund_count(db, task.user_id)
-            if today_refund_count >= DAILY_TASK_FAILURE_REFUND_LIMIT:
+            today_refund_count = get_today_failure_refund_count(db, task.user_id)
+            if today_refund_count >= DAILY_FAILURE_REFUND_LIMIT:
                 task_logger.info(
                     "task credit refund skipped due to daily failure refund limit",
                     extra={
@@ -112,7 +94,7 @@ def refund_task_credit_for_generation_failure_if_needed(
                         "user_id": user_external_id(task.user) if task.user else str(task.user_id),
                         "credit_cost": credit_cost,
                         "today_refund_count": today_refund_count,
-                        "daily_limit": DAILY_TASK_FAILURE_REFUND_LIMIT,
+                        "daily_limit": DAILY_FAILURE_REFUND_LIMIT,
                     },
                 )
                 return False
@@ -126,7 +108,7 @@ def refund_task_credit_for_generation_failure_if_needed(
                 user_id=task.user_id,
                 amount=credit_cost,
                 type="allocate",
-                description=TASK_FAILURE_REFUND_DESCRIPTION,
+                description=IMAGE_TASK_FAILURE_REFUND_DESCRIPTION,
                 task_id=task.id,
             ))
             db.flush()
@@ -149,7 +131,7 @@ def refund_task_credit_for_generation_failure_if_needed(
             "user_id": user_external_id(task.user) if task.user else str(task.user_id),
             "credit_cost": credit_cost,
             "today_refund_count": today_refund_count + 1,
-            "daily_limit": DAILY_TASK_FAILURE_REFUND_LIMIT,
+            "daily_limit": DAILY_FAILURE_REFUND_LIMIT,
         },
     )
     return True

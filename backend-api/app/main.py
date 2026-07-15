@@ -1549,6 +1549,10 @@ def _backfill_task_credit_costs():
     from app.models.task import Task
     from app.models.credit_log import CreditLog
 
+    # Backfill queries the ORM Task model directly, so ensure async-provider
+    # columns exist first on older databases before issuing SELECT tasks.*.
+    _ensure_task_credit_cost_column()
+
     db = SessionLocal()
     try:
         tasks = db.query(Task).order_by(Task.id.asc()).all()

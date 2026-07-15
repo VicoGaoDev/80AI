@@ -24,6 +24,11 @@ const router = createRouter({
           component: () => import("@/views/GenerateView.vue"),
         },
         {
+          path: "video-generate",
+          name: "VideoGenerate",
+          component: () => import("@/views/VideoGenerateView.vue"),
+        },
+        {
           path: "canvas",
           name: "Canvas",
           meta: { requiresAuth: true },
@@ -167,6 +172,12 @@ const router = createRouter({
           props: { adminUserTasks: true },
         },
         {
+          path: "admin/user-videos",
+          name: "AdminUserVideos",
+          meta: { requiresAdmin: true },
+          component: () => import("@/views/admin/UserVideosPlaceholderView.vue"),
+        },
+        {
           path: "admin/user-canvases",
           name: "AdminUserCanvases",
           meta: { requiresAdmin: true },
@@ -191,6 +202,12 @@ const router = createRouter({
           name: "Dashboard",
           meta: { requiresAdmin: true },
           component: () => import("@/views/admin/DashboardView.vue"),
+        },
+        {
+          path: "admin/video-dashboard",
+          name: "AdminVideoDashboard",
+          meta: { requiresAdmin: true },
+          component: () => import("@/views/admin/VideoDashboardPlaceholderView.vue"),
         },
         {
           path: "admin/error-analytics",
@@ -237,6 +254,12 @@ const router = createRouter({
           name: "ExternalApiConfigManage",
           meta: { requiresSuperAdmin: true },
           component: () => import("@/views/admin/ExternalApiConfigView.vue"),
+        },
+        {
+          path: "admin/video-api-configs",
+          name: "VideoApiConfigManage",
+          meta: { requiresSuperAdmin: true },
+          component: () => import("@/views/admin/VideoApiConfigView.vue"),
         },
       ],
     },

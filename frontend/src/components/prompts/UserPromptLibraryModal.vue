@@ -973,6 +973,126 @@ function handleDeleteCategory() {
   color: #5c3b11;
 }
 
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-sidebar {
+  background: var(--theme-panel-bg-soft);
+  border-color: var(--theme-panel-border);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-sidebar-title,
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-modal-header-title,
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-card-title,
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-empty-title,
+html:is([data-theme="dark"], [data-theme="midnight"]) .user-prompt-form-item label {
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-side-icon-btn {
+  background: var(--theme-panel-bg);
+  border-color: var(--theme-panel-border);
+  color: var(--theme-text-secondary);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-side-icon-btn:hover,
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-side-icon-btn:focus {
+  background: var(--theme-control-hover-bg);
+  border-color: var(--theme-border-strong);
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-side-icon-btn.danger {
+  color: #de8f84;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-category-btn {
+  background: var(--theme-panel-bg);
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-category-btn.active {
+  background: var(--theme-panel-bg-strong);
+  border-color: var(--theme-panel-border-strong);
+  color: #ffd995;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-batch-bar {
+  background: var(--theme-panel-bg-soft);
+  border-color: var(--theme-panel-border);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-batch-summary,
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-card-meta-row,
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-empty-desc {
+  color: var(--theme-text-secondary);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-loading-mask {
+  background: rgba(var(--theme-surface-strong-rgb), 0.42);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-search {
+  background: var(--theme-panel-bg);
+  border-color: var(--theme-panel-border);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.16);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-search :deep(.ant-input),
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-search :deep(.ant-input-affix-wrapper) {
+  color: var(--theme-title) !important;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-search :deep(.ant-input::placeholder) {
+  color: var(--theme-text-secondary);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-search :deep(.ant-input-clear-icon) {
+  color: var(--theme-text-secondary);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-search-btn {
+  background: linear-gradient(180deg, rgba(61, 49, 31, 0.96), rgba(46, 37, 24, 0.96));
+  border-left-color: rgba(214, 168, 84, 0.28);
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-batch-toggle-active,
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-count-pill {
+  background: var(--theme-panel-bg-strong);
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-toolbar-right :deep(.ant-btn-text) {
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-card {
+  background: var(--theme-panel-bg-soft);
+  border-color: var(--theme-panel-border);
+  box-shadow: 0 12px 28px var(--theme-shadow-soft);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-card-selected {
+  background: var(--theme-panel-bg-strong);
+  border-color: var(--theme-panel-border-strong);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-card-content {
+  color: var(--theme-title);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .prompt-empty {
+  border-color: var(--theme-panel-border);
+  background: var(--theme-panel-bg-soft);
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .user-prompt-form :deep(.ant-input-textarea-show-count) {
+  color: var(--theme-title) !important;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .user-prompt-form :deep(.ant-input-textarea-show-count)::after,
+html:is([data-theme="dark"], [data-theme="midnight"]) .user-prompt-form :deep(.ant-input-data-count) {
+  color: var(--theme-title) !important;
+}
+
 @media (max-width: 900px) {
   .prompt-picker {
     grid-template-columns: 1fr;

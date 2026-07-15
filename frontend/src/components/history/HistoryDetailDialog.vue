@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
+import { useRouter } from "vue-router";
 import {
   CloseOutlined,
   CopyOutlined,
@@ -8,11 +9,13 @@ import {
   LoadingOutlined,
   PictureOutlined,
   ReloadOutlined,
+  VideoCameraOutlined,
 } from "@ant-design/icons-vue";
 import dayjs from "dayjs";
 import { getPreviewImageSrc, getPreviewImageUrl } from "@/api/images";
 import { withBaseUrl } from "@/lib/assets";
 import { getTaskImageFailureMessage } from "@/lib/generationErrors";
+import { saveImageToVideoDraft } from "@/lib/videoGenerateDraft";
 import type { ImageResult, TaskApiAttempt, UserHistoryCard } from "@/types";
 
 const SIDE_NAV_WIDTH = 76;
@@ -43,6 +46,7 @@ const emit = defineEmits<{
 const previewVisible = ref(false);
 const previewSrc = ref("");
 const viewportWidth = ref(typeof window === "undefined" ? 1280 : window.innerWidth);
+const router = useRouter();
 const failedResultAsset = withBaseUrl("failed-result.svg");
 const generateTaskCardAsset = withBaseUrl("generate-task-card.svg");
 const expiredResultAsset = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
@@ -276,6 +280,25 @@ function handleReedit(item: UserHistoryCard) {
 function handleDownload(item: UserHistoryCard) {
   emit("download", item);
 }
+
+function canGenerateVideoFromDetailItem(item: UserHistoryCard) {
+  if (item.item_type !== "task" || item.mode === "promptReverse" || item.status !== "success") return false;
+  if (isHistoryItemExpired(item)) return false;
+  return Boolean(item.image_url || item.preview_url || item.thumb_url);
+}
+
+function handleGenerateVideo(item: UserHistoryCard) {
+  const referenceImage = item.image_url || item.preview_url || item.thumb_url || "";
+  if (!referenceImage) {
+    message.warning("当前结果图暂不可用于生成视频");
+    return;
+  }
+  if (!saveImageToVideoDraft({ referenceImage, prompt: item.prompt || "" })) {
+    message.warning("当前结果图暂不可用于生成视频");
+    return;
+  }
+  router.push("/video-generate");
+}
 </script>
 
 <template>
@@ -461,6 +484,11 @@ function handleDownload(item: UserHistoryCard) {
               </div>
 
               <div v-if="showActions" class="detail-floating-actions">
+                <a-tooltip v-if="canGenerateVideoFromDetailItem(item)" title="生成视频">
+                  <a-button type="text" class="ghost-icon-btn detail-action-btn" @click="handleGenerateVideo(item)">
+                    <template #icon><VideoCameraOutlined /></template>
+                  </a-button>
+                </a-tooltip>
                 <a-tooltip title="重新编辑">
                   <a-button type="text" class="ghost-icon-btn detail-action-btn" @click="handleReedit(item)">
                     <template #icon><ReloadOutlined /></template>

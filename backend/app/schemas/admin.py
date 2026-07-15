@@ -151,6 +151,15 @@ class StatsOut(BaseModel):
     active_users: int
 
 
+class VideoStatsOut(BaseModel):
+    total_users: int
+    total_tasks: int
+    total_credit_cost: int
+    active_users: int
+    success_tasks: int
+    failed_tasks: int
+
+
 class AnalyticsMetricOut(BaseModel):
     current: int
     previous: int

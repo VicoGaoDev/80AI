@@ -48,6 +48,7 @@ import {
   BugOutlined,
   KeyOutlined,
   CloudUploadOutlined,
+  VideoCameraOutlined,
   LogoutOutlined,
   LockOutlined,
   DownOutlined,
@@ -64,6 +65,7 @@ import {
   BulbOutlined,
   CheckOutlined,
   ClockCircleOutlined,
+  AppstoreOutlined,
 } from "@ant-design/icons-vue";
 
 const router = useRouter();
@@ -84,32 +86,37 @@ const routeOrder = new Map<string, number>([
   ["/", 0],
   ["/templates", 1],
   ["/generate", 2],
-  ["/canvas", 3],
-  ["/history", 4],
-  ["/profile", 5],
-  ["/api-keys", 6],
-  ["/system-messages", 7],
-  ["/system-messages/:messageId", 8],
-  ["/settings", 9],
-  ["/credit-logs", 10],
-  ["/promo-codes", 11],
-  ["/feedbacks", 12],
-  ["/feedbacks/:feedbackId", 13],
-  ["/admin/templates", 14],
-  ["/admin/users", 15],
-  ["/admin/user-tasks", 16],
-  ["/admin/user-canvases", 17],
-  ["/admin/dashboard", 18],
-  ["/admin/error-analytics", 19],
-  ["/admin/general-settings", 20],
-  ["/admin/redeem-keys", 21],
-  ["/admin/revenue", 22],
-  ["/admin/payment-orders", 23],
-  ["/admin/feedbacks", 24],
-  ["/admin/feedbacks/:feedbackId", 25],
-  ["/admin/system-messages", 26],
-  ["/admin/cos-config", 27],
-  ["/admin/external-api-configs", 28],
+  ["/video-generate", 3],
+  ["/canvas", 4],
+  ["/history", 5],
+  ["/profile", 6],
+  ["/api-keys", 7],
+  ["/system-messages", 8],
+  ["/system-messages/:messageId", 9],
+  ["/settings", 10],
+  ["/credit-logs", 11],
+  ["/promo-codes", 12],
+  ["/feedbacks", 13],
+  ["/feedbacks/:feedbackId", 14],
+  ["/admin/templates", 15],
+  ["/admin/example-canvases", 16],
+  ["/admin/users", 17],
+  ["/admin/user-tasks", 18],
+  ["/admin/user-videos", 19],
+  ["/admin/user-canvases", 20],
+  ["/admin/dashboard", 21],
+  ["/admin/video-dashboard", 22],
+  ["/admin/error-analytics", 23],
+  ["/admin/general-settings", 24],
+  ["/admin/redeem-keys", 25],
+  ["/admin/revenue", 26],
+  ["/admin/payment-orders", 27],
+  ["/admin/feedbacks", 28],
+  ["/admin/feedbacks/:feedbackId", 29],
+  ["/admin/system-messages", 30],
+  ["/admin/cos-config", 31],
+  ["/admin/external-api-configs", 32],
+  ["/admin/video-api-configs", 33],
 ]);
 
 const currentTheme = ref<AppThemeName>(getCurrentTheme());
@@ -132,13 +139,14 @@ type PrimaryMenuItem = {
   iconSrc: string;
   darkIconSrc?: string;
   icon?: Component;
-  isNew?: boolean;
+  badgeText?: string;
 };
 
 const primaryMenuItems = computed<PrimaryMenuItem[]>(() => [
   { key: "templates", label: "创意模版", iconSrc: withBaseUrl("nav-templates.svg"), icon: BulbOutlined },
   { key: "generate", label: "AI 生图", iconSrc: withBaseUrl("nav-generate.svg"), icon: ThunderboltFilled },
-  ...(canAccessCanvasMenu.value ? [{ key: "canvas", label: "无限画布", iconSrc: withBaseUrl("nav-canvas.svg"), icon: NumberOutlined, isNew: true }] : []),
+  { key: "video-generate", label: "AI 视频", iconSrc: withBaseUrl("nav-generate.svg"), icon: VideoCameraOutlined, badgeText: "新" },
+  ...(canAccessCanvasMenu.value ? [{ key: "canvas", label: "无限画布", iconSrc: withBaseUrl("nav-canvas.svg"), icon: NumberOutlined, badgeText: "火热" }] : []),
   { key: "history", label: "历史图片", iconSrc: withBaseUrl("nav-history.svg"), icon: ClockCircleOutlined },
 ]);
 
@@ -149,15 +157,21 @@ function getPrimaryMenuIconSrc(item: PrimaryMenuItem) {
   return item.iconSrc;
 }
 
+const ADMIN_TEMPLATE_MENU_KEY = "admin-template";
 const ADMIN_USER_DATA_MENU_KEY = "admin-user-data";
+const ADMIN_ANALYTICS_MENU_KEY = "admin-analytics";
+const ADMIN_THIRD_PARTY_MENU_KEY = "admin-third-party";
 
 const adminMenuItems = computed(() =>
   [
-    { key: "/admin/templates", label: "模版管理", icon: PictureOutlined, superAdminOnly: false },
+    { key: "/admin/templates", label: "图片模版", icon: PictureOutlined, superAdminOnly: false },
+    { key: "/admin/example-canvases", label: "画布模版", icon: AppstoreOutlined, superAdminOnly: false },
     { key: "/admin/users", label: "用户管理", icon: TeamOutlined, superAdminOnly: false },
-    { key: "/admin/user-tasks", label: "用户任务", icon: PictureOutlined, superAdminOnly: false },
+    { key: "/admin/user-tasks", label: "用户图片", icon: PictureOutlined, superAdminOnly: false },
+    { key: "/admin/user-videos", label: "用户视频", icon: VideoCameraOutlined, superAdminOnly: false },
     { key: "/admin/user-canvases", label: "用户画布", icon: NumberOutlined, superAdminOnly: false },
-    { key: "/admin/dashboard", label: "数据统计", icon: BarChartOutlined, superAdminOnly: false },
+    { key: "/admin/dashboard", label: "生图数据", icon: BarChartOutlined, superAdminOnly: false },
+    { key: "/admin/video-dashboard", label: "视频数据", icon: VideoCameraOutlined, superAdminOnly: false },
     { key: "/admin/error-analytics", label: "错误统计", icon: BugOutlined, superAdminOnly: false },
     { key: "/admin/general-settings", label: "通用设置", icon: SettingOutlined, superAdminOnly: false },
     { key: "/admin/redeem-keys", label: "兑换码", icon: GiftOutlined, superAdminOnly: false },
@@ -165,36 +179,78 @@ const adminMenuItems = computed(() =>
     { key: "/admin/feedbacks", label: "用户反馈", icon: MessageOutlined, superAdminOnly: false },
     { key: "/admin/system-messages", label: "系统邮件", icon: MailOutlined, superAdminOnly: false },
     { key: "/admin/cos-config", label: "COS 配置", icon: CloudUploadOutlined, superAdminOnly: true },
-    { key: "/admin/external-api-configs", label: "接口管理", icon: KeyOutlined, superAdminOnly: true },
+    { key: "/admin/external-api-configs", label: "生图接口", icon: KeyOutlined, superAdminOnly: true },
+    { key: "/admin/video-api-configs", label: "视频接口", icon: VideoCameraOutlined, superAdminOnly: true },
   ].filter((item) => !item.superAdminOnly || isSuperAdmin.value)
 );
-const adminMenuLeadingItems = computed(() =>
-  adminMenuItems.value.filter((item) => item.key === "/admin/templates")
+const adminMenuTemplateItems = computed(() =>
+  adminMenuItems.value.filter((item) => ["/admin/templates", "/admin/example-canvases"].includes(item.key))
 );
 const adminMenuUserDataItems = computed(() =>
   adminMenuItems.value.filter((item) => [
     "/admin/users",
     "/admin/user-tasks",
+    "/admin/user-videos",
     "/admin/user-canvases",
+  ].includes(item.key))
+);
+const adminMenuAnalyticsItems = computed(() =>
+  adminMenuItems.value.filter((item) => [
+    "/admin/dashboard",
+    "/admin/video-dashboard",
+    "/admin/error-analytics",
   ].includes(item.key))
 );
 const adminMenuBaseItems = computed(() =>
   adminMenuItems.value.filter((item) => [
-    "/admin/dashboard",
-    "/admin/error-analytics",
     "/admin/general-settings",
   ].includes(item.key))
+);
+const isAdminTemplateRoute = computed(() =>
+  route.path.startsWith("/admin/templates")
+  || route.path.startsWith("/admin/example-canvases")
 );
 const isAdminUserDataRoute = computed(() =>
   route.path.startsWith("/admin/users")
   || route.path.startsWith("/admin/user-tasks")
+  || route.path.startsWith("/admin/user-videos")
   || route.path.startsWith("/admin/user-canvases")
 );
-const adminMenuOpenKeys = ref<string[]>(isAdminUserDataRoute.value ? [ADMIN_USER_DATA_MENU_KEY] : []);
+const isAdminAnalyticsRoute = computed(() =>
+  route.path.startsWith("/admin/dashboard")
+  || route.path.startsWith("/admin/video-dashboard")
+  || route.path.startsWith("/admin/error-analytics")
+);
+const isAdminThirdPartyRoute = computed(() =>
+  route.path.startsWith("/admin/cos-config")
+  || route.path.startsWith("/admin/external-api-configs")
+  || route.path.startsWith("/admin/video-api-configs")
+);
+const adminMenuOpenKeys = ref<string[]>([
+  ...(isAdminTemplateRoute.value ? [ADMIN_TEMPLATE_MENU_KEY] : []),
+  ...(isAdminUserDataRoute.value ? [ADMIN_USER_DATA_MENU_KEY] : []),
+  ...(isAdminAnalyticsRoute.value ? [ADMIN_ANALYTICS_MENU_KEY] : []),
+  ...(isAdminThirdPartyRoute.value ? [ADMIN_THIRD_PARTY_MENU_KEY] : []),
+]);
 
+watch(isAdminTemplateRoute, (active) => {
+  if (active && !adminMenuOpenKeys.value.includes(ADMIN_TEMPLATE_MENU_KEY)) {
+    adminMenuOpenKeys.value = [...adminMenuOpenKeys.value, ADMIN_TEMPLATE_MENU_KEY];
+  }
+});
 watch(isAdminUserDataRoute, (active) => {
   if (active && !adminMenuOpenKeys.value.includes(ADMIN_USER_DATA_MENU_KEY)) {
     adminMenuOpenKeys.value = [...adminMenuOpenKeys.value, ADMIN_USER_DATA_MENU_KEY];
+  }
+});
+watch(isAdminAnalyticsRoute, (active) => {
+  if (active && !adminMenuOpenKeys.value.includes(ADMIN_ANALYTICS_MENU_KEY)) {
+    adminMenuOpenKeys.value = [...adminMenuOpenKeys.value, ADMIN_ANALYTICS_MENU_KEY];
+  }
+});
+watch(isAdminThirdPartyRoute, (active) => {
+  if (active && !adminMenuOpenKeys.value.includes(ADMIN_THIRD_PARTY_MENU_KEY)) {
+    adminMenuOpenKeys.value = [...adminMenuOpenKeys.value, ADMIN_THIRD_PARTY_MENU_KEY];
   }
 });
 const adminMenuBusinessItems = computed(() =>
@@ -204,7 +260,7 @@ const adminMenuNoticeItems = computed(() =>
   adminMenuItems.value.filter((item) => ["/admin/feedbacks", "/admin/system-messages"].includes(item.key))
 );
 const adminMenuConfigItems = computed(() =>
-  adminMenuItems.value.filter((item) => ["/admin/cos-config", "/admin/external-api-configs"].includes(item.key))
+  adminMenuItems.value.filter((item) => ["/admin/cos-config", "/admin/external-api-configs", "/admin/video-api-configs"].includes(item.key))
 );
 
 const hasAdminUnresolvedFeedback = computed(() => adminUnresolvedFeedbackCount.value > 0);
@@ -246,6 +302,7 @@ const selectedKeys = computed(() => {
   if (p.startsWith("/admin")) return ["admin"];
   if (p === "/") return [];
   if (p === "/templates") return ["templates"];
+  if (p === "/video-generate") return ["video-generate"];
   if (p.startsWith("/canvas")) return ["canvas"];
   if (p === "/batch-generate") return ["batch-generate"];
   if (p.startsWith("/history")) return ["history"];
@@ -291,6 +348,7 @@ function handleMenuClick({ key }: { key: string }) {
   mobileDrawerOpen.value = false;
   if (key === "templates") router.push("/templates");
   else if (key === "generate") router.push("/generate");
+  else if (key === "video-generate") router.push("/video-generate");
   else if (key === "canvas") {
     if (!auth.isLoggedIn) {
       loginModalVisible.value = true;
@@ -1144,13 +1202,17 @@ watch(purchaseDialogOpen, (open) => {
               </a-badge>
               <template #overlay>
                 <a-menu :selected-keys="adminSelectedKeys" @click="handleAdminMenu">
-                  <a-menu-item
-                    v-for="item in adminMenuLeadingItems"
-                    :key="item.key"
-                  >
-                    <template #icon><component :is="item.icon" /></template>
-                    {{ item.label }}
-                  </a-menu-item>
+                  <a-sub-menu :key="ADMIN_TEMPLATE_MENU_KEY" popup-class-name="warm-dropdown">
+                    <template #icon><PictureOutlined /></template>
+                    <template #title>模版管理</template>
+                    <a-menu-item
+                      v-for="item in adminMenuTemplateItems"
+                      :key="item.key"
+                    >
+                      <template #icon><component :is="item.icon" /></template>
+                      {{ item.label }}
+                    </a-menu-item>
+                  </a-sub-menu>
                   <a-sub-menu :key="ADMIN_USER_DATA_MENU_KEY" popup-class-name="warm-dropdown">
                     <template #icon><TeamOutlined /></template>
                     <template #title>用户数据</template>
@@ -1162,13 +1224,30 @@ watch(purchaseDialogOpen, (open) => {
                       {{ item.label }}
                     </a-menu-item>
                   </a-sub-menu>
-                  <a-menu-item
-                    v-for="item in adminMenuBaseItems"
-                    :key="item.key"
-                  >
-                    <template #icon><component :is="item.icon" /></template>
-                    {{ item.label }}
-                  </a-menu-item>
+                  <a-sub-menu :key="ADMIN_ANALYTICS_MENU_KEY" popup-class-name="warm-dropdown">
+                    <template #icon><BarChartOutlined /></template>
+                    <template #title>数据统计</template>
+                    <a-menu-item
+                      v-for="item in adminMenuAnalyticsItems"
+                      :key="item.key"
+                    >
+                      <template #icon><component :is="item.icon" /></template>
+                      {{ item.label }}
+                    </a-menu-item>
+                  </a-sub-menu>
+                  <template v-if="adminMenuConfigItems.length">
+                    <a-sub-menu :key="ADMIN_THIRD_PARTY_MENU_KEY" popup-class-name="warm-dropdown">
+                      <template #icon><KeyOutlined /></template>
+                      <template #title>第三方管理</template>
+                      <a-menu-item
+                        v-for="item in adminMenuConfigItems"
+                        :key="item.key"
+                      >
+                        <template #icon><component :is="item.icon" /></template>
+                        {{ item.label }}
+                      </a-menu-item>
+                    </a-sub-menu>
+                  </template>
                   <a-menu-divider />
                   <a-menu-item
                     v-for="item in adminMenuBusinessItems"
@@ -1194,10 +1273,10 @@ watch(purchaseDialogOpen, (open) => {
                     </span>
                     <template v-else>{{ item.label }}</template>
                   </a-menu-item>
-                  <template v-if="adminMenuConfigItems.length">
+                  <template v-if="adminMenuBaseItems.length">
                     <a-menu-divider />
                     <a-menu-item
-                      v-for="item in adminMenuConfigItems"
+                      v-for="item in adminMenuBaseItems"
                       :key="item.key"
                     >
                       <template #icon><component :is="item.icon" /></template>
@@ -1347,7 +1426,7 @@ watch(purchaseDialogOpen, (open) => {
           <component v-if="item.icon" :is="item.icon" class="nav-menu-system-icon" />
           <img v-else :src="getPrimaryMenuIconSrc(item)" :alt="item.label" class="nav-menu-icon" />
           <span>{{ item.label }}</span>
-          <span v-if="item.isNew" class="nav-menu-new-badge">New</span>
+          <span v-if="item.badgeText" class="nav-menu-new-badge">{{ item.badgeText }}</span>
         </button>
       </nav>
 
@@ -1364,10 +1443,6 @@ watch(purchaseDialogOpen, (open) => {
         <button type="button" class="canvas-side-nav-item canvas-side-nav-action" @click="openCreditsContact">
           <MessageOutlined />
           <span>联系我们</span>
-        </button>
-        <button type="button" class="canvas-side-nav-item canvas-side-nav-action" @click="openCreditsContact">
-          <TeamOutlined />
-          <span>业务合作</span>
         </button>
 
         <a-dropdown
@@ -1387,10 +1462,14 @@ watch(purchaseDialogOpen, (open) => {
           </a-badge>
           <template #overlay>
             <a-menu :selected-keys="adminSelectedKeys" @click="handleAdminMenu">
-              <a-menu-item v-for="item in adminMenuLeadingItems" :key="item.key">
-                <template #icon><component :is="item.icon" /></template>
-                {{ item.label }}
-              </a-menu-item>
+              <a-sub-menu :key="ADMIN_TEMPLATE_MENU_KEY" popup-class-name="warm-dropdown">
+                <template #icon><PictureOutlined /></template>
+                <template #title>模版管理</template>
+                <a-menu-item v-for="item in adminMenuTemplateItems" :key="item.key">
+                  <template #icon><component :is="item.icon" /></template>
+                  {{ item.label }}
+                </a-menu-item>
+              </a-sub-menu>
               <a-sub-menu :key="ADMIN_USER_DATA_MENU_KEY" popup-class-name="warm-dropdown">
                 <template #icon><TeamOutlined /></template>
                 <template #title>用户数据</template>
@@ -1399,10 +1478,24 @@ watch(purchaseDialogOpen, (open) => {
                   {{ item.label }}
                 </a-menu-item>
               </a-sub-menu>
-              <a-menu-item v-for="item in adminMenuBaseItems" :key="item.key">
-                <template #icon><component :is="item.icon" /></template>
-                {{ item.label }}
-              </a-menu-item>
+              <a-sub-menu :key="ADMIN_ANALYTICS_MENU_KEY" popup-class-name="warm-dropdown">
+                <template #icon><BarChartOutlined /></template>
+                <template #title>数据统计</template>
+                <a-menu-item v-for="item in adminMenuAnalyticsItems" :key="item.key">
+                  <template #icon><component :is="item.icon" /></template>
+                  {{ item.label }}
+                </a-menu-item>
+              </a-sub-menu>
+              <template v-if="adminMenuConfigItems.length">
+                <a-sub-menu :key="ADMIN_THIRD_PARTY_MENU_KEY" popup-class-name="warm-dropdown">
+                  <template #icon><KeyOutlined /></template>
+                  <template #title>第三方管理</template>
+                  <a-menu-item v-for="item in adminMenuConfigItems" :key="item.key">
+                    <template #icon><component :is="item.icon" /></template>
+                    {{ item.label }}
+                  </a-menu-item>
+                </a-sub-menu>
+              </template>
               <a-menu-divider />
               <a-menu-item v-for="item in adminMenuBusinessItems" :key="item.key">
                 <template #icon><component :is="item.icon" /></template>
@@ -1425,9 +1518,9 @@ watch(purchaseDialogOpen, (open) => {
                 </span>
                 <template v-else>{{ item.label }}</template>
               </a-menu-item>
-              <template v-if="adminMenuConfigItems.length">
+              <template v-if="adminMenuBaseItems.length">
                 <a-menu-divider />
-                <a-menu-item v-for="item in adminMenuConfigItems" :key="item.key">
+                <a-menu-item v-for="item in adminMenuBaseItems" :key="item.key">
                   <template #icon><component :is="item.icon" /></template>
                   {{ item.label }}
                 </a-menu-item>
@@ -1579,7 +1672,7 @@ watch(purchaseDialogOpen, (open) => {
               <component v-if="item.icon" :is="item.icon" class="nav-menu-system-icon" />
               <img v-else :src="getPrimaryMenuIconSrc(item)" :alt="item.label" class="nav-menu-icon" />
               <span>{{ item.label }}</span>
-              <span v-if="item.isNew" class="nav-menu-new-badge nav-menu-new-badge-mobile">New</span>
+              <span v-if="item.badgeText" class="nav-menu-new-badge nav-menu-new-badge-mobile">{{ item.badgeText }}</span>
             </a-menu-item>
           </a-menu>
         </div>
@@ -1617,10 +1710,14 @@ watch(purchaseDialogOpen, (open) => {
             @openChange="handleAdminMenuOpenChange"
             @click="handleAdminMenu"
           >
-            <a-menu-item v-for="item in adminMenuLeadingItems" :key="item.key">
-              <template #icon><component :is="item.icon" /></template>
-              {{ item.label }}
-            </a-menu-item>
+            <a-sub-menu :key="ADMIN_TEMPLATE_MENU_KEY">
+              <template #icon><PictureOutlined /></template>
+              <template #title>模版管理</template>
+              <a-menu-item v-for="item in adminMenuTemplateItems" :key="item.key">
+                <template #icon><component :is="item.icon" /></template>
+                {{ item.label }}
+              </a-menu-item>
+            </a-sub-menu>
             <a-sub-menu :key="ADMIN_USER_DATA_MENU_KEY">
               <template #icon><TeamOutlined /></template>
               <template #title>用户数据</template>
@@ -1629,10 +1726,24 @@ watch(purchaseDialogOpen, (open) => {
                 {{ item.label }}
               </a-menu-item>
             </a-sub-menu>
-            <a-menu-item v-for="item in adminMenuBaseItems" :key="item.key">
-              <template #icon><component :is="item.icon" /></template>
-              {{ item.label }}
-            </a-menu-item>
+            <a-sub-menu :key="ADMIN_ANALYTICS_MENU_KEY">
+              <template #icon><BarChartOutlined /></template>
+              <template #title>数据统计</template>
+              <a-menu-item v-for="item in adminMenuAnalyticsItems" :key="item.key">
+                <template #icon><component :is="item.icon" /></template>
+                {{ item.label }}
+              </a-menu-item>
+            </a-sub-menu>
+            <template v-if="adminMenuConfigItems.length">
+              <a-sub-menu :key="ADMIN_THIRD_PARTY_MENU_KEY">
+                <template #icon><KeyOutlined /></template>
+                <template #title>第三方管理</template>
+                <a-menu-item v-for="item in adminMenuConfigItems" :key="item.key">
+                  <template #icon><component :is="item.icon" /></template>
+                  {{ item.label }}
+                </a-menu-item>
+              </a-sub-menu>
+            </template>
             <a-menu-divider />
             <a-menu-item v-for="item in adminMenuBusinessItems" :key="item.key">
               <template #icon><component :is="item.icon" /></template>
@@ -1651,9 +1762,9 @@ watch(purchaseDialogOpen, (open) => {
               </span>
               <template v-else>{{ item.label }}</template>
             </a-menu-item>
-            <template v-if="adminMenuConfigItems.length">
+            <template v-if="adminMenuBaseItems.length">
               <a-menu-divider />
-              <a-menu-item v-for="item in adminMenuConfigItems" :key="item.key">
+              <a-menu-item v-for="item in adminMenuBaseItems" :key="item.key">
                 <template #icon><component :is="item.icon" /></template>
                 {{ item.label }}
               </a-menu-item>
@@ -3546,6 +3657,10 @@ html:is([data-theme="dark"], [data-theme="midnight"]) .warm-dropdown .ant-dropdo
 .announcement-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+html:is([data-theme="dark"], [data-theme="midnight"]) .announcement-modal :deep(.ant-checkbox + span) {
+  color: var(--theme-title);
 }
 
 .app-content {
