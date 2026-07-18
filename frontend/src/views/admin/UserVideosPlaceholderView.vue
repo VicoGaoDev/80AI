@@ -391,7 +391,7 @@ async function handleDownloadVideo(task: Pick<VideoTaskResult, "id" | "videos">)
   }
 }
 
-function handleDetailReedit(task: AdminVideoTaskResult) {
+function handleDetailReedit(task: VideoTaskResult) {
   const saved = saveVideoGenerateDraft({
     mode: task.reference_images?.length ? "imageToVideo" : "textGenerate",
     prompt: task.prompt || "",

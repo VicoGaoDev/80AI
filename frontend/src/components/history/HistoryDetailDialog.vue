@@ -408,9 +408,9 @@ function handleGenerateVideo(item: UserHistoryCard) {
                         :src="isHistoryItemExpired(item) ? expiredResultAsset : getPreviewImageSrc(item.source_image_thumb || item.source_image)"
                         alt="提示词反推原图"
                         loading="lazy"
-                        :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaLoadKey('prompt-reverse-source', item.source_image_thumb || item.source_image)) }"
-                        @load="markMediaLoaded(getMediaLoadKey('prompt-reverse-source', item.source_image_thumb || item.source_image))"
-                        @error="(event) => handleDetailImageError(event, getMediaLoadKey('prompt-reverse-source', item.source_image_thumb || item.source_image))"
+                        :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaLoadKey('prompt-reverse-source', item?.source_image_thumb || item?.source_image)) }"
+                        @load="markMediaLoaded(getMediaLoadKey('prompt-reverse-source', item?.source_image_thumb || item?.source_image))"
+                        @error="(event) => handleDetailImageError(event, getMediaLoadKey('prompt-reverse-source', item?.source_image_thumb || item?.source_image))"
                       />
                     </div>
                   </div>
@@ -524,9 +524,9 @@ function handleGenerateVideo(item: UserHistoryCard) {
                         :src="isHistoryItemExpired(item) ? expiredResultAsset : getPreviewImageSrc(item.source_image_thumb || item.source_image)"
                         alt="局部重绘原图"
                         loading="lazy"
-                        :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaLoadKey('inpaint-source', item.source_image_thumb || item.source_image)) }"
-                        @load="markMediaLoaded(getMediaLoadKey('inpaint-source', item.source_image_thumb || item.source_image))"
-                        @error="(event) => handleDetailImageError(event, getMediaLoadKey('inpaint-source', item.source_image_thumb || item.source_image))"
+                        :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaLoadKey('inpaint-source', item?.source_image_thumb || item?.source_image)) }"
+                        @load="markMediaLoaded(getMediaLoadKey('inpaint-source', item?.source_image_thumb || item?.source_image))"
+                        @error="(event) => handleDetailImageError(event, getMediaLoadKey('inpaint-source', item?.source_image_thumb || item?.source_image))"
                       />
                     </div>
                   </div>
