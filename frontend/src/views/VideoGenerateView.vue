@@ -10,6 +10,7 @@ import {
   ExclamationCircleFilled,
   EyeOutlined,
   FontSizeOutlined,
+  MessageOutlined,
   MoreOutlined,
   PictureOutlined,
   ReloadOutlined,
@@ -555,14 +556,20 @@ function promptSwitchToTextGenerate(messageText: string) {
 function applyIncomingVideoDraft() {
   const draft = consumeVideoGenerateDraft();
   if (!draft) return;
-  generateMode.value = "imageToVideo";
-  ensureSceneDefaults();
+  generateMode.value = draft.mode === "textGenerate" ? "textGenerate" : "imageToVideo";
   prompt.value = draft.prompt || "";
+  selectedModel.value = draft.model || "";
+  selectedAspectRatio.value = draft.aspect_ratio || "";
+  selectedDuration.value = draft.duration_seconds ? String(draft.duration_seconds) : "";
+  selectedResolution.value = draft.resolution || "";
   selectedTaskCount.value = DEFAULT_VIDEO_TASK_COUNT;
+  ensureSceneDefaults();
   replaceReferenceItems(
-    draft.reference_images.slice(0, Math.max(1, maxReferenceImages.value || DEFAULT_MAX_VIDEO_REFERENCE_IMAGES)),
+    draft.mode === "imageToVideo"
+      ? draft.reference_images.slice(0, Math.max(1, maxReferenceImages.value || DEFAULT_MAX_VIDEO_REFERENCE_IMAGES))
+      : [],
   );
-  message.success("已带入结果图，可继续生成视频");
+  message.success("已回填到视频生成页，可继续编辑后提交");
 }
 
 async function pollActiveTasks() {
@@ -1157,7 +1164,7 @@ onBeforeUnmount(() => {
                           </a-menu-item>
                           <a-menu-item @click="openFeedbackDialog(task)">
                             <span class="video-task-menu-item">
-                              <VideoCameraOutlined />
+                              <MessageOutlined />
                               <span>反馈</span>
                             </span>
                           </a-menu-item>

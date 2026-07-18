@@ -50,6 +50,8 @@ const previewSrc = ref("");
 const videoStarted = ref(false);
 const videoPlayerRef = ref<HTMLVideoElement | null>(null);
 const viewportWidth = ref(typeof window === "undefined" ? 1280 : window.innerWidth);
+const mediaLoadedKeys = ref<Set<string>>(new Set());
+const mainVideoLoadFailed = ref(false);
 
 const modelLabelMap = computed(() => new Map(props.modelOptions.map((item) => [item.value, item.label])));
 const reserveSideNav = computed(() => {
@@ -105,6 +107,8 @@ watch(
     videoStarted.value = false;
     previewVisible.value = false;
     previewSrc.value = "";
+    mediaLoadedKeys.value = new Set();
+    mainVideoLoadFailed.value = false;
     if (typeof document === "undefined") return;
     document.body.style.overflow = open ? "hidden" : "";
   },
@@ -208,6 +212,31 @@ function openPreview(url?: string) {
   previewVisible.value = true;
 }
 
+function getMediaKey(prefix: string, value: string | number | null | undefined) {
+  return `${prefix}:${String(value ?? "")}`;
+}
+
+function isMediaLoaded(key: string) {
+  return mediaLoadedKeys.value.has(key);
+}
+
+function markMediaLoaded(key: string) {
+  if (mediaLoadedKeys.value.has(key)) return;
+  const next = new Set(mediaLoadedKeys.value);
+  next.add(key);
+  mediaLoadedKeys.value = next;
+}
+
+function handleMainVideoLoaded() {
+  markMediaLoaded(getMediaKey("main-video", props.item?.id));
+  mainVideoLoadFailed.value = false;
+}
+
+function handleMainVideoError() {
+  markMediaLoaded(getMediaKey("main-video", props.item?.id));
+  mainVideoLoadFailed.value = true;
+}
+
 async function copyPrompt(text?: string) {
   if (!text?.trim()) return;
   try {
@@ -294,18 +323,27 @@ function handleDownload(item: VideoTaskResult) {
                     </template>
                     <template v-else-if="item.status === 'success' && item.videos[0]?.video_url">
                       <div class="detail-video-shell" :class="{ 'is-started': videoStarted }">
+                        <div
+                          v-if="!isMediaLoaded(getMediaKey('main-video', item.id))"
+                          class="detail-media-loading detail-media-loading-dark"
+                        >
+                          <a-spin :indicator="h(LoadingOutlined, { style: { fontSize: '28px', color: '#ffffff' } })" />
+                        </div>
                         <video
                           ref="videoPlayerRef"
                           class="detail-video-player"
+                          :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaKey('main-video', item.id)) && !mainVideoLoadFailed }"
                           :poster="item.videos[0].cover_url || undefined"
                           :src="item.videos[0].video_url"
                           :controls="videoStarted"
                           playsinline
                           preload="metadata"
                           @play="videoStarted = true"
+                          @loadeddata="handleMainVideoLoaded"
+                          @error="handleMainVideoError"
                         />
                         <button
-                          v-if="!videoStarted"
+                          v-if="!videoStarted && isMediaLoaded(getMediaKey('main-video', item.id)) && !mainVideoLoadFailed"
                           type="button"
                           class="detail-video-play-btn"
                           aria-label="播放视频"
@@ -374,7 +412,20 @@ function handleDownload(item: VideoTaskResult) {
                       class="detail-thumb"
                       @click="openPreview(ref)"
                     >
-                      <img :src="ref" alt="参考图" loading="lazy" />
+                      <div
+                        v-if="!isMediaLoaded(getMediaKey('reference-image', `${index}-${ref}`))"
+                        class="detail-media-loading"
+                      >
+                        <a-spin :indicator="h(LoadingOutlined, { style: { fontSize: '20px', color: '#7c8db5' } })" />
+                      </div>
+                      <img
+                        :src="ref"
+                        alt="参考图"
+                        loading="lazy"
+                        :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaKey('reference-image', `${index}-${ref}`)) }"
+                        @load="markMediaLoaded(getMediaKey('reference-image', `${index}-${ref}`))"
+                        @error="markMediaLoaded(getMediaKey('reference-image', `${index}-${ref}`))"
+                      />
                     </div>
                   </div>
                 </div>
@@ -780,6 +831,7 @@ function handleDownload(item: VideoTaskResult) {
 }
 
 .detail-thumb {
+  position: relative;
   width: 84px;
   height: 84px;
   border-radius: 12px;
@@ -815,6 +867,24 @@ function handleDownload(item: VideoTaskResult) {
   border: 0;
   background: #000;
   position: relative;
+}
+
+.detail-media-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(255, 252, 246, 0.82), rgba(255, 248, 238, 0.88));
+}
+
+.detail-media-loading-dark {
+  background: rgba(12, 12, 12, 0.78);
+}
+
+.detail-media-hidden {
+  opacity: 0;
 }
 
 .detail-result-placeholder {

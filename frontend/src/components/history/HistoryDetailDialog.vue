@@ -54,6 +54,7 @@ const emit = defineEmits<{
 const previewVisible = ref(false);
 const previewSrc = ref("");
 const viewportWidth = ref(typeof window === "undefined" ? 1280 : window.innerWidth);
+const loadedMediaKeys = ref<Set<string>>(new Set());
 const router = useRouter();
 const failedResultAsset = withBaseUrl("failed-result.svg");
 const generateTaskCardAsset = withBaseUrl("generate-task-card.svg");
@@ -127,10 +128,11 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 watch(
-  () => props.open,
-  (open) => {
+  () => [props.open, props.item?.display_id, props.item?.task_id, props.item?.history_id, props.item?.image_id] as const,
+  ([open]) => {
     previewVisible.value = false;
     previewSrc.value = "";
+    loadedMediaKeys.value = new Set();
     if (typeof document === "undefined") return;
     document.body.style.overflow = open ? "hidden" : "";
   },
@@ -277,13 +279,29 @@ function getDetailFailureMessage(item: UserHistoryCard, image: ImageResult) {
   return getTaskImageFailureMessage(item, image);
 }
 
+function getMediaLoadKey(prefix: string, value: string | number | null | undefined) {
+  return `${prefix}:${String(value ?? "")}`;
+}
+
+function isMediaLoaded(key: string) {
+  return loadedMediaKeys.value.has(key);
+}
+
+function markMediaLoaded(key: string) {
+  if (loadedMediaKeys.value.has(key)) return;
+  const next = new Set(loadedMediaKeys.value);
+  next.add(key);
+  loadedMediaKeys.value = next;
+}
+
 function openPreview(url: string) {
   if (!url) return;
   previewSrc.value = url;
   previewVisible.value = true;
 }
 
-function handleDetailImageError(event: Event) {
+function handleDetailImageError(event: Event, key?: string) {
+  if (key) markMediaLoaded(key);
   const image = event.target as HTMLImageElement;
   if (image.dataset.expiredFallback === "true") return;
   image.dataset.expiredFallback = "true";
@@ -380,11 +398,19 @@ function handleGenerateVideo(item: UserHistoryCard) {
                       class="detail-thumb detail-thumb-large"
                       @click="!isHistoryItemExpired(item) && openPreview(getPreviewImageSrc(item.source_image))"
                     >
+                      <div
+                        v-if="!isMediaLoaded(getMediaLoadKey('prompt-reverse-source', item.source_image_thumb || item.source_image))"
+                        class="detail-media-loading"
+                      >
+                        <a-spin :indicator="h(LoadingOutlined, { style: { fontSize: '24px', color: '#7c8db5' } })" />
+                      </div>
                       <img
                         :src="isHistoryItemExpired(item) ? expiredResultAsset : getPreviewImageSrc(item.source_image_thumb || item.source_image)"
                         alt="提示词反推原图"
                         loading="lazy"
-                        @error="handleDetailImageError"
+                        :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaLoadKey('prompt-reverse-source', item.source_image_thumb || item.source_image)) }"
+                        @load="markMediaLoaded(getMediaLoadKey('prompt-reverse-source', item.source_image_thumb || item.source_image))"
+                        @error="(event) => handleDetailImageError(event, getMediaLoadKey('prompt-reverse-source', item.source_image_thumb || item.source_image))"
                       />
                     </div>
                   </div>
@@ -401,13 +427,20 @@ function handleGenerateVideo(item: UserHistoryCard) {
                       :style="{ '--detail-pending-bg-image': `url('${generateTaskCardAsset}')` }"
                       @click="getDetailPreviewSrc(item, img) && openPreview(getDetailPreviewSrc(item, img))"
                     >
+                      <div
+                        v-if="!isMediaLoaded(getMediaLoadKey('detail-result', img.id))"
+                        class="detail-media-loading"
+                      >
+                        <a-spin :indicator="h(LoadingOutlined, { style: { fontSize: '28px', color: '#7c8db5' } })" />
+                      </div>
                       <img
                         v-if="getDetailImageSrc(item, img) || img.status === 'failed'"
                         :src="getDetailImageSrc(item, img) || failedResultAsset"
                         :alt="img.status === 'failed' ? '生成失败' : '结果图'"
-                        :class="{ 'failed-result-image': img.status === 'failed' }"
+                        :class="{ 'failed-result-image': img.status === 'failed', 'detail-media-hidden': !isMediaLoaded(getMediaLoadKey('detail-result', img.id)) }"
                         loading="lazy"
-                        @error="handleDetailImageError"
+                        @load="markMediaLoaded(getMediaLoadKey('detail-result', img.id))"
+                        @error="(event) => handleDetailImageError(event, getMediaLoadKey('detail-result', img.id))"
                       />
                       <div v-if="img.status === 'failed'" class="detail-failure-message">
                         {{ getDetailFailureMessage(item, img) }}
@@ -481,11 +514,19 @@ function handleGenerateVideo(item: UserHistoryCard) {
                   <div class="detail-label">局部重绘原图</div>
                   <div class="detail-thumb-row">
                     <div class="detail-thumb" @click="!isHistoryItemExpired(item) && openPreview(getPreviewImageSrc(item.source_image))">
+                      <div
+                        v-if="!isMediaLoaded(getMediaLoadKey('inpaint-source', item.source_image_thumb || item.source_image))"
+                        class="detail-media-loading"
+                      >
+                        <a-spin :indicator="h(LoadingOutlined, { style: { fontSize: '24px', color: '#7c8db5' } })" />
+                      </div>
                       <img
                         :src="isHistoryItemExpired(item) ? expiredResultAsset : getPreviewImageSrc(item.source_image_thumb || item.source_image)"
                         alt="局部重绘原图"
                         loading="lazy"
-                        @error="handleDetailImageError"
+                        :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaLoadKey('inpaint-source', item.source_image_thumb || item.source_image)) }"
+                        @load="markMediaLoaded(getMediaLoadKey('inpaint-source', item.source_image_thumb || item.source_image))"
+                        @error="(event) => handleDetailImageError(event, getMediaLoadKey('inpaint-source', item.source_image_thumb || item.source_image))"
                       />
                     </div>
                   </div>
@@ -503,11 +544,19 @@ function handleGenerateVideo(item: UserHistoryCard) {
                       class="detail-thumb"
                       @click="openPreview(getPreviewImageSrc(ref))"
                     >
+                      <div
+                        v-if="!isMediaLoaded(getMediaLoadKey('reference-image', `${index}-${ref}`))"
+                        class="detail-media-loading"
+                      >
+                        <a-spin :indicator="h(LoadingOutlined, { style: { fontSize: '20px', color: '#7c8db5' } })" />
+                      </div>
                       <img
                         :src="getPreviewImageSrc(item.reference_image_thumbs[index] || ref)"
                         alt="参考图"
                         loading="lazy"
-                        @error="handleDetailImageError"
+                        :class="{ 'detail-media-hidden': !isMediaLoaded(getMediaLoadKey('reference-image', `${index}-${ref}`)) }"
+                        @load="markMediaLoaded(getMediaLoadKey('reference-image', `${index}-${ref}`))"
+                        @error="(event) => handleDetailImageError(event, getMediaLoadKey('reference-image', `${index}-${ref}`))"
                       />
                     </div>
                   </div>
@@ -933,6 +982,7 @@ function handleGenerateVideo(item: UserHistoryCard) {
 }
 
 .detail-thumb {
+  position: relative;
   width: 84px;
   height: 84px;
   border-radius: 12px;
@@ -1034,6 +1084,20 @@ function handleGenerateVideo(item: UserHistoryCard) {
   &.single {
     height: 100%;
   }
+}
+
+.detail-media-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(255, 252, 246, 0.82), rgba(255, 248, 238, 0.88));
+}
+
+.detail-media-hidden {
+  opacity: 0;
 }
 
 .result-card-placeholder {

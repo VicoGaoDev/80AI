@@ -84,10 +84,35 @@ const showSuggestionFab = computed(() =>
   && !isWorkbenchLayout.value
   && !isAdminRoute.value,
 );
+const SUGGESTION_FAB_POSITION_KEY = "userSuggestionFabPosition";
+const SUGGESTION_FAB_DESKTOP_GAP = 24;
+const SUGGESTION_FAB_MOBILE_GAP = 16;
+const SUGGESTION_FAB_DESKTOP_SIZE = 40;
+const SUGGESTION_FAB_MOBILE_SIZE = 36;
 const mobileDrawerOpen = ref(false);
 const routeTransitionName = ref("route-page-forward");
 const canManagePromoCodes = computed(() => auth.user?.is_whitelisted === true);
 const canAccessCanvasMenu = computed(() => auth.isLoggedIn);
+const suggestionFabWrapRef = ref<HTMLElement | null>(null);
+const suggestionFabPosition = ref<{ x: number; y: number } | null>(null);
+const suggestionFabSuppressClick = ref(false);
+let suggestionFabDragState: {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  moved: boolean;
+} | null = null;
+const suggestionFabWrapStyle = computed(() => {
+  if (!suggestionFabPosition.value) return {};
+  return {
+    left: `${suggestionFabPosition.value.x}px`,
+    top: `${suggestionFabPosition.value.y}px`,
+    right: "auto",
+    bottom: "auto",
+  };
+});
 
 const routeOrder = new Map<string, number>([
   ["/", 0],
@@ -985,6 +1010,121 @@ function resetPurchaseState() {
   purchaseLoading.value = false;
 }
 
+function getSuggestionFabGap() {
+  if (typeof window === "undefined") return SUGGESTION_FAB_DESKTOP_GAP;
+  return window.innerWidth <= 920 ? SUGGESTION_FAB_MOBILE_GAP : SUGGESTION_FAB_DESKTOP_GAP;
+}
+
+function getSuggestionFabSize() {
+  if (typeof window === "undefined") return SUGGESTION_FAB_DESKTOP_SIZE;
+  return window.innerWidth <= 920 ? SUGGESTION_FAB_MOBILE_SIZE : SUGGESTION_FAB_DESKTOP_SIZE;
+}
+
+function clampSuggestionFabPosition(position: { x: number; y: number }) {
+  if (typeof window === "undefined") return position;
+  const gap = getSuggestionFabGap();
+  const width = suggestionFabWrapRef.value?.offsetWidth || getSuggestionFabSize();
+  const height = suggestionFabWrapRef.value?.offsetHeight || getSuggestionFabSize();
+  const maxX = Math.max(gap, window.innerWidth - width - gap);
+  const maxY = Math.max(gap, window.innerHeight - height - gap);
+  return {
+    x: Math.min(Math.max(position.x, gap), maxX),
+    y: Math.min(Math.max(position.y, gap), maxY),
+  };
+}
+
+function getDefaultSuggestionFabPosition() {
+  if (typeof window === "undefined") {
+    return { x: 0, y: 0 };
+  }
+  const gap = getSuggestionFabGap();
+  const size = getSuggestionFabSize();
+  return {
+    x: window.innerWidth - size - gap,
+    y: window.innerHeight - size - gap,
+  };
+}
+
+function saveSuggestionFabPosition(position: { x: number; y: number }) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(SUGGESTION_FAB_POSITION_KEY, JSON.stringify(position));
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
+function restoreSuggestionFabPosition() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(SUGGESTION_FAB_POSITION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.x !== "number" || typeof parsed?.y !== "number") return null;
+    return { x: parsed.x, y: parsed.y };
+  } catch {
+    return null;
+  }
+}
+
+function syncSuggestionFabPosition() {
+  const basePosition = suggestionFabPosition.value || restoreSuggestionFabPosition() || getDefaultSuggestionFabPosition();
+  suggestionFabPosition.value = clampSuggestionFabPosition(basePosition);
+}
+
+function handleSuggestionFabPointerDown(event: PointerEvent) {
+  if (event.button !== 0) return;
+  syncSuggestionFabPosition();
+  const currentPosition = suggestionFabPosition.value || getDefaultSuggestionFabPosition();
+  suggestionFabSuppressClick.value = false;
+  suggestionFabDragState = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: currentPosition.x,
+    originY: currentPosition.y,
+    moved: false,
+  };
+  const currentTarget = event.currentTarget as HTMLElement | null;
+  currentTarget?.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+}
+
+function handleSuggestionFabPointerMove(event: PointerEvent) {
+  if (!suggestionFabDragState || suggestionFabDragState.pointerId !== event.pointerId) return;
+  const deltaX = event.clientX - suggestionFabDragState.startX;
+  const deltaY = event.clientY - suggestionFabDragState.startY;
+  if (Math.hypot(deltaX, deltaY) > 3) {
+    suggestionFabDragState.moved = true;
+  }
+  suggestionFabPosition.value = clampSuggestionFabPosition({
+    x: suggestionFabDragState.originX + deltaX,
+    y: suggestionFabDragState.originY + deltaY,
+  });
+}
+
+function handleSuggestionFabPointerUp(event: PointerEvent) {
+  if (!suggestionFabDragState || suggestionFabDragState.pointerId !== event.pointerId) return;
+  if (suggestionFabPosition.value) {
+    suggestionFabPosition.value = clampSuggestionFabPosition(suggestionFabPosition.value);
+    saveSuggestionFabPosition(suggestionFabPosition.value);
+  }
+  suggestionFabSuppressClick.value = suggestionFabDragState.moved;
+  suggestionFabDragState = null;
+}
+
+function handleSuggestionFabClick() {
+  if (suggestionFabSuppressClick.value) {
+    suggestionFabSuppressClick.value = false;
+    return;
+  }
+  openSuggestionEntry();
+}
+
+function handleWindowResize() {
+  syncSuggestionFabPosition();
+}
+
 onMounted(async () => {
   unsubscribeAdminFeedbackCount = subscribeAdminUnresolvedFeedbackCount((count) => {
     adminUnresolvedFeedbackCount.value = count;
@@ -1006,6 +1146,14 @@ onMounted(async () => {
       attributeFilter: [APP_THEME_ATTRIBUTE],
     });
   }
+  if (typeof window !== "undefined") {
+    window.addEventListener("pointermove", handleSuggestionFabPointerMove);
+    window.addEventListener("pointerup", handleSuggestionFabPointerUp);
+    window.addEventListener("pointercancel", handleSuggestionFabPointerUp);
+    window.addEventListener("resize", handleWindowResize);
+  }
+  await nextTick();
+  syncSuggestionFabPosition();
 
   await Promise.allSettled([
     (async () => {
@@ -1040,6 +1188,12 @@ onBeforeUnmount(() => {
   stopSystemMessagePolling();
   themeObserver?.disconnect();
   themeObserver = null;
+  if (typeof window !== "undefined") {
+    window.removeEventListener("pointermove", handleSuggestionFabPointerMove);
+    window.removeEventListener("pointerup", handleSuggestionFabPointerUp);
+    window.removeEventListener("pointercancel", handleSuggestionFabPointerUp);
+    window.removeEventListener("resize", handleWindowResize);
+  }
 });
 
 function openCreditsContact() {
@@ -1194,6 +1348,15 @@ watch(purchaseDialogOpen, (open) => {
     resetPurchaseState();
   }
 });
+
+watch(
+  showSuggestionFab,
+  async (visible) => {
+    if (!visible) return;
+    await nextTick();
+    syncSuggestionFabPosition();
+  }
+);
 
 </script>
 
@@ -1861,9 +2024,15 @@ watch(purchaseDialogOpen, (open) => {
       </div>
     </a-drawer>
 
-    <div v-if="showSuggestionFab" class="suggestion-fab-wrap">
+    <div
+      v-if="showSuggestionFab"
+      ref="suggestionFabWrapRef"
+      class="suggestion-fab-wrap"
+      :style="suggestionFabWrapStyle"
+      @pointerdown="handleSuggestionFabPointerDown"
+    >
       <a-tooltip title="提交建议" placement="left">
-        <button type="button" class="suggestion-fab" aria-label="提交建议" @click="openSuggestionEntry">
+        <button type="button" class="suggestion-fab" aria-label="提交建议" @click="handleSuggestionFabClick">
           <MessageOutlined />
         </button>
       </a-tooltip>
@@ -2748,6 +2917,8 @@ watch(purchaseDialogOpen, (open) => {
   right: 24px;
   bottom: 24px;
   z-index: 1080;
+  touch-action: none;
+  user-select: none;
 }
 
 .suggestion-fab {

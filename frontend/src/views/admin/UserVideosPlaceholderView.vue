@@ -2,6 +2,7 @@
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import dayjs from "dayjs";
+import { useRouter } from "vue-router";
 import {
   ClockCircleOutlined,
   DownloadOutlined,
@@ -15,6 +16,7 @@ import AdminUserInfoDialog from "@/components/admin/AdminUserInfoDialog.vue";
 import VideoTaskDetailDialog from "@/components/video/VideoTaskDetailDialog.vue";
 import { withApiBaseUrl } from "@/lib/assets";
 import { readStoredGridColumnCount, writeStoredGridColumnCount } from "@/lib/gridColumnPreference";
+import { saveVideoGenerateDraft } from "@/lib/videoGenerateDraft";
 import type { AdminUser, AdminVideoTaskResult, TaskSource, VideoTaskResult, VideoTaskSceneConfig } from "@/types";
 
 const VIDEO_GRID_COLUMN_OPTIONS = [3, 4, 5] as const;
@@ -53,6 +55,7 @@ const selectedUserInfo = ref<AdminUser | null>(null);
 const loadMoreAnchor = ref<HTMLElement | null>(null);
 const playingVideoTaskIds = ref<Set<string>>(new Set());
 const videoPlayerRefs = new Map<string, HTMLVideoElement>();
+const router = useRouter();
 
 let loadMoreObserver: IntersectionObserver | null = null;
 let filterDebounceTimer: number | null = null;
@@ -388,6 +391,24 @@ async function handleDownloadVideo(task: Pick<VideoTaskResult, "id" | "videos">)
   }
 }
 
+function handleDetailReedit(task: AdminVideoTaskResult) {
+  const saved = saveVideoGenerateDraft({
+    mode: task.reference_images?.length ? "imageToVideo" : "textGenerate",
+    prompt: task.prompt || "",
+    reference_images: (task.reference_images || []).map((item) => withApiBaseUrl(item)),
+    model: task.model || "",
+    aspect_ratio: task.aspect_ratio || "",
+    duration_seconds: task.duration_seconds || undefined,
+    resolution: task.resolution || "",
+  });
+  if (!saved) {
+    message.warning("当前任务暂不支持回填参数");
+    return;
+  }
+  detailOpen.value = false;
+  router.push("/video-generate");
+}
+
 watch(loadMoreAnchor, (target) => {
   setupLoadMoreObserver(target);
 });
@@ -665,10 +686,10 @@ onBeforeUnmount(() => {
       :open="detailOpen"
       :item="detailItem"
       :model-options="detailModelOptions"
-      :show-reedit="false"
       :has-prev="hasDetailPrev"
       :has-next="hasDetailNext"
       @update:open="detailOpen = $event"
+      @reedit="handleDetailReedit"
       @download="handleDownloadVideo"
       @navigate-prev="navigateDetail(-1)"
       @navigate-next="navigateDetail(1)"
