@@ -22,14 +22,17 @@ import {
   SettingOutlined,
   ThunderboltOutlined,
   UploadOutlined,
+  VideoCameraOutlined,
 } from "@ant-design/icons-vue";
-import { assignCanvasNodesToGroup, createCanvas, createCanvasGroup, createCanvasNode, createCanvasTask, deleteCanvasGroup, deleteCanvasNode, getCanvas, listCanvases, removeCanvasNodesFromGroups, updateCanvas, updateCanvasEdge, updateCanvasGroup, updateCanvasNode, updateCanvasNodesBatch, updateCanvasViewport } from "@/api/canvases";
+import { assignCanvasNodesToGroup, createCanvas, createCanvasGroup, createCanvasNode, createCanvasTask, createCanvasVideoTask, deleteCanvasGroup, deleteCanvasNode, getCanvas, listCanvases, removeCanvasNodesFromGroups, updateCanvas, updateCanvasEdge, updateCanvasGroup, updateCanvasNode, updateCanvasNodesBatch, updateCanvasViewport } from "@/api/canvases";
 import { listUsers } from "@/api/admin";
 import { getMe } from "@/api/auth";
 import { getTaskScenes } from "@/api/config";
 import { deleteHistoryTask } from "@/api/history";
 import { getDisplayImageUrl, getDownloadUrl, getPreviewImageUrl } from "@/api/images";
 import { getTasks } from "@/api/tasks";
+import { getVideoTaskScenes } from "@/api/videoConfig";
+import { deleteVideoTask, getVideoTasks } from "@/api/videoTasks";
 import { createUserAssetCategory, getUserAssetStats, importUserAssetFromUrl, listUserAssetCategories, uploadUserAssetFile } from "@/api/userAssets";
 import {
   isImageUploadTooLarge,
@@ -40,8 +43,9 @@ import UserAssetPicker from "@/components/assets/UserAssetPicker.vue";
 import FeedbackDialog from "@/components/feedback/FeedbackDialog.vue";
 import AdminUserInfoDialog from "@/components/admin/AdminUserInfoDialog.vue";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
+import VideoTaskDetailDialog from "@/components/video/VideoTaskDetailDialog.vue";
 import { withApiBaseUrl, withBaseUrl } from "@/lib/assets";
-import { formatGenerationErrorMessage, getTaskImageFailureMessage } from "@/lib/generationErrors";
+import { getTaskImageFailureMessage } from "@/lib/generationErrors";
 import { USER_ASSET_DRAG_MIME, decodeDraggedUserAsset } from "@/lib/userAssetDrag";
 import {
   getAssetQuotaFullMessage,
@@ -49,15 +53,17 @@ import {
   resolveAssetQuotaErrorMessage,
 } from "@/lib/userAssetQuota";
 import { useAuthStore } from "@/stores/auth";
-import type { AdminUser, CanvasEdge, CanvasGroup, CanvasNode, TaskResult, TaskSceneConfig, UserAsset, UserAssetCategory, UserCanvasSummary, UserHistoryCard } from "@/types";
+import type { AdminUser, CanvasEdge, CanvasGroup, CanvasNode, SceneOptionItem, TaskResult, TaskSceneConfig, UserAsset, UserAssetCategory, UserCanvasSummary, UserHistoryCard, VideoTaskResult, VideoTaskSceneConfig } from "@/types";
 
 const props = defineProps<{
   projectId?: string;
 }>();
 
-type CanvasMode = "textGenerate" | "imageEdit";
+type CanvasTaskKind = "image" | "video";
+type CanvasImageMode = "textGenerate" | "imageEdit";
+type CanvasVideoMode = "textGenerate" | "imageToVideo";
 type UploadStatus = "uploading" | "success" | "failed";
-type ComposerPopover = "model" | "size" | "resolution";
+type ComposerPopover = "model" | "size" | "resolution" | "duration";
 type UploadMenuAnchor = "reference";
 type CanvasBackgroundMode = "grid" | "solid";
 type CanvasInteractionMode = "pan" | "select";
@@ -226,14 +232,19 @@ const nodeContextMenuNode = ref<CanvasNode | null>(null);
 const pendingFreeImageAnchor = ref<{ x: number; y: number } | null>(null);
 
 const taskScenes = ref<TaskSceneConfig[]>([]);
+const videoTaskScenes = ref<VideoTaskSceneConfig[]>([]);
 const sceneConfigLoading = ref(false);
-const canvasMode = ref<CanvasMode>("imageEdit");
+const canvasTaskKind = ref<CanvasTaskKind>("image");
+const canvasMode = ref<CanvasImageMode>("imageEdit");
+const canvasVideoMode = ref<CanvasVideoMode>("imageToVideo");
 const composerModeSwitching = ref(false);
 const selectedModel = ref("");
 const prompt = ref("");
 const numImages = ref(1);
+const numVideos = ref(1);
 const size = ref("");
 const resolution = ref("2K");
+const duration = ref("3");
 const customSize = ref("");
 const promptSourceNodeId = ref<number | null>(null);
 const generating = ref(false);
@@ -268,8 +279,10 @@ const selectedGroupName = ref("");
 const selectedGroupRenaming = ref(false);
 const detailOpen = ref(false);
 const detailItem = ref<UserHistoryCard | null>(null);
+const videoDetailOpen = ref(false);
+const videoDetailItem = ref<VideoTaskResult | null>(null);
 const feedbackDialogOpen = ref(false);
-const feedbackTarget = ref<TaskResult | null>(null);
+const feedbackTarget = ref<(TaskResult | VideoTaskResult) | null>(null);
 const canvasFeedbackOpen = ref(false);
 const nodeSearchOpen = ref(false);
 const nodeSearchKeyword = ref("");
@@ -316,19 +329,53 @@ const canvasOnboardingSteps: CanvasOnboardingStep[] = [
   },
 ];
 
-const isImageEditMode = computed(() => canvasMode.value === "imageEdit");
+const isImageTaskKind = computed(() => canvasTaskKind.value === "image");
+const isVideoTaskKind = computed(() => canvasTaskKind.value === "video");
+const isImageEditMode = computed(() => isImageTaskKind.value && canvasMode.value === "imageEdit");
+const isImageToVideoMode = computed(() => isVideoTaskKind.value && canvasVideoMode.value === "imageToVideo");
+const currentModeSupportsReferences = computed(() => isImageEditMode.value || isImageToVideoMode.value);
 const hasComposerDraftContent = computed(() => !!prompt.value.trim() || referenceItems.value.length > 0);
 const textGenerateModels = computed(() => taskScenes.value.filter((item) => item.scene_type === "generate" && item.scene_key !== "prompt_reverse" && item.scene_key !== "inpaint"));
 const imageEditModels = computed(() => {
   const models = taskScenes.value.filter((item) => item.scene_type === "image_edit");
   return models.length ? models : textGenerateModels.value;
 });
-const generationModels = computed(() => (isImageEditMode.value ? imageEditModels.value : textGenerateModels.value));
-const selectedModelOption = computed(() => generationModels.value.find((item) => item.scene_key === selectedModel.value) || null);
-const maxReferenceImages = computed(() => Math.max(0, Number(selectedModelOption.value?.max_reference_images || (isImageEditMode.value ? 6 : 0))));
+const videoTextGenerateModels = computed(() => (
+  videoTaskScenes.value.filter((item) => (item.availability_mode || "both") !== "image_to_video")
+));
+const videoImageGenerateModels = computed(() => (
+  videoTaskScenes.value.filter((item) => (item.availability_mode || "both") !== "text_to_video")
+));
+const generationModels = computed<Array<TaskSceneConfig | VideoTaskSceneConfig>>(() => {
+  if (isImageTaskKind.value) {
+    return isImageEditMode.value ? imageEditModels.value : textGenerateModels.value;
+  }
+  return isImageToVideoMode.value ? videoImageGenerateModels.value : videoTextGenerateModels.value;
+});
+const selectedModelOption = computed<TaskSceneConfig | VideoTaskSceneConfig | null>(
+  () => generationModels.value.find((item) => item.scene_key === selectedModel.value) || null
+);
+const maxReferenceImages = computed(() => {
+  if (!currentModeSupportsReferences.value) return 0;
+  const fallback = isVideoTaskKind.value ? 1 : 6;
+  return Math.max(0, Number(selectedModelOption.value?.max_reference_images || fallback));
+});
 const referenceSlotsRemaining = computed(() => Math.max(0, maxReferenceImages.value - referenceItems.value.length));
-const textGenerateBlockedByReferences = computed(() => !isImageEditMode.value && referenceItems.value.length > 0);
+const textGenerateBlockedByReferences = computed(() => !currentModeSupportsReferences.value && referenceItems.value.length > 0);
 const selectedModelCreditCost = computed(() => {
+  if (isVideoTaskKind.value) {
+    const videoOption = selectedModelOption.value as VideoTaskSceneConfig | null;
+    if (!videoOption) return 0;
+    if (videoOption.credit_billing_mode === "per_second") {
+      return Number(duration.value || 0) * Number(videoOption.per_second_credit_cost || 0);
+    }
+    const resolutionKey = (resolution.value || "").trim();
+    const resolutionCosts = videoOption.resolution_credit_costs || {};
+    if (resolutionKey && Object.prototype.hasOwnProperty.call(resolutionCosts, resolutionKey)) {
+      return Number(resolutionCosts[resolutionKey] || 0);
+    }
+    return Number(videoOption.credit_cost || 0);
+  }
   const resolutionKey = (resolution.value || "").trim();
   const resolutionCosts = selectedModelOption.value?.resolution_credit_costs || {};
   if (resolutionKey && Object.prototype.hasOwnProperty.call(resolutionCosts, resolutionKey)) {
@@ -336,19 +383,54 @@ const selectedModelCreditCost = computed(() => {
   }
   return Number(selectedModelOption.value?.credit_cost || 0);
 });
-const generationCreditCost = computed(() => Math.max(0, numImages.value * selectedModelCreditCost.value));
+const generationCreditCost = computed(() => Math.max(0, (isVideoTaskKind.value ? numVideos.value : numImages.value) * selectedModelCreditCost.value));
 const generateButtonText = computed(() => {
   if (canvasReadOnly.value) return "只读模式";
-  return generationCreditCost.value > 0 ? `生成 · ${generationCreditCost.value} 积分` : "生成";
+  const baseText = isVideoTaskKind.value ? "生成视频" : "生成";
+  return generationCreditCost.value > 0 ? `${baseText} · ${generationCreditCost.value} 积分` : baseText;
 });
 const userCredits = computed(() => auth.user?.credits ?? 0);
-const sizeOptions = computed(() => selectedModelOption.value?.aspect_ratio_options?.length ? selectedModelOption.value.aspect_ratio_options : DEFAULT_ASPECT_RATIO_OPTIONS);
-const resolutionOptions = computed(() => selectedModelOption.value?.image_size_options?.length ? selectedModelOption.value.image_size_options : DEFAULT_IMAGE_SIZE_OPTIONS);
+const sizeOptions = computed<SceneOptionItem[]>(() => {
+  if (isVideoTaskKind.value) {
+    const options = (selectedModelOption.value as VideoTaskSceneConfig | null)?.aspect_ratio_options || [];
+    return options.length ? options : DEFAULT_ASPECT_RATIO_OPTIONS;
+  }
+  const options = (selectedModelOption.value as TaskSceneConfig | null)?.aspect_ratio_options || [];
+  return options.length ? options : DEFAULT_ASPECT_RATIO_OPTIONS;
+});
+const resolutionOptions = computed<SceneOptionItem[]>(() => {
+  if (isVideoTaskKind.value) {
+    return (selectedModelOption.value as VideoTaskSceneConfig | null)?.resolution_options || [];
+  }
+  const options = (selectedModelOption.value as TaskSceneConfig | null)?.image_size_options || [];
+  return options.length ? options : DEFAULT_IMAGE_SIZE_OPTIONS;
+});
+const durationOptions = computed<SceneOptionItem[]>(() => (
+  isVideoTaskKind.value ? ((selectedModelOption.value as VideoTaskSceneConfig | null)?.duration_options || []) : []
+));
+const hideAspectRatio = computed(() => !!selectedModelOption.value?.hide_aspect_ratio);
+const hideResolution = computed(() => !!selectedModelOption.value?.hide_resolution);
+const hideDuration = computed(() => isVideoTaskKind.value && !!(selectedModelOption.value as VideoTaskSceneConfig | null)?.hide_duration);
+const composerExpandedHeight = computed(() => "210px");
 const canGenerate = computed(() => !canvasReadOnly.value && !!selectedCanvasProjectId.value && !!selectedModel.value && !!prompt.value.trim() && !textGenerateBlockedByReferences.value && !generating.value);
-const taskCountOptions = Array.from({ length: 8 }, (_, index) => index + 1);
+const promptPlaceholder = computed(() => {
+  if (isVideoTaskKind.value) {
+    return isImageToVideoMode.value
+      ? "描述参考画面的主体动作、镜头运动、转场方式和最终视频氛围..."
+      : "描述您想要生成的视频内容、镜头运动、主体动作和场景氛围...";
+  }
+  return isImageEditMode.value
+    ? "描述你希望如何编辑这张图片..."
+    : "描述你想生成的画面内容...";
+});
+const taskCountOptions = computed(() => Array.from({ length: isVideoTaskKind.value ? 4 : 8 }, (_, index) => index + 1));
 const activeTaskIds = computed(() => nodes.value
   .map((node) => node.task)
   .filter((task): task is TaskResult => !!task && !["success", "failed"].includes(task.status))
+  .map((task) => task.id));
+const activeVideoTaskIds = computed(() => nodes.value
+  .map((node) => node.video_task)
+  .filter((task): task is VideoTaskResult => !!task && !["success", "failed"].includes(task.status))
   .map((task) => task.id));
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) || null);
 const selectedGroup = computed(() => groups.value.find((group) => group.id === selectedGroupId.value) || null);
@@ -377,7 +459,7 @@ const selectionPrimaryActionDisabled = computed(() => (
 const selectionPrimaryActionLabel = computed(() => (
   selectionPrimaryNode.value?.node_type === "image"
     ? selectionPrimaryNode.value.uploadStatus === "uploading" ? "上传中" : "编辑图片"
-    : "生成图片"
+    : isVideoTaskKind.value ? "生成视频" : "生成图片"
 ));
 const selectionGroupBounds = computed(() => getNodesBounds(selectionActionNodes.value));
 const selectionBoxStyle = computed(() => {
@@ -429,8 +511,7 @@ const focusedCanvasNodeId = computed(() => {
   if (!rect) return null;
   const center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
   const focusedNodes = nodes.value.filter((node) => {
-    const hasImage = !!(node.task?.images || []).find((item) => item.status === "success" && (item.image_url || item.preview_url || item.thumb_url));
-    if (!hasImage) return false;
+    if (!getNodeImageUrl(node)) return false;
     const width = Number(node.width || DEFAULT_NODE_WIDTH);
     const height = getNodeCardHeight(node);
     return center.x >= node.x && center.x <= node.x + width && center.y >= node.y && center.y <= node.y + height;
@@ -439,6 +520,10 @@ const focusedCanvasNodeId = computed(() => {
   return focusedNodes.sort((a, b) => Number(b.z_index || 0) - Number(a.z_index || 0))[0].id;
 });
 const modelOptions = computed(() => taskScenes.value.map((item) => ({
+  label: item.display_name || item.scene_label || item.scene_key,
+  value: item.scene_key,
+})));
+const videoModelOptions = computed(() => videoTaskScenes.value.map((item) => ({
   label: item.display_name || item.scene_label || item.scene_key,
   value: item.scene_key,
 })));
@@ -501,15 +586,24 @@ const canvasReferenceOptions = computed<CanvasReferenceOption[]>(() => nodes.val
     }];
   }
   const task = node.task;
-  if (!task || task.status !== "success") return [];
-  return (task.images || [])
-    .filter((image) => image.status === "success" && (image.image_url || image.preview_url || image.thumb_url))
-    .map((image, index) => ({
-      id: `${node.id}-${image.id || index}`,
-      imageUrl: image.image_url || image.preview_url || image.thumb_url || "",
-      displayUrl: getDisplayImageUrl(image),
-      sourceNodeId: node.id,
-    }));
+  if (task?.status === "success") {
+    return (task.images || [])
+      .filter((image) => image.status === "success" && (image.image_url || image.preview_url || image.thumb_url))
+      .map((image, index) => ({
+        id: `${node.id}-${image.id || index}`,
+        imageUrl: image.image_url || image.preview_url || image.thumb_url || "",
+        displayUrl: getDisplayImageUrl(image),
+        sourceNodeId: node.id,
+      }));
+  }
+  const coverUrl = getNodeVideoCoverUrl(node);
+  if (!coverUrl || getNodeTaskStatus(node) !== "success") return [];
+  return [{
+    id: `${node.id}-video-cover`,
+    imageUrl: coverUrl,
+    displayUrl: coverUrl,
+    sourceNodeId: node.id,
+  }];
 }));
 const nodeMap = computed(() => new Map(nodes.value.map((node) => [node.id, node])));
 const edgesBySource = computed(() => {
@@ -1966,9 +2060,12 @@ function startNodeResize(event: PointerEvent, node: CanvasNode) {
 async function loadSceneConfig() {
   sceneConfigLoading.value = true;
   try {
-    taskScenes.value = await getTaskScenes();
+    const [imageScenes, videoScenes] = await Promise.all([getTaskScenes(), getVideoTaskScenes()]);
+    taskScenes.value = imageScenes;
+    videoTaskScenes.value = videoScenes;
   } catch {
     taskScenes.value = [];
+    videoTaskScenes.value = [];
     message.error("加载模型配置失败");
   } finally {
     sceneConfigLoading.value = false;
@@ -2148,10 +2245,33 @@ function toggleComposerPopover(target: ComposerPopover) {
   composerPopover.value = composerPopover.value === target ? null : target;
 }
 
-function switchCanvasMode(mode: CanvasMode) {
+function switchCanvasTaskKind(kind: CanvasTaskKind) {
+  if (canvasTaskKind.value === kind) return;
+  composerModeSwitching.value = true;
+  canvasTaskKind.value = kind;
+  composerPopover.value = null;
+  if (kind === "video") {
+    canvasVideoMode.value = "imageToVideo";
+  }
+  window.setTimeout(() => {
+    composerModeSwitching.value = false;
+  }, 0);
+}
+
+function switchCanvasMode(mode: CanvasImageMode) {
   if (canvasMode.value === mode) return;
   composerModeSwitching.value = true;
   canvasMode.value = mode;
+  composerPopover.value = null;
+  window.setTimeout(() => {
+    composerModeSwitching.value = false;
+  }, 0);
+}
+
+function switchCanvasVideoMode(mode: CanvasVideoMode) {
+  if (canvasVideoMode.value === mode) return;
+  composerModeSwitching.value = true;
+  canvasVideoMode.value = mode;
   composerPopover.value = null;
   window.setTimeout(() => {
     composerModeSwitching.value = false;
@@ -2361,13 +2481,22 @@ function getNodeReferenceOption(node: CanvasNode): CanvasReferenceOption | null 
     };
   }
   const task = node.task;
-  if (!task || task.status !== "success") return null;
-  const image = (task.images || []).find((item) => item.status === "success" && (item.image_url || item.preview_url || item.thumb_url));
-  if (!image) return null;
+  if (task?.status === "success") {
+    const image = (task.images || []).find((item) => item.status === "success" && (item.image_url || item.preview_url || item.thumb_url));
+    if (!image) return null;
+    return {
+      id: `${node.id}-${image.id || 0}`,
+      imageUrl: image.image_url || image.preview_url || image.thumb_url || "",
+      displayUrl: getDisplayImageUrl(image),
+      sourceNodeId: node.id,
+    };
+  }
+  const coverUrl = getNodeVideoCoverUrl(node);
+  if (!coverUrl || getNodeTaskStatus(node) !== "success") return null;
   return {
-    id: `${node.id}-${image.id || 0}`,
-    imageUrl: image.image_url || image.preview_url || image.thumb_url || "",
-    displayUrl: getDisplayImageUrl(image),
+    id: `${node.id}-video-cover`,
+    imageUrl: coverUrl,
+    displayUrl: coverUrl,
     sourceNodeId: node.id,
   };
 }
@@ -2504,6 +2633,38 @@ function removeReference(item: ReferenceItem) {
   referenceItems.value = referenceItems.value.filter((current) => current.id !== item.id);
 }
 
+function getNodeImageTask(node: CanvasNode | null | undefined) {
+  return node?.task || null;
+}
+
+function getNodeVideoTask(node: CanvasNode | null | undefined) {
+  return node?.video_task || null;
+}
+
+function isVideoTaskNode(node: CanvasNode | null | undefined) {
+  return !!getNodeVideoTask(node) && !getNodeImageTask(node);
+}
+
+function getNodeTaskStatus(node: CanvasNode | null | undefined) {
+  return getNodeVideoTask(node)?.status || getNodeImageTask(node)?.status || "pending";
+}
+
+function getNodeVideoCoverUrl(node: CanvasNode | null | undefined) {
+  const video = getNodeVideoTask(node)?.videos?.find((item) => item.status === "success" && (item.cover_url || item.video_url))
+    || getNodeVideoTask(node)?.videos?.[0];
+  return video?.cover_url || "";
+}
+
+function getNodeVideoUrl(node: CanvasNode | null | undefined) {
+  const video = getNodeVideoTask(node)?.videos?.find((item) => item.status === "success" && item.video_url)
+    || getNodeVideoTask(node)?.videos?.[0];
+  return video?.video_url || "";
+}
+
+function canRenderNodeVideo(node: CanvasNode | null | undefined) {
+  return !!node && isVideoTaskNode(node) && !!getNodeVideoUrl(node);
+}
+
 function resolveTaskType(task?: TaskResult | null) {
   if (!task) return "text_generate" as const;
   if (task.mode === "inpaint") return "inpaint" as const;
@@ -2572,6 +2733,12 @@ function handleNodeClick(event: MouseEvent, node: CanvasNode) {
 }
 
 function openNodeDetail(node: CanvasNode) {
+  const videoTask = getNodeVideoTask(node);
+  if (videoTask) {
+    videoDetailItem.value = videoTask;
+    videoDetailOpen.value = true;
+    return;
+  }
   const item = convertNodeToHistoryCard(node);
   if (!item) {
     message.warning("当前任务暂无详情");
@@ -2582,11 +2749,12 @@ function openNodeDetail(node: CanvasNode) {
 }
 
 function openNodeFeedback(node: CanvasNode) {
-  if (!node.task?.id) {
+  const target = getNodeVideoTask(node) || getNodeImageTask(node);
+  if (!target?.id) {
     message.warning("当前任务暂不支持反馈");
     return;
   }
-  feedbackTarget.value = node.task;
+  feedbackTarget.value = target;
   feedbackDialogOpen.value = true;
 }
 
@@ -2594,13 +2762,67 @@ function openCanvasFeedback() {
   canvasFeedbackOpen.value = true;
 }
 
+function applyVideoTaskToComposer(videoTask: VideoTaskResult, nodeId?: number) {
+  generatePanelCollapsed.value = false;
+  canvasTaskKind.value = "video";
+  canvasVideoMode.value = (videoTask.reference_images || []).length ? "imageToVideo" : "textGenerate";
+  selectedModel.value = videoTask.model || selectedModel.value;
+  prompt.value = videoTask.prompt || "";
+  numVideos.value = 1;
+  size.value = videoTask.aspect_ratio || size.value;
+  resolution.value = videoTask.resolution || resolution.value;
+  duration.value = videoTask.duration_seconds ? String(videoTask.duration_seconds) : duration.value;
+  promptSourceNodeId.value = null;
+  referenceItems.value.forEach((item) => revokeObjectUrl(item.objectUrl));
+  referenceItems.value = (videoTask.reference_images || []).map((url, index) => ({
+    id: `video-refill-${nodeId || videoTask.id}-${index}`,
+    localUrl: url,
+    remoteUrl: url,
+    status: "success" as const,
+  }));
+  clearCanvasSelection();
+}
+
+function findCanvasNodeByVideoTaskId(taskId?: string | null) {
+  const normalized = String(taskId || "").trim();
+  if (!normalized) return null;
+  return nodes.value.find((node) => node.video_task?.id === normalized || node.video_task_id === normalized) || null;
+}
+
+function handleVideoDetailReedit(item: VideoTaskResult) {
+  applyVideoTaskToComposer(item, findCanvasNodeByVideoTaskId(item.id)?.id);
+  videoDetailOpen.value = false;
+  message.success("已回填到视频配置");
+}
+
+function handleVideoDetailDownload(item: VideoTaskResult) {
+  const node = findCanvasNodeByVideoTaskId(item.id);
+  if (node) {
+    downloadNode(node);
+    return;
+  }
+  const url = item.videos.find((video) => video.status === "success" && video.video_url)?.video_url || item.videos[0]?.video_url || "";
+  if (!url) return;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `banana_video_${item.id}.mp4`;
+  a.click();
+}
+
 function refillGenerateConfigFromNode(node: CanvasNode) {
+  const videoTask = getNodeVideoTask(node);
+  if (videoTask) {
+    applyVideoTaskToComposer(videoTask, node.id);
+    message.success("已回填到视频配置");
+    return;
+  }
   const task = node.task;
   if (!task) {
     message.warning("当前任务暂无可回填参数");
     return;
   }
   generatePanelCollapsed.value = false;
+  canvasTaskKind.value = "image";
   canvasMode.value = (task.reference_images || []).length ? "imageEdit" : "textGenerate";
   selectedModel.value = task.model || selectedModel.value;
   prompt.value = task.prompt || "";
@@ -2624,14 +2846,22 @@ function useFreeNodeForGeneration(node: CanvasNode) {
   generatePanelCollapsed.value = false;
   clearCanvasSelection();
   if (node.node_type === "text") {
-    canvasMode.value = "textGenerate";
+    if (isVideoTaskKind.value) {
+      canvasVideoMode.value = "textGenerate";
+    } else {
+      canvasMode.value = "textGenerate";
+    }
     prompt.value = node.content || "";
     promptSourceNodeId.value = node.id;
-    message.success("已回填文本到提示词");
+    message.success(`已回填到${isVideoTaskKind.value ? "视频" : "图片"}提示词`);
     return;
   }
   if (node.node_type === "image" && node.image_url) {
-    canvasMode.value = "imageEdit";
+    if (isVideoTaskKind.value) {
+      canvasVideoMode.value = "imageToVideo";
+    } else {
+      canvasMode.value = "imageEdit";
+    }
     const beforeCount = referenceItems.value.length;
     addCanvasReference({
       id: `${node.id}-free-image`,
@@ -2652,10 +2882,33 @@ function useNodeImageForEditing(node: CanvasNode) {
   }
   generatePanelCollapsed.value = false;
   clearCanvasSelection();
-  canvasMode.value = "imageEdit";
-  if (replaceCanvasReference(option)) {
-    message.success("已替换为当前节点图片");
+  if (isVideoTaskKind.value) {
+    canvasVideoMode.value = "imageToVideo";
+  } else {
+    canvasMode.value = "imageEdit";
   }
+  if (replaceCanvasReference(option)) {
+    message.success(`已替换为当前${isVideoTaskKind.value ? "视频参考图" : "节点图片"}`);
+  }
+}
+
+function useNodeImageForVideo(node: CanvasNode) {
+  const option = getNodeReferenceOption(node);
+  if (!option) {
+    message.warning("当前节点暂无可用于生成视频的图片");
+    return;
+  }
+  generatePanelCollapsed.value = false;
+  composerPopover.value = null;
+  clearCanvasSelection();
+  canvasTaskKind.value = "video";
+  canvasVideoMode.value = "imageToVideo";
+  promptSourceNodeId.value = null;
+  if (replaceCanvasReference(option)) {
+    message.success("已切换到图生视频，并带入当前图片");
+    return;
+  }
+  message.info("已切换到图生视频");
 }
 
 function handleGenerateFromSelection() {
@@ -2683,7 +2936,11 @@ function handleGenerateFromSelection() {
   }
 
   if (imageOptions.length) {
-    canvasMode.value = "imageEdit";
+    if (isVideoTaskKind.value) {
+      canvasVideoMode.value = "imageToVideo";
+    } else {
+      canvasMode.value = "imageEdit";
+    }
     const existingReferenceUrls = new Set(referenceItems.value.map((item) => item.remoteUrl).filter(Boolean));
     const uniqueOptions = imageOptions.filter((option, index, list) => (
       !existingReferenceUrls.has(option.imageUrl)
@@ -2705,7 +2962,11 @@ function handleGenerateFromSelection() {
       }
     }
   } else if (textNodes.length === 1) {
-    canvasMode.value = "textGenerate";
+    if (isVideoTaskKind.value) {
+      canvasVideoMode.value = "textGenerate";
+    } else {
+      canvasMode.value = "textGenerate";
+    }
   }
 
   if (didUpdate) {
@@ -2744,28 +3005,44 @@ function handleNodeContextEditImage() {
   useNodeImageForEditing(node);
 }
 
+function handleNodeContextGenerateVideo() {
+  const node = nodeContextMenuNode.value;
+  if (!node) return;
+  closeNodeContextMenu();
+  useNodeImageForVideo(node);
+}
+
 function isTaskCanvasNode(node: CanvasNode) {
   return !node.node_type || node.node_type === "task";
 }
 
+function isDeletedAssetImageNode(node: CanvasNode) {
+  return node.node_type === "image" && isNodeAssetDeleted(node);
+}
+
 function canNodeEditImage(node: CanvasNode) {
+  if (isDeletedAssetImageNode(node)) return false;
   return !!getNodeReferenceOption(node);
 }
 
 function isNodeContextPrimaryDisabled(node: CanvasNode) {
   const workbenchNode = node as CanvasWorkbenchNode;
+  if (isDeletedAssetImageNode(node)) return true;
   return node.node_type === "image" && workbenchNode.uploadStatus !== "success" && !node.image_url;
 }
 
 function getNodeContextPrimaryLabel(node: CanvasNode) {
   const workbenchNode = node as CanvasWorkbenchNode;
+  if (isDeletedAssetImageNode(node)) {
+    return "图片已删除";
+  }
   if (node.node_type === "image") {
     return workbenchNode.uploadStatus === "uploading" ? "上传中" : "编辑图片";
   }
   if (!node.node_type || node.node_type === "task") {
-    return "重新生成";
+    return isVideoTaskNode(node) ? "重新生成视频" : "重新生成";
   }
-  return "生成图片";
+  return isVideoTaskKind.value ? "生成视频" : "生成图片";
 }
 
 function handleNodeContextDelete() {
@@ -2923,7 +3200,13 @@ function deleteSelectedNodes() {
       try {
         const remoteDeletes = targetNodes
           .filter((node) => !(node as CanvasWorkbenchNode).localObjectUrl && node.id >= 0)
-          .map((node) => (node.task_id ? deleteHistoryTask(node.task_id) : deleteCanvasNode(projectId, node.id)));
+          .map((node) => (
+            node.task_id
+              ? deleteHistoryTask(node.task_id)
+              : node.video_task_id
+                ? deleteVideoTask(node.video_task_id)
+                : deleteCanvasNode(projectId, node.id)
+          ));
         await Promise.all(remoteDeletes);
         targetNodes.forEach((node) => revokeObjectUrl((node as CanvasWorkbenchNode).localObjectUrl));
         nodes.value = nodes.value.filter((node) => !targetIds.has(node.id));
@@ -3018,7 +3301,7 @@ function deleteNode(node: CanvasNode) {
     message.success("删除成功");
     return;
   }
-  if (!node.task_id) {
+  if (!node.task_id && !node.video_task_id) {
     const projectId = selectedCanvasProjectId.value;
     if (!projectId) return;
     Modal.confirm({
@@ -3044,12 +3327,16 @@ function deleteNode(node: CanvasNode) {
   }
   Modal.confirm({
     title: "删除任务",
-    content: "删除后会从画布移除该任务及生成结果。",
+    content: isVideoTaskNode(node) ? "删除后会从画布移除该视频任务及其结果。" : "删除后会从画布移除该任务及生成结果。",
     okText: "删除",
     cancelText: "取消",
     okButtonProps: { danger: true },
     async onOk() {
-      await deleteHistoryTask(node.task_id);
+      if (node.video_task_id) {
+        await deleteVideoTask(node.video_task_id);
+      } else if (node.task_id) {
+        await deleteHistoryTask(node.task_id);
+      }
       nodes.value = nodes.value.filter((item) => item.id !== node.id);
       edges.value = edges.value.filter((edge) => edge.source_node_id !== node.id && edge.target_node_id !== node.id);
       removeNodeIdsFromLocalGroups(new Set([node.id]));
@@ -3075,16 +3362,20 @@ async function handleGenerate() {
   const projectId = selectedCanvasProjectId.value;
   if (!projectId) return;
   if (textGenerateBlockedByReferences.value) {
-    message.warning("当前存在参考图，请切回图编辑后再生成");
+    message.warning(isVideoTaskKind.value ? "当前存在参考图，请切回图生视频后再生成" : "当前存在参考图，请切回图编辑后再生成");
     return;
   }
   if (!canGenerate.value) return;
-  if (isImageEditMode.value && referenceItems.value.some((item) => item.status === "uploading")) {
+  if (currentModeSupportsReferences.value && referenceItems.value.some((item) => item.status === "uploading")) {
     message.warning("参考图仍在上传中，请稍候");
     return;
   }
-  if (isImageEditMode.value && referenceItems.value.some((item) => item.status === "failed")) {
+  if (currentModeSupportsReferences.value && referenceItems.value.some((item) => item.status === "failed")) {
     message.warning("请先移除上传失败的参考图");
+    return;
+  }
+  if (isVideoTaskKind.value && !hideDuration.value && !duration.value) {
+    message.warning("请选择视频秒数");
     return;
   }
   if (!auth.isSuperAdmin && userCredits.value < generationCreditCost.value) {
@@ -3092,7 +3383,7 @@ async function handleGenerate() {
     return;
   }
   const center = getViewportCenter();
-  const taskGroupCount = Math.max(1, Number(numImages.value || 1));
+  const taskGroupCount = Math.max(1, Number((isVideoTaskKind.value ? numVideos.value : numImages.value) || 1));
   const taskGroupWidth = DEFAULT_NODE_WIDTH + (taskGroupCount - 1) * 360;
   const taskGroupHeight = DEFAULT_NODE_HEIGHT;
   const taskPosition = findNonOverlappingNodePosition(
@@ -3105,24 +3396,46 @@ async function handleGenerate() {
   ]));
   generating.value = true;
   try {
-    const res = await createCanvasTask(projectId, {
-      mode: "generate",
-      model: selectedModel.value,
-      prompt: prompt.value,
-      num_images: numImages.value,
-      size: size.value,
-      resolution: resolution.value,
-      custom_size: customSize.value,
-      reference_images: isImageEditMode.value ? referenceItems.value.map((item) => item.remoteUrl).filter(Boolean) : [],
-      source_node_ids: sourceNodeIds,
-      x: taskPosition.x,
-      y: taskPosition.y,
-      width: DEFAULT_NODE_WIDTH,
-      height: DEFAULT_NODE_HEIGHT,
-    });
-    nodes.value = [...nodes.value, ...res.nodes];
-    if (res.nodes.length) {
-      focusCanvasNodesAtCurrentZoom(res.nodes);
+    const createdNodes: CanvasNode[] = [];
+    if (isVideoTaskKind.value) {
+      const referenceImages = isImageToVideoMode.value ? referenceItems.value.map((item) => item.remoteUrl).filter(Boolean) : [];
+      for (let index = 0; index < taskGroupCount; index += 1) {
+        const res = await createCanvasVideoTask(projectId, {
+          model: selectedModel.value,
+          prompt: prompt.value.trim(),
+          duration_seconds: Number(duration.value || 0),
+          aspect_ratio: hideAspectRatio.value ? "" : size.value,
+          resolution: hideResolution.value ? "" : resolution.value,
+          reference_images: referenceImages,
+          source_node_ids: sourceNodeIds,
+          x: taskPosition.x + index * 360,
+          y: taskPosition.y,
+          width: DEFAULT_NODE_WIDTH,
+          height: DEFAULT_NODE_HEIGHT,
+        });
+        createdNodes.push(...res.nodes);
+      }
+    } else {
+      const res = await createCanvasTask(projectId, {
+        mode: "generate",
+        model: selectedModel.value,
+        prompt: prompt.value,
+        num_images: numImages.value,
+        size: size.value,
+        resolution: resolution.value,
+        custom_size: customSize.value,
+        reference_images: isImageEditMode.value ? referenceItems.value.map((item) => item.remoteUrl).filter(Boolean) : [],
+        source_node_ids: sourceNodeIds,
+        x: taskPosition.x,
+        y: taskPosition.y,
+        width: DEFAULT_NODE_WIDTH,
+        height: DEFAULT_NODE_HEIGHT,
+      });
+      createdNodes.push(...res.nodes);
+    }
+    nodes.value = [...nodes.value, ...createdNodes];
+    if (createdNodes.length) {
+      focusCanvasNodesAtCurrentZoom(createdNodes);
     }
     prompt.value = "";
     promptSourceNodeId.value = null;
@@ -3132,10 +3445,10 @@ async function handleGenerate() {
       edges.value = detail.edges || [];
       groups.value = detail.groups || [];
     }).catch(() => {});
-    if (res.nodes.length) {
-      canvases.value = canvases.value.map((item) => item.id === selectedCanvasId.value ? { ...item, node_count: item.node_count + res.nodes.length } : item);
+    if (createdNodes.length) {
+      canvases.value = canvases.value.map((item) => item.id === selectedCanvasId.value ? { ...item, node_count: item.node_count + createdNodes.length } : item);
     }
-    message.success("任务已提交到画布");
+    message.success(isVideoTaskKind.value ? "视频任务已提交到画布" : "任务已提交到画布");
     syncTaskPolling();
     getMe().then((user) => auth.updateUser(user)).catch(() => {});
   } catch (err: any) {
@@ -3152,7 +3465,8 @@ async function handleGenerate() {
 
 async function refreshActiveTasks() {
   const taskIds = activeTaskIds.value;
-  if (!taskIds.length) {
+  const videoTaskIds = activeVideoTaskIds.value;
+  if (!taskIds.length && !videoTaskIds.length) {
     stopTaskPolling();
     return;
   }
@@ -3174,11 +3488,18 @@ async function refreshActiveTasks() {
         : [detailSummary, ...canvases.value];
       return;
     }
-    const tasks = await getTasks(taskIds);
+    const [tasks, videoTasks] = await Promise.all([
+      taskIds.length ? getTasks(taskIds) : Promise.resolve([]),
+      videoTaskIds.length ? getVideoTasks(videoTaskIds) : Promise.resolve([]),
+    ]);
     const taskMap = new Map(tasks.map((task) => [task.id, task]));
+    const videoTaskMap = new Map(videoTasks.map((task) => [task.id, task]));
     nodes.value = nodes.value.map((node) => {
       const task = node.task_id ? taskMap.get(node.task_id) : null;
-      return task ? { ...node, task } : node;
+      const videoTask = node.video_task_id ? videoTaskMap.get(node.video_task_id) : null;
+      if (task) return { ...node, task };
+      if (videoTask) return { ...node, video_task: videoTask };
+      return node;
     });
   } catch {
     // Keep visible nodes; the next poll can recover.
@@ -3195,7 +3516,7 @@ function stopTaskPolling() {
 }
 
 function syncTaskPolling() {
-  if (!activeTaskIds.value.length) {
+  if (!activeTaskIds.value.length && !activeVideoTaskIds.value.length) {
     stopTaskPolling();
     return;
   }
@@ -3208,6 +3529,11 @@ function syncTaskPolling() {
 function openPreview(node: CanvasNode) {
   if (node.node_type === "image" && getNodeImageUrl(node)) {
     previewCurrent.value = getNodeImageUrl(node);
+    previewVisible.value = true;
+    return;
+  }
+  if (isVideoTaskNode(node) && getNodeVideoCoverUrl(node)) {
+    previewCurrent.value = getNodeVideoCoverUrl(node);
     previewVisible.value = true;
     return;
   }
@@ -3228,6 +3554,15 @@ function handleNodeDoubleClick(node: CanvasNode) {
 }
 
 function downloadNode(node: CanvasNode) {
+  if (isVideoTaskNode(node)) {
+    const videoUrl = getNodeVideoUrl(node);
+    if (!videoUrl) return;
+    const a = document.createElement("a");
+    a.href = videoUrl;
+    a.download = `banana_video_${node.video_task_id || node.id}.mp4`;
+    a.click();
+    return;
+  }
   const image = node.task?.images?.find((item) => item.status === "success");
   if (!image) return;
   const a = document.createElement("a");
@@ -3645,50 +3980,61 @@ function submitNodeSearch() {
 }
 
 function getNodeSearchText(node: CanvasNode) {
-  const task = node.task;
+  const task = node.video_task || node.task;
   return [
     node.id,
     node.node_type,
     node.content,
     node.image_url,
     node.task_id,
+    node.video_task_id,
     task?.id,
     task?.prompt,
     task?.model,
     task?.status,
-    task?.size,
+    isVideoTaskNode(node) ? node.video_task?.aspect_ratio : node.task?.size,
     task?.resolution,
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function isNodeTaskDeleted(node: CanvasNode) {
+  const videoTask = node.video_task as (VideoTaskResult & { task_is_deleted?: boolean }) | undefined;
+  if (videoTask) return Boolean(videoTask.task_is_deleted);
   const task = node.task as (TaskResult & { task_is_deleted?: boolean; is_deleted?: boolean; is_soft_deleted?: boolean }) | undefined;
   if (!task) return false;
   if (task.task_is_deleted || task.is_deleted || task.is_soft_deleted) return true;
   return (task.images || []).every((image) => image.is_deleted);
 }
 
+function isNodeAssetDeleted(node: CanvasNode) {
+  return node.node_type === "image" && Boolean(node.asset_is_deleted);
+}
+
 function getNodeSearchTitle(node: CanvasNode) {
   if (node.node_type === "text") return node.content || "文本节点";
+  if (isNodeAssetDeleted(node)) return "图片已删除";
   if (node.node_type === "image") return "上传图片节点";
-  const promptText = node.task?.prompt?.trim();
-  return promptText || `任务 ${node.task_id || node.id}`;
+  const promptText = (node.video_task?.prompt || node.task?.prompt || "").trim();
+  return promptText || `任务 ${node.video_task_id || node.task_id || node.id}`;
 }
 
 function getNodeSearchMeta(node: CanvasNode) {
   if (node.node_type === "text") return "自由节点 · 文本";
+  if (isNodeAssetDeleted(node)) return "自由节点 · 图片已删除";
   if (node.node_type === "image") return "自由节点 · 图片";
-  const task = node.task;
+  const task = node.video_task || node.task;
   return [
+    isVideoTaskNode(node) ? "视频任务" : "图片任务",
     getNodeStatusText(node),
     task?.model,
-    task?.size,
+    isVideoTaskNode(node) ? node.video_task?.aspect_ratio : node.task?.size,
     task?.resolution,
   ].filter(Boolean).join(" · ");
 }
 
 function getNodeSearchThumbUrl(node: CanvasNode) {
   if (node.node_type === "image") return getNodeImageUrl(node);
+  if (isVideoTaskNode(node)) return getNodeVideoCoverUrl(node);
   const image = node.task?.images?.find((item) => item.status === "success") || node.task?.images?.[0];
   return getDisplayImageUrl(image);
 }
@@ -3753,7 +4099,11 @@ function focusCanvasNodesAtCurrentZoom(targetNodes: CanvasNode[]) {
 }
 
 function getNodeImageUrl(node: CanvasNode) {
-  if (node.node_type === "image") return (node as CanvasWorkbenchNode).localObjectUrl || node.image_url;
+  if (node.node_type === "image") {
+    if (isNodeAssetDeleted(node)) return "";
+    return (node as CanvasWorkbenchNode).localObjectUrl || node.image_url;
+  }
+  if (isVideoTaskNode(node)) return getNodeVideoCoverUrl(node);
   const image = node.task?.images?.find((item) => item.status === "success") || node.task?.images?.[0];
   const previewUrl = getPreviewImageUrl(image);
   if (previewUrl && (node.id === focusedCanvasNodeId.value || loadedWebpImageUrls.value.has(previewUrl))) {
@@ -3770,6 +4120,7 @@ function getImageNodeBadgeText(node: CanvasNode) {
   const workbenchNode = node as CanvasWorkbenchNode;
   if (workbenchNode.uploadStatus === "uploading") return "上传中";
   if (workbenchNode.uploadStatus === "failed") return "失败";
+  if (isNodeAssetDeleted(node)) return "已删除";
   return isUserAssetUrl(node.image_url) ? "素材库" : "上传";
 }
 
@@ -3797,7 +4148,7 @@ function buildNodeAssetImportName(node: CanvasNode) {
   if (node.node_type === "image") {
     return `画布素材-${node.id}`;
   }
-  const promptText = (node.task?.prompt || "").trim();
+  const promptText = (node.video_task?.prompt || node.task?.prompt || "").trim();
   if (promptText) {
     return promptText.slice(0, 30);
   }
@@ -3893,6 +4244,7 @@ async function submitAssetCategoryNameDialog() {
 
 function handleNodeImageLoad(node: CanvasNode) {
   if (node.id !== focusedCanvasNodeId.value) return;
+  if (isVideoTaskNode(node)) return;
   const image = node.task?.images?.find((item) => item.status === "success") || node.task?.images?.[0];
   const previewUrl = getPreviewImageUrl(image);
   if (!previewUrl || loadedWebpImageUrls.value.has(previewUrl)) return;
@@ -3902,22 +4254,28 @@ function handleNodeImageLoad(node: CanvasNode) {
 }
 
 function getNodeStatusText(node: CanvasNode) {
-  const status = node.task?.status || "pending";
+  if (isNodeAssetDeleted(node)) return "图片已删除";
+  const status = getNodeTaskStatus(node);
   if (status === "success") return "已完成";
-  if (status === "failed") return "生成失败";
-  if (status === "processing") return "生成中";
+  if (status === "failed") return isVideoTaskNode(node) ? "视频失败" : "生成失败";
+  if (status === "processing") return isVideoTaskNode(node) ? "视频生成中" : "生成中";
   if (status === "queued") return "排队中";
   return "等待提交";
 }
 
 function getNodeFailureMessage(node: CanvasNode) {
+  if (isNodeAssetDeleted(node)) return "图片已删除";
+  if (isVideoTaskNode(node)) {
+    return node.video_task?.error_message || "视频生成失败";
+  }
   const task = node.task;
   const failedImage = task?.images?.find((item) => item.status === "failed") || task?.images?.[0];
   return getTaskImageFailureMessage(task, failedImage);
 }
 
 function isNodeGenerating(node: CanvasNode) {
-  return ["pending", "queued", "processing"].includes(node.task?.status || "pending");
+  if (isNodeAssetDeleted(node)) return false;
+  return ["pending", "queued", "processing"].includes(getNodeTaskStatus(node));
 }
 
 function parseAspectRatio(value?: string) {
@@ -3978,6 +4336,9 @@ function getRatioPreviewStyle(value: string, maxSize = 28) {
 function getNodeAspectRatio(node: CanvasNode) {
   if (node.node_type === "text" || node.node_type === "image") {
     return `${Number(node.width || DEFAULT_NODE_WIDTH)} / ${Number(node.height || DEFAULT_NODE_HEIGHT)}`;
+  }
+  if (isVideoTaskNode(node)) {
+    return parseAspectRatio(node.video_task?.aspect_ratio) || "1 / 1";
   }
   return parseAspectRatio(node.task?.custom_size) || parseAspectRatio(node.task?.size) || "1 / 1";
 }
@@ -4081,8 +4442,14 @@ watch(resolutionOptions, (options) => {
   }
 }, { immediate: true });
 
+watch(durationOptions, (options) => {
+  if (options.length && !options.some((item) => item.value === duration.value)) {
+    duration.value = options[0].value;
+  }
+}, { immediate: true });
+
 watch(maxReferenceImages, (limit) => {
-  if (!isImageEditMode.value) {
+  if (!currentModeSupportsReferences.value) {
     canvasReferenceSelectMode.value = false;
     return;
   }
@@ -4097,6 +4464,13 @@ watch(maxReferenceImages, (limit) => {
 
 watch(canvasMode, (mode) => {
   if (mode !== "imageEdit") {
+    canvasReferenceSelectMode.value = false;
+    uploadMenuOpen.value = false;
+  }
+});
+
+watch(canvasVideoMode, (mode) => {
+  if (mode !== "imageToVideo") {
     canvasReferenceSelectMode.value = false;
     uploadMenuOpen.value = false;
   }
@@ -4502,10 +4876,13 @@ onBeforeUnmount(() => {
         :class="{
           collapsed: generatePanelCollapsed,
           expanded: !generatePanelCollapsed,
-          'mode-text-generate': !isImageEditMode,
+          'mode-image-text-generate': isImageTaskKind && !isImageEditMode,
           'mode-image-edit': isImageEditMode,
+          'mode-video-text-generate': isVideoTaskKind && canvasVideoMode === 'textGenerate',
+          'mode-video-image-generate': isVideoTaskKind && canvasVideoMode === 'imageToVideo',
           'no-mode-transition': composerModeSwitching,
         }"
+        :style="!generatePanelCollapsed ? { '--composer-expanded-height': composerExpandedHeight } : undefined"
         @pointerdown.stop
         @wheel.stop
         @click.stop="generatePanelCollapsed ? expandGeneratePanel() : (composerPopover = null)"
@@ -4526,8 +4903,17 @@ onBeforeUnmount(() => {
             </button>
             <input ref="referenceInputRef" type="file" accept="image/*" multiple hidden @change="handleReferenceChange" />
 
+            <div class="composer-task-kind-switch composer-task-kind-switch-floating" aria-label="任务类型">
+              <button type="button" :class="{ active: isImageTaskKind }" @click="switchCanvasTaskKind('image')">
+                <PictureOutlined />
+              </button>
+              <button type="button" :class="{ active: isVideoTaskKind }" @click="switchCanvasTaskKind('video')">
+                <VideoCameraOutlined />
+              </button>
+            </div>
+
             <div
-              v-if="isImageEditMode"
+              v-if="currentModeSupportsReferences"
               class="composer-reference-strip"
               :class="{ dragover: referenceDragActive }"
               @dragenter.stop.prevent="handleReferenceDragEnter"
@@ -4572,22 +4958,38 @@ onBeforeUnmount(() => {
               v-model="prompt"
               class="composer-prompt-input"
               :maxlength="5000"
-              placeholder="描述你希望如何编辑这张图片..."
+              :placeholder="promptPlaceholder"
             ></textarea>
 
             <div class="composer-footer">
               <div class="composer-mode-switch" aria-label="生成模式">
-                <button type="button" :class="{ active: isImageEditMode }" @click="switchCanvasMode('imageEdit')">
-                  图编辑
-                </button>
-                <button type="button" :class="{ active: !isImageEditMode }" @click="switchCanvasMode('textGenerate')">
-                  文生图
-                </button>
+                <template v-if="isImageTaskKind">
+                  <button type="button" :class="{ active: isImageEditMode }" @click="switchCanvasMode('imageEdit')">
+                    图编辑
+                  </button>
+                  <button type="button" :class="{ active: !isImageEditMode }" @click="switchCanvasMode('textGenerate')">
+                    文生图
+                  </button>
+                </template>
+                <template v-else>
+                  <button type="button" :class="{ active: canvasVideoMode === 'imageToVideo' }" @click="switchCanvasVideoMode('imageToVideo')">
+                    图生视频
+                  </button>
+                  <button type="button" :class="{ active: canvasVideoMode === 'textGenerate' }" @click="switchCanvasVideoMode('textGenerate')">
+                    文生视频
+                  </button>
+                </template>
               </div>
               <div class="composer-setting-wrap">
                 <div v-if="composerPopover" class="composer-popover-card" @pointerdown.stop @click.stop>
-                  <div class="composer-options-grid">
-                    <div class="composer-option-field">
+                  <div
+                    class="composer-options-grid"
+                    :class="{
+                      'is-image-task': isImageTaskKind,
+                      'is-video-task': isVideoTaskKind,
+                    }"
+                  >
+                    <div class="composer-option-field composer-option-field-model">
                       <label>模型</label>
                       <a-select v-model:value="selectedModel" :loading="sceneConfigLoading" placeholder="请选择模型">
                         <a-select-option v-for="model in generationModels" :key="model.scene_key" :value="model.scene_key">
@@ -4595,14 +4997,20 @@ onBeforeUnmount(() => {
                         </a-select-option>
                       </a-select>
                     </div>
-                    <div class="composer-option-field">
-                      <label>质量</label>
+                    <div v-if="!hideResolution && resolutionOptions.length" class="composer-option-field composer-option-field-resolution">
+                      <label>{{ isVideoTaskKind ? "分辨率" : "质量" }}</label>
                       <a-select v-model:value="resolution">
                         <a-select-option v-for="item in resolutionOptions" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
                       </a-select>
                     </div>
+                    <div v-if="isVideoTaskKind && !hideDuration && durationOptions.length" class="composer-option-field composer-option-field-duration">
+                      <label>秒数</label>
+                      <a-select v-model:value="duration">
+                        <a-select-option v-for="item in durationOptions" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
+                      </a-select>
+                    </div>
                   </div>
-                  <div class="composer-ratio-section">
+                  <div v-if="!hideAspectRatio && sizeOptions.length" class="composer-ratio-section">
                     <label>宽高比</label>
                     <div class="composer-ratio-list">
                       <button
@@ -4623,13 +5031,26 @@ onBeforeUnmount(() => {
                 </div>
                 <button type="button" class="composer-setting-group" @click.stop="toggleComposerPopover('model')">
                   <span class="composer-setting-model-text">{{ selectedModelOption?.display_name || selectedModelOption?.scene_label || selectedModel || '选择模型' }}</span>
-                  <span class="composer-chip-divider"></span>
-                  <span>{{ size }}</span>
-                  <span class="composer-chip-divider"></span>
-                  <span>{{ resolution }}</span>
+                  <template v-if="!hideAspectRatio && size">
+                    <span class="composer-chip-divider"></span>
+                    <span>{{ size }}</span>
+                  </template>
+                  <template v-if="isVideoTaskKind && !hideDuration && duration">
+                    <span class="composer-chip-divider"></span>
+                    <span>{{ duration }}秒</span>
+                  </template>
+                  <template v-if="!hideResolution && resolution">
+                    <span class="composer-chip-divider"></span>
+                    <span>{{ resolution }}</span>
+                  </template>
                 </button>
               </div>
-              <a-select v-model:value="numImages" class="composer-count-select" popup-class-name="composer-count-dropdown" :bordered="false">
+              <a-select v-if="isImageTaskKind" v-model:value="numImages" class="composer-count-select" popup-class-name="composer-count-dropdown" :bordered="false">
+                <a-select-option v-for="count in taskCountOptions" :key="count" :value="count">
+                  {{ count }}x
+                </a-select-option>
+              </a-select>
+              <a-select v-else v-model:value="numVideos" class="composer-count-select" popup-class-name="composer-count-dropdown" :bordered="false">
                 <a-select-option v-for="count in taskCountOptions" :key="count" :value="count">
                   {{ count }}x
                 </a-select-option>
@@ -4772,11 +5193,15 @@ onBeforeUnmount(() => {
         <template v-if="!selectedNode.node_type || selectedNode.node_type === 'task'">
           <button type="button" @click="refillGenerateConfigFromNode(selectedNode)">
             <ReloadOutlined />
-            <span>重新生成</span>
+            <span>{{ isVideoTaskNode(selectedNode) ? '重新生成视频' : '重新生成' }}</span>
           </button>
-          <button type="button" @click="useNodeImageForEditing(selectedNode)">
-            <EditOutlined />
-            <span>编辑图片</span>
+          <button v-if="!isVideoTaskNode(selectedNode)" type="button" @click="useNodeImageForEditing(selectedNode)">
+            <component :is="isVideoTaskNode(selectedNode) ? VideoCameraOutlined : EditOutlined" />
+            <span>{{ isVideoTaskNode(selectedNode) ? '继续生视频' : '编辑图片' }}</span>
+          </button>
+          <button v-if="!isVideoTaskNode(selectedNode)" type="button" @click="useNodeImageForVideo(selectedNode)">
+            <VideoCameraOutlined />
+            <span>生成视频</span>
           </button>
           <button type="button" @click="downloadNode(selectedNode)">
             <DownloadOutlined />
@@ -4798,6 +5223,7 @@ onBeforeUnmount(() => {
             <span>编辑文本</span>
           </button>
           <button
+            v-if="!isDeletedAssetImageNode(selectedNode)"
             type="button"
             :disabled="selectedNode.node_type === 'image' && selectedNode.uploadStatus !== 'success' && !selectedNode.image_url"
             @click="selectedNode.node_type === 'image' ? useNodeImageForEditing(selectedNode) : useFreeNodeForGeneration(selectedNode)"
@@ -4805,6 +5231,15 @@ onBeforeUnmount(() => {
             <EditOutlined v-if="selectedNode.node_type === 'image'" />
             <ThunderboltOutlined v-else />
             <span>{{ selectedNode.node_type === 'image' ? selectedNode.uploadStatus === 'uploading' ? '上传中' : '编辑图片' : '生成图片' }}</span>
+          </button>
+          <button
+            v-if="selectedNode.node_type === 'image' && !isDeletedAssetImageNode(selectedNode)"
+            type="button"
+            :disabled="selectedNode.uploadStatus !== 'success' && !selectedNode.image_url"
+            @click="useNodeImageForVideo(selectedNode)"
+          >
+            <VideoCameraOutlined />
+            <span>生成视频</span>
           </button>
         </template>
         <button v-if="!canvasReadOnly" type="button" class="danger" @click="deleteNode(selectedNode)">
@@ -4823,6 +5258,7 @@ onBeforeUnmount(() => {
         @contextmenu.prevent
       >
         <button
+          v-if="!isDeletedAssetImageNode(nodeContextMenuNode)"
           type="button"
           :disabled="isNodeContextPrimaryDisabled(nodeContextMenuNode)"
           @click="handleNodeContextPrimaryAction"
@@ -4833,16 +5269,24 @@ onBeforeUnmount(() => {
           <span>{{ getNodeContextPrimaryLabel(nodeContextMenuNode) }}</span>
         </button>
         <button
-          v-if="isTaskCanvasNode(nodeContextMenuNode)"
+          v-if="isTaskCanvasNode(nodeContextMenuNode) && !isVideoTaskNode(nodeContextMenuNode)"
           type="button"
           :disabled="!canNodeEditImage(nodeContextMenuNode)"
           @click="handleNodeContextEditImage"
         >
-          <EditOutlined />
-          <span>编辑图片</span>
+          <component :is="isVideoTaskNode(nodeContextMenuNode) ? VideoCameraOutlined : EditOutlined" />
+          <span>{{ isVideoTaskNode(nodeContextMenuNode) ? '继续生视频' : '编辑图片' }}</span>
         </button>
         <button
-          v-if="!canvasReadOnly && canAddNodeToAssetLibrary(nodeContextMenuNode)"
+          v-if="canNodeEditImage(nodeContextMenuNode) && !isVideoTaskNode(nodeContextMenuNode)"
+          type="button"
+          @click="handleNodeContextGenerateVideo"
+        >
+          <VideoCameraOutlined />
+          <span>生成视频</span>
+        </button>
+        <button
+          v-if="!canvasReadOnly && !isDeletedAssetImageNode(nodeContextMenuNode) && canAddNodeToAssetLibrary(nodeContextMenuNode)"
           type="button"
           @click="openSaveNodeToAssetDialog(nodeContextMenuNode)"
         >
@@ -4918,7 +5362,7 @@ onBeforeUnmount(() => {
           :key="node.id"
           class="canvas-node"
           :class="{
-            failed: node.task?.status === 'failed',
+            failed: getNodeTaskStatus(node) === 'failed',
             selected: isNodeSelected(node),
             'reference-selecting': canvasReferenceSelectMode && getNodeReferenceOption(node),
             'reference-selected': canvasReferenceSelectMode && isCanvasReferenceSelected(node),
@@ -4965,8 +5409,25 @@ onBeforeUnmount(() => {
             <span v-else-if="node.node_type === 'image'" class="canvas-free-image-badge">
               {{ getImageNodeBadgeText(node) }}
             </span>
+            <video
+              v-if="canRenderNodeVideo(node)"
+              class="canvas-node-video"
+              :poster="getNodeVideoCoverUrl(node) || undefined"
+              :src="getNodeVideoUrl(node)"
+              controls
+              muted
+              autoplay
+              loop
+              playsinline
+              preload="metadata"
+              draggable="false"
+              @pointerdown.stop
+              @click.stop="handleNodeClick($event, node)"
+              @dblclick.stop
+              @mousedown.stop
+            ></video>
             <img
-              v-if="node.node_type !== 'text' && getNodeImageUrl(node)"
+              v-else-if="node.node_type !== 'text' && getNodeImageUrl(node)"
               :class="{ 'canvas-free-image': node.node_type === 'image' }"
               :src="getNodeImageUrl(node)"
               alt="generated"
@@ -4985,13 +5446,13 @@ onBeforeUnmount(() => {
                   <span>{{ getNodeStatusText(node) }}</span>
                 </div>
               </template>
-              <template v-else-if="node.task?.status === 'failed'">
+              <template v-else-if="getNodeTaskStatus(node) === 'failed'">
                 <img :src="failedResultAsset" alt="生成失败" class="node-failed-image" draggable="false" />
                 <div class="node-placeholder-mask error">
                   <span>{{ getNodeFailureMessage(node) }}</span>
                 </div>
               </template>
-              <span v-else>{{ formatGenerationErrorMessage(node.task?.error_message, '生成失败') }}</span>
+              <span v-else>{{ getNodeFailureMessage(node) || "生成失败" }}</span>
             </div>
             <button
               v-if="canvasReferenceSelectMode && getNodeReferenceOption(node)"
@@ -5030,12 +5491,20 @@ onBeforeUnmount(() => {
       show-actions
       @download="handleDetailDownload"
     />
+    <VideoTaskDetailDialog
+      v-model:open="videoDetailOpen"
+      :item="videoDetailItem"
+      :model-options="videoModelOptions"
+      @reedit="handleVideoDetailReedit"
+      @download="handleVideoDetailDownload"
+    />
     <FeedbackDialog
       v-model:open="feedbackDialogOpen"
       :task-id="feedbackTarget?.id"
       :model="feedbackTarget?.model"
       :prompt="feedbackTarget?.prompt"
       :created-at="feedbackTarget?.created_at"
+      :feedback-type="feedbackTarget && 'duration_seconds' in feedbackTarget ? 'video_task' : 'image_task'"
     />
     <FeedbackDialog
       v-model:open="canvasFeedbackOpen"
@@ -5477,18 +5946,11 @@ onBeforeUnmount(() => {
   bottom: 18px;
   width: min(660px, 42vw);
   min-width: 470px;
+  height: var(--composer-expanded-height, 150px);
   border-radius: 20px;
   padding: 13px;
   cursor: default;
   overflow: visible;
-}
-
-.canvas-composer-shell.expanded.mode-text-generate {
-  height: 150px;
-}
-
-.canvas-composer-shell.expanded.mode-image-edit {
-  height: 210px;
 }
 
 .canvas-composer-shell.no-mode-transition {
@@ -5613,6 +6075,46 @@ onBeforeUnmount(() => {
 .canvas-composer-close:hover {
   background: var(--theme-panel-bg-muted);
   color: var(--theme-title);
+}
+
+.composer-task-kind-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.composer-task-kind-switch-floating {
+  position: absolute;
+  top: 2px;
+  left: -56px;
+  z-index: 3;
+  flex-direction: column;
+}
+
+.composer-task-kind-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--theme-panel-border);
+  border-radius: 14px;
+  background: var(--theme-panel-bg-muted);
+  color: var(--theme-text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.composer-task-kind-switch button.active {
+  border-color: transparent;
+  background: var(--theme-accent);
+  color: var(--theme-accent-contrast);
+  box-shadow: 0 10px 18px color-mix(in srgb, var(--theme-accent) 22%, transparent);
 }
 
 .composer-prompt-input {
@@ -5786,8 +6288,16 @@ onBeforeUnmount(() => {
 
 .composer-options-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(140px, 0.45fr);
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 12px;
+}
+
+.composer-options-grid.is-image-task {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+.composer-options-grid.is-video-task {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .composer-ratio-item {
@@ -5942,16 +6452,16 @@ onBeforeUnmount(() => {
 
 .composer-setting-wrap {
   position: relative;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: 0;
-  max-width: min(340px, calc(100% - 270px));
+  max-width: none;
 }
 
 .composer-setting-group {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
   gap: 0;
@@ -5965,6 +6475,7 @@ onBeforeUnmount(() => {
   font: inherit;
   cursor: pointer;
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .composer-setting-group:hover {
@@ -5974,7 +6485,8 @@ onBeforeUnmount(() => {
 
 .composer-setting-model-text {
   min-width: 0;
-  max-width: 190px;
+  max-width: none;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5989,7 +6501,6 @@ onBeforeUnmount(() => {
 }
 
 .composer-count-select {
-  margin-left: auto;
   flex: 0 0 66px;
   height: 34px;
   border-radius: 12px;
@@ -7369,6 +7880,16 @@ onBeforeUnmount(() => {
     display: block;
     object-fit: cover;
   }
+
+  video {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    display: block;
+    object-fit: cover;
+    background: #000;
+    pointer-events: auto;
+  }
 }
 
 .canvas-free-image-badge {
@@ -7460,7 +7981,8 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
-.canvas-node.reference-selecting .node-preview img {
+.canvas-node.reference-selecting .node-preview img,
+.canvas-node.reference-selecting .node-preview video {
   filter: brightness(0.58);
 }
 
@@ -7713,15 +8235,14 @@ onBeforeUnmount(() => {
   }
 
   .canvas-composer-shell.expanded {
+    height: min(var(--composer-expanded-height, 150px), calc(100% - 156px));
     padding: 10px;
   }
 
-  .canvas-composer-shell.expanded.mode-image-edit {
-    height: min(210px, calc(100% - 156px));
-  }
-
-  .canvas-composer-shell.expanded.mode-text-generate {
-    height: 150px;
+  .composer-task-kind-switch-floating {
+    top: -46px;
+    left: 0;
+    flex-direction: row;
   }
 
   .canvas-reference-select-tip {

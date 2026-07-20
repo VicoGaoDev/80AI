@@ -1,7 +1,7 @@
 import re
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.canvas_edge import CanvasEdge
@@ -9,11 +9,14 @@ from app.models.canvas_group import CanvasGroup
 from app.models.canvas_node import CanvasNode
 from app.models.image import Image
 from app.models.task import Task
+from app.models.user_asset import UserAsset
 from app.models.user import User
 from app.models.user_canvas import UserCanvas, generate_canvas_project_id
+from app.models.video_task import VideoTask
 from app.services.business_id_service import task_external_id, user_external_id
 from app.services.image_delivery_service import get_optional_cos_config, serialize_task
 from app.services.task_service import create_tasks
+from app.services.video_task_service import create_video_task as create_video_task_record, serialize_video_task
 from app.utils.datetime_utils import now_local
 
 DEFAULT_CANVAS_NAME_PREFIX = "新画布"
@@ -26,6 +29,10 @@ DEFAULT_CANVAS_PREVIEW_LIMIT = 3
 CANVAS_GROUP_PADDING = 24
 CANVAS_GROUP_TITLE_HEIGHT = 40
 CANVAS_PROJECT_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{16}$")
+CANVAS_NODE_LOAD_OPTIONS = (
+    selectinload(CanvasNode.task).selectinload(Task.images),
+    selectinload(CanvasNode.video_task).selectinload(VideoTask.results),
+)
 
 
 def _default_canvas_name() -> str:
@@ -76,13 +83,34 @@ def _serialize_canvas_summary(canvas: UserCanvas, node_count: int = 0, preview_u
     }
 
 
+def _visible_canvas_node_filter(*, user_id: int | None = None):
+    free_node_clause = and_(
+        CanvasNode.task_id.is_(None),
+        CanvasNode.video_task_id.is_(None),
+    )
+    image_task_clause = and_(
+        CanvasNode.task_id.is_not(None),
+        Task.is_deleted.is_(False),
+    )
+    video_task_clause = and_(
+        CanvasNode.video_task_id.is_not(None),
+        VideoTask.is_deleted.is_(False),
+    )
+    if user_id is not None:
+        image_task_clause = and_(image_task_clause, Task.user_id == user_id)
+        video_task_clause = and_(video_task_clause, VideoTask.user_id == user_id)
+    return or_(free_node_clause, image_task_clause, video_task_clause)
+
+
 def _serialize_node(node: CanvasNode, *, cos_config=None) -> dict:
     task = node.task
+    video_task = node.video_task
     return {
         "id": node.id,
         "canvas_id": node.canvas_id,
         "group_id": node.group_id,
         "task_id": task_external_id(task) if task else "",
+        "video_task_id": video_task.business_id if video_task else "",
         "node_type": node.node_type or ("task" if task else "text"),
         "content": node.content or "",
         "image_url": node.image_url or "",
@@ -91,10 +119,67 @@ def _serialize_node(node: CanvasNode, *, cos_config=None) -> dict:
         "width": float(node.width or DEFAULT_NODE_WIDTH),
         "height": float(node.height or DEFAULT_NODE_HEIGHT),
         "z_index": int(node.z_index or 1),
+        "asset_is_deleted": False,
         "created_at": node.created_at,
         "updated_at": node.updated_at,
         "task": serialize_task(task, cos_config=cos_config) if task else None,
+        "video_task": serialize_video_task(video_task, cos_config=cos_config) if video_task else None,
     }
+
+
+def _is_user_asset_url(url: str | None) -> bool:
+    return bool(url and "user_assets/" in url)
+
+
+def _build_deleted_user_asset_url_set(
+    db: Session,
+    owner_user_id: int | None,
+    image_urls: list[str] | None,
+) -> set[str]:
+    if owner_user_id is None or not image_urls:
+        return set()
+    normalized_urls = {
+        (url or "").strip()
+        for url in image_urls
+        if _is_user_asset_url((url or "").strip())
+    }
+    if not normalized_urls:
+        return set()
+    rows = (
+        db.query(UserAsset.url, UserAsset.is_deleted)
+        .filter(
+            UserAsset.user_id == owner_user_id,
+            UserAsset.url.in_(list(normalized_urls)),
+        )
+        .all()
+    )
+    active_urls = {
+        (url or "").strip()
+        for url, is_deleted in rows
+        if url and not is_deleted
+    }
+    return {url for url in normalized_urls if url not in active_urls}
+
+
+def _serialize_nodes(
+    db: Session,
+    nodes: list[CanvasNode],
+    *,
+    owner_user_id: int | None,
+    cos_config=None,
+) -> list[dict]:
+    deleted_asset_urls = _build_deleted_user_asset_url_set(
+        db,
+        owner_user_id,
+        [node.image_url for node in nodes if (node.node_type or "") == "image"],
+    )
+    serialized_nodes: list[dict] = []
+    for node in nodes:
+        payload = _serialize_node(node, cos_config=cos_config)
+        if (node.node_type or "") == "image":
+            payload["asset_is_deleted"] = (node.image_url or "").strip() in deleted_asset_urls
+        serialized_nodes.append(payload)
+    return serialized_nodes
 
 
 def _serialize_group(group: CanvasGroup, node_ids: list[int] | None = None) -> dict:
@@ -232,6 +317,7 @@ def _build_preview_map(db: Session, user_id: int | None, canvas_ids: list[int]) 
         .filter(
             CanvasNode.canvas_id.in_(canvas_ids),
             CanvasNode.task_id.is_(None),
+            CanvasNode.video_task_id.is_(None),
             CanvasNode.node_type == "image",
             CanvasNode.image_url != "",
         )
@@ -246,6 +332,41 @@ def _build_preview_map(db: Session, user_id: int | None, canvas_ids: list[int]) 
         image_url = (raw_image_url or "").strip()
         if image_url and image_url not in previews:
             previews.append(image_url)
+    video_nodes = (
+        db.query(CanvasNode)
+        .outerjoin(Task, Task.id == CanvasNode.task_id)
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .options(*CANVAS_NODE_LOAD_OPTIONS)
+        .filter(
+            CanvasNode.canvas_id.in_(canvas_ids),
+            CanvasNode.video_task_id.is_not(None),
+            _visible_canvas_node_filter(user_id=user_id),
+        )
+        .order_by(CanvasNode.updated_at.desc(), CanvasNode.id.desc())
+        .limit(max(60, len(canvas_ids) * DEFAULT_CANVAS_PREVIEW_LIMIT * 4))
+        .all()
+    )
+    for node in video_nodes:
+        video_task = node.video_task
+        if not video_task:
+            continue
+        canvas_id = int(node.canvas_id or 0)
+        if canvas_id not in wanted_ids:
+            continue
+        previews = preview_map.setdefault(canvas_id, [])
+        if len(previews) >= DEFAULT_CANVAS_PREVIEW_LIMIT:
+            continue
+        serialized = serialize_video_task(video_task, cos_config=cos_config)
+        cover_url = next(
+            (
+                (item.get("cover_url") or item.get("video_url") or "").strip()
+                for item in serialized.get("videos", [])
+                if item.get("status") == "success" and (item.get("cover_url") or item.get("video_url"))
+            ),
+            "",
+        )
+        if cover_url and cover_url not in previews:
+            previews.append(cover_url)
     return preview_map
 
 
@@ -301,7 +422,8 @@ def list_user_canvases(db: Session, user_id: int) -> dict:
     count_rows = (
         db.query(CanvasNode.canvas_id, func.count(CanvasNode.id).label("node_count"))
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .filter(CanvasNode.canvas_id.in_(canvas_ids), (CanvasNode.task_id.is_(None)) | (Task.is_deleted.is_(False)))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .filter(CanvasNode.canvas_id.in_(canvas_ids), _visible_canvas_node_filter(user_id=user_id))
         .group_by(CanvasNode.canvas_id)
         .all()
     )
@@ -334,7 +456,8 @@ def list_all_canvases(db: Session) -> dict:
     count_rows = (
         db.query(CanvasNode.canvas_id, func.count(CanvasNode.id).label("node_count"))
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .filter(CanvasNode.canvas_id.in_(canvas_ids), (CanvasNode.task_id.is_(None)) | (Task.is_deleted.is_(False)))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .filter(CanvasNode.canvas_id.in_(canvas_ids), _visible_canvas_node_filter())
         .group_by(CanvasNode.canvas_id)
         .all()
     )
@@ -412,7 +535,8 @@ def get_canvas_node_count(db: Session, canvas_id: int) -> int:
     return int(
         db.query(func.count(CanvasNode.id))
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .filter(CanvasNode.canvas_id == canvas_id, (CanvasNode.task_id.is_(None)) | (Task.is_deleted.is_(False)))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .filter(CanvasNode.canvas_id == canvas_id, _visible_canvas_node_filter())
         .scalar()
         or 0
     )
@@ -426,15 +550,14 @@ def get_canvas_detail(db: Session, user_id: int, project_id: str, *, allow_admin
         allow_admin_read=allow_admin_read,
         allow_deleted_read=allow_admin_read,
     )
-    task_visibility_filter = (
-        (CanvasNode.task_id.is_(None)) | (Task.is_deleted.is_(False))
-        if is_readonly
-        else ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False))))
+    task_visibility_filter = _visible_canvas_node_filter(
+        user_id=None if is_readonly else user_id,
     )
     nodes = (
         db.query(CanvasNode)
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .options(*CANVAS_NODE_LOAD_OPTIONS)
         .filter(
             CanvasNode.canvas_id == canvas.id,
             task_visibility_filter,
@@ -444,7 +567,7 @@ def get_canvas_detail(db: Session, user_id: int, project_id: str, *, allow_admin
     )
     cos_config = get_optional_cos_config(db)
     detail = _serialize_canvas_summary(canvas, len(nodes), is_readonly=is_readonly)
-    detail["nodes"] = [_serialize_node(node, cos_config=cos_config) for node in nodes]
+    detail["nodes"] = _serialize_nodes(db, nodes, owner_user_id=canvas.user_id, cos_config=cos_config)
     node_ids = [node.id for node in nodes]
     edges = []
     if node_ids:
@@ -490,11 +613,12 @@ def update_canvas_node(
     node = (
         db.query(CanvasNode)
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .options(*CANVAS_NODE_LOAD_OPTIONS)
         .filter(
             CanvasNode.id == node_id,
             CanvasNode.canvas_id == canvas.id,
-            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+            _visible_canvas_node_filter(user_id=user_id),
         )
         .first()
     )
@@ -516,7 +640,7 @@ def update_canvas_node(
         node.content = content.strip() or "双击编辑文本"
     db.commit()
     db.refresh(node)
-    return _serialize_node(node, cos_config=get_optional_cos_config(db))
+    return _serialize_nodes(db, [node], owner_user_id=user_id, cos_config=get_optional_cos_config(db))[0]
 
 
 def update_canvas_nodes_batch(
@@ -534,11 +658,12 @@ def update_canvas_nodes_batch(
     nodes = (
         db.query(CanvasNode)
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .options(*CANVAS_NODE_LOAD_OPTIONS)
         .filter(
             CanvasNode.id.in_(node_ids),
             CanvasNode.canvas_id == canvas.id,
-            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+            _visible_canvas_node_filter(user_id=user_id),
         )
         .all()
     )
@@ -569,7 +694,7 @@ def update_canvas_nodes_batch(
         db.refresh(node)
     cos_config = get_optional_cos_config(db)
     ordered_nodes = [node_map[int(item.id)] for item in updates]
-    return {"nodes": [_serialize_node(node, cos_config=cos_config) for node in ordered_nodes]}
+    return {"nodes": _serialize_nodes(db, ordered_nodes, owner_user_id=user_id, cos_config=cos_config)}
 
 
 def create_canvas_group(
@@ -595,11 +720,12 @@ def create_canvas_group(
     nodes = (
         db.query(CanvasNode)
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .options(*CANVAS_NODE_LOAD_OPTIONS)
         .filter(
             CanvasNode.id.in_(normalized_node_ids),
             CanvasNode.canvas_id == canvas.id,
-            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+            _visible_canvas_node_filter(user_id=user_id),
         )
         .all()
     )
@@ -644,7 +770,7 @@ def create_canvas_group(
     ordered_nodes = [node_map[node_id] for node_id in normalized_node_ids]
     return {
         "group": _serialize_group(group, normalized_node_ids),
-        "nodes": [_serialize_node(node, cos_config=cos_config) for node in ordered_nodes],
+        "nodes": _serialize_nodes(db, ordered_nodes, owner_user_id=user_id, cos_config=cos_config),
     }
 
 
@@ -714,11 +840,12 @@ def assign_nodes_to_canvas_group(
     nodes = (
         db.query(CanvasNode)
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .options(*CANVAS_NODE_LOAD_OPTIONS)
         .filter(
             CanvasNode.id.in_(node_ids),
             CanvasNode.canvas_id == canvas.id,
-            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+            _visible_canvas_node_filter(user_id=user_id),
         )
         .all()
     )
@@ -760,7 +887,7 @@ def assign_nodes_to_canvas_group(
     return {
         "group": target_group,
         "groups": updated_groups,
-        "nodes": [_serialize_node(node, cos_config=cos_config) for node in ordered_nodes],
+        "nodes": _serialize_nodes(db, ordered_nodes, owner_user_id=user_id, cos_config=cos_config),
         "deleted_group_ids": sorted(deleted_group_ids),
     }
 
@@ -780,11 +907,12 @@ def remove_nodes_from_canvas_groups(
     nodes = (
         db.query(CanvasNode)
         .outerjoin(Task, Task.id == CanvasNode.task_id)
-        .options(selectinload(CanvasNode.task).selectinload(Task.images))
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+        .options(*CANVAS_NODE_LOAD_OPTIONS)
         .filter(
             CanvasNode.id.in_(node_ids),
             CanvasNode.canvas_id == canvas.id,
-            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+            _visible_canvas_node_filter(user_id=user_id),
         )
         .all()
     )
@@ -822,7 +950,7 @@ def remove_nodes_from_canvas_groups(
     ordered_nodes = [node_map[node_id] for node_id in node_ids]
     return {
         "groups": updated_groups,
-        "nodes": [_serialize_node(node, cos_config=cos_config) for node in ordered_nodes],
+        "nodes": _serialize_nodes(db, ordered_nodes, owner_user_id=user_id, cos_config=cos_config),
         "deleted_group_ids": sorted(deleted_group_ids),
     }
 
@@ -850,10 +978,11 @@ def delete_canvas_node(db: Session, user_id: int, project_id: str, node_id: int)
     node = (
         db.query(CanvasNode)
         .outerjoin(Task, Task.id == CanvasNode.task_id)
+        .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
         .filter(
             CanvasNode.id == node_id,
             CanvasNode.canvas_id == canvas.id,
-            ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+            _visible_canvas_node_filter(user_id=user_id),
         )
         .first()
     )
@@ -914,7 +1043,7 @@ def create_canvas_free_node(
     canvas.updated_at = now_local()
     db.commit()
     db.refresh(node)
-    return _serialize_node(node, cos_config=get_optional_cos_config(db))
+    return _serialize_nodes(db, [node], owner_user_id=user_id, cos_config=get_optional_cos_config(db))[0]
 
 
 def create_canvas_generation_tasks(
@@ -946,10 +1075,11 @@ def create_canvas_generation_tasks(
         source_nodes = (
             db.query(CanvasNode)
             .outerjoin(Task, Task.id == CanvasNode.task_id)
+            .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
             .filter(
                 CanvasNode.id.in_(normalized_source_node_ids),
                 CanvasNode.canvas_id == canvas.id,
-                ((CanvasNode.task_id.is_(None)) | ((Task.user_id == user_id) & (Task.is_deleted.is_(False)))),
+                _visible_canvas_node_filter(user_id=user_id),
             )
             .all()
         )
@@ -1007,7 +1137,88 @@ def create_canvas_generation_tasks(
     for node in nodes:
         db.refresh(node)
     cos_config = get_optional_cos_config(db)
-    return tasks, [_serialize_node(node, cos_config=cos_config) for node in nodes]
+    return tasks, _serialize_nodes(db, nodes, owner_user_id=user_id, cos_config=cos_config)
+
+
+def create_canvas_video_tasks(
+    db: Session,
+    user_id: int,
+    project_id: str,
+    *,
+    model: str,
+    source: str,
+    prompt: str,
+    duration_seconds: int,
+    aspect_ratio: str,
+    resolution: str,
+    reference_images: list[str] | None = None,
+    source_node_ids: list[int] | None = None,
+    x: float = 0,
+    y: float = 0,
+    width: float = DEFAULT_NODE_WIDTH,
+    height: float = DEFAULT_NODE_HEIGHT,
+) -> tuple[list[VideoTask], list[dict]]:
+    canvas = get_user_canvas_or_404(db, user_id, project_id)
+    normalized_source_node_ids = list(dict.fromkeys(int(node_id) for node_id in (source_node_ids or []) if int(node_id) > 0))
+    source_nodes: list[CanvasNode] = []
+    if normalized_source_node_ids:
+        source_nodes = (
+            db.query(CanvasNode)
+            .outerjoin(Task, Task.id == CanvasNode.task_id)
+            .outerjoin(VideoTask, VideoTask.id == CanvasNode.video_task_id)
+            .filter(
+                CanvasNode.id.in_(normalized_source_node_ids),
+                CanvasNode.canvas_id == canvas.id,
+                _visible_canvas_node_filter(user_id=user_id),
+            )
+            .all()
+        )
+        if len({node.id for node in source_nodes}) != len(normalized_source_node_ids):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="部分来源节点不可用")
+
+    task = create_video_task_record(
+        db,
+        user_id=user_id,
+        model=model,
+        source=source,
+        prompt=prompt,
+        duration_seconds=duration_seconds,
+        aspect_ratio=aspect_ratio,
+        resolution=resolution,
+        reference_images=reference_images,
+    )
+
+    existing_max_z = (
+        db.query(func.max(CanvasNode.z_index))
+        .filter(CanvasNode.canvas_id == canvas.id)
+        .scalar()
+        or 0
+    )
+    node = CanvasNode(
+        canvas_id=canvas.id,
+        task_id=None,
+        video_task_id=task.id,
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        z_index=int(existing_max_z) + 1,
+    )
+    db.add(node)
+    db.flush()
+    for source_node in source_nodes:
+        db.add(CanvasEdge(
+            canvas_id=canvas.id,
+            source_node_id=source_node.id,
+            target_node_id=node.id,
+            edge_type="generation",
+        ))
+    canvas.updated_at = now_local()
+    db.commit()
+
+    db.refresh(node)
+    cos_config = get_optional_cos_config(db)
+    return [task], _serialize_nodes(db, [node], owner_user_id=user_id, cos_config=cos_config)
 
 
 def update_canvas_edge(

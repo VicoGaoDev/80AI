@@ -38,5 +38,6 @@ class VideoTask(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", backref="video_tasks")
+    canvas_node = relationship("CanvasNode", back_populates="video_task", uselist=False)
     results = relationship("VideoResult", back_populates="task", lazy="selectin")
     api_attempts = relationship("VideoTaskApiAttempt", back_populates="task", lazy="selectin")

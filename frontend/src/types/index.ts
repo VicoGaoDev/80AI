@@ -326,9 +326,11 @@ export interface CanvasNode {
   canvas_id: number;
   group_id?: number | null;
   task_id: string;
+  video_task_id?: string;
   node_type: "task" | "text" | "image";
   content: string;
   image_url: string;
+  asset_is_deleted?: boolean;
   x: number;
   y: number;
   width: number;
@@ -337,6 +339,7 @@ export interface CanvasNode {
   created_at?: string | null;
   updated_at?: string | null;
   task?: TaskResult | null;
+  video_task?: VideoTaskResult | null;
 }
 
 export interface CanvasGroup {
@@ -449,6 +452,21 @@ export interface CanvasTaskPayload {
   source_node_ids?: number[];
   source_image?: string;
   mask_image?: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+}
+
+export interface CanvasVideoTaskPayload {
+  model: string;
+  source?: "web" | "app" | "api";
+  prompt: string;
+  duration_seconds: number;
+  aspect_ratio: string;
+  resolution: string;
+  reference_images?: string[];
+  source_node_ids?: number[];
   x: number;
   y: number;
   width?: number;

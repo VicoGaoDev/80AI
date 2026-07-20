@@ -2187,6 +2187,8 @@ def _ensure_user_canvas_schema():
                 conn.execute(text("ALTER TABLE canvas_nodes MODIFY task_id INTEGER NULL"))
             except Exception:
                 pass
+        if "video_task_id" not in node_columns:
+            conn.execute(text("ALTER TABLE canvas_nodes ADD COLUMN video_task_id INTEGER NULL"))
         if "node_type" not in node_columns:
             conn.execute(text("ALTER TABLE canvas_nodes ADD COLUMN node_type VARCHAR(20) NOT NULL DEFAULT 'task'"))
         if "content" not in node_columns:
@@ -2213,6 +2215,8 @@ def _ensure_user_canvas_schema():
             conn.execute(text("CREATE INDEX idx_canvas_nodes_group_id ON canvas_nodes (group_id)"))
         if "idx_canvas_nodes_task_id" not in node_indexes:
             conn.execute(text("CREATE INDEX idx_canvas_nodes_task_id ON canvas_nodes (task_id)"))
+        if "idx_canvas_nodes_video_task_id" not in node_indexes:
+            conn.execute(text("CREATE INDEX idx_canvas_nodes_video_task_id ON canvas_nodes (video_task_id)"))
 
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())

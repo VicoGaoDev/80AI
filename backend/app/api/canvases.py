@@ -27,6 +27,7 @@ from app.schemas.canvas import (
     CanvasSummary,
     CanvasTaskCreate,
     CanvasTaskCreateResponse,
+    CanvasVideoTaskCreate,
     CanvasUpdate,
     CanvasViewportUpdate,
 )
@@ -37,6 +38,7 @@ from app.services.canvas_service import (
     create_canvas_group,
     create_canvas_free_node,
     create_user_canvas,
+    create_canvas_video_tasks,
     delete_canvas_group,
     delete_canvas_node,
     delete_user_canvas,
@@ -55,10 +57,16 @@ from app.services.external_api_config_service import (
     get_default_generation_model_key,
     require_scene_config,
 )
+from app.services.video_external_api_config_service import require_video_scene_config
 from app.services.task_service import (
     mark_tasks_dispatched,
     mark_tasks_enqueue_failed,
     mark_tasks_queued,
+)
+from app.services.video_task_service import (
+    mark_video_tasks_dispatched,
+    mark_video_tasks_enqueue_failed,
+    mark_video_tasks_queued,
 )
 
 router = APIRouter(prefix="/api/canvases", tags=["无限画布"])
@@ -382,4 +390,66 @@ def create_canvas_task(
             ) from exc
 
     task_ids = [task_external_id(task) for task in tasks]
+    return CanvasTaskCreateResponse(task_id=task_ids[0] if task_ids else None, task_ids=task_ids, nodes=nodes)
+
+
+@router.post("/{project_id}/video-tasks", response_model=CanvasTaskCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_canvas_video_task(
+    project_id: str,
+    body: CanvasVideoTaskCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    task_model = (body.model or "").strip()
+    if not task_model:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请选择视频模型")
+    require_video_scene_config(db, task_model)
+
+    tasks, nodes = create_canvas_video_tasks(
+        db,
+        user.id,
+        project_id,
+        model=task_model,
+        source=body.source,
+        prompt=body.prompt,
+        duration_seconds=body.duration_seconds,
+        aspect_ratio=body.aspect_ratio,
+        resolution=body.resolution,
+        reference_images=body.reference_images,
+        source_node_ids=body.source_node_ids,
+        x=body.x,
+        y=body.y,
+        width=body.width,
+        height=body.height,
+    )
+
+    dispatched_task_ids: list[int] = []
+    try:
+        from app.workers.video_generation import dispatch_video_generation_task
+
+        for task in tasks:
+            dispatch_mode = dispatch_video_generation_task(task.id)
+            dispatched_task_ids.append(task.id)
+            canvas_logger.info(
+                "canvas video task dispatched",
+                extra={
+                    "event": "canvas.video_task.dispatch.sent",
+                    "user_id": user_external_id(user),
+                    "project_id": project_id,
+                    "task_id": task.business_id,
+                    "dispatch_mode": dispatch_mode,
+                },
+            )
+        mark_video_tasks_dispatched(db, dispatched_task_ids)
+        mark_video_tasks_queued(db, dispatched_task_ids)
+    except Exception as exc:
+        failed_task_ids = [task.id for task in tasks if task.id not in set(dispatched_task_ids)]
+        mark_video_tasks_enqueue_failed(db, failed_task_ids, error_message=str(exc))
+        if not dispatched_task_ids:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="视频任务队列暂不可用，请稍后重试",
+            ) from exc
+
+    task_ids = [task.business_id for task in tasks]
     return CanvasTaskCreateResponse(task_id=task_ids[0] if task_ids else None, task_ids=task_ids, nodes=nodes)

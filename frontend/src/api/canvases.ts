@@ -8,6 +8,7 @@ import type {
   CanvasNode,
   CanvasTaskCreateResponse,
   CanvasTaskPayload,
+  CanvasVideoTaskPayload,
   UserCanvasListResponse,
   UserCanvasSummary,
 } from "@/types";
@@ -103,6 +104,13 @@ export function createCanvasNode(projectId: string, data: {
 
 export function createCanvasTask(projectId: string, data: CanvasTaskPayload): Promise<CanvasTaskCreateResponse> {
   return client.post(`/canvases/${projectId}/tasks`, {
+    ...data,
+    source: data.source || "web",
+  });
+}
+
+export function createCanvasVideoTask(projectId: string, data: CanvasVideoTaskPayload): Promise<CanvasTaskCreateResponse> {
+  return client.post(`/canvases/${projectId}/video-tasks`, {
     ...data,
     source: data.source || "web",
   });

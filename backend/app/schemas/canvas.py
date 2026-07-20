@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.task import TaskOut
+from app.schemas.video_task import VideoTaskOut
 
 
 class CanvasCreate(BaseModel):
@@ -76,6 +77,21 @@ class CanvasTaskCreate(BaseModel):
     height: float = Field(default=420, ge=160, le=1600)
 
 
+class CanvasVideoTaskCreate(BaseModel):
+    model: str = ""
+    source: Literal["web", "app", "api"] = "web"
+    prompt: str
+    duration_seconds: int = Field(default=5, ge=1, le=60)
+    aspect_ratio: str = ""
+    resolution: str = ""
+    reference_images: list[str] = Field(default_factory=list)
+    source_node_ids: list[int] = Field(default_factory=list, max_length=50)
+    x: float = 0
+    y: float = 0
+    width: float = Field(default=320, ge=160, le=1200)
+    height: float = Field(default=420, ge=160, le=1600)
+
+
 class CanvasGroupCreate(BaseModel):
     name: str = Field(default="未命名分组", min_length=1, max_length=100)
     color: str = Field(default="#ffab27", max_length=32)
@@ -129,9 +145,11 @@ class CanvasNodeOut(BaseModel):
     canvas_id: int
     group_id: int | None = None
     task_id: str
+    video_task_id: str = ""
     node_type: str = "task"
     content: str = ""
     image_url: str = ""
+    asset_is_deleted: bool = False
     x: float
     y: float
     width: float
@@ -140,6 +158,7 @@ class CanvasNodeOut(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     task: TaskOut | None = None
+    video_task: VideoTaskOut | None = None
 
 
 class CanvasEdgeOut(BaseModel):
