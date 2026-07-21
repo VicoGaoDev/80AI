@@ -30,6 +30,7 @@ import {
   uploadReferenceImage,
 } from "@/api/upload";
 import { getVideoTaskScenes } from "@/api/videoConfig";
+import { triggerDirectDownload } from "@/lib/directDownload";
 import { createVideoTask, deleteVideoTask, getVideoTasks } from "@/api/videoTasks";
 import { useAuthStore } from "@/stores/auth";
 import type { SceneOptionItem, UserAsset, UserPrompt, VideoTaskResult, VideoTaskSceneConfig } from "@/types";
@@ -744,29 +745,13 @@ function handleDetailReedit(task: VideoTaskResult) {
   handleRecreateTask(task);
 }
 
-async function handleDownloadVideo(task: VideoTaskResult) {
-  const videoUrl = task.videos[0]?.video_url || "";
-  if (!videoUrl) {
+function handleDownloadVideo(task: VideoTaskResult) {
+  if (!task.videos[0]?.video_url) {
     message.warning("当前没有可下载的原视频");
     return;
   }
   try {
-    const headers: Record<string, string> = {};
-    const token = localStorage.getItem("token");
-    if (token && !/^https?:\/\//.test(videoUrl)) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    const response = await fetch(videoUrl, { headers });
-    if (!response.ok) throw new Error("download_failed");
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = `${task.id}.${task.videos[0]?.video_format || "mp4"}`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    triggerDirectDownload(task.videos[0]?.video_url || "", `${task.id}.${task.videos[0]?.video_format || "mp4"}`);
   } catch {
     message.error("原视频下载失败");
   }

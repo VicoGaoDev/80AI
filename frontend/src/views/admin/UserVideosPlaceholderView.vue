@@ -15,6 +15,7 @@ import { getVideoTaskScenes } from "@/api/videoConfig";
 import AdminUserInfoDialog from "@/components/admin/AdminUserInfoDialog.vue";
 import VideoTaskDetailDialog from "@/components/video/VideoTaskDetailDialog.vue";
 import { withApiBaseUrl } from "@/lib/assets";
+import { triggerDirectDownload } from "@/lib/directDownload";
 import { readStoredGridColumnCount, writeStoredGridColumnCount } from "@/lib/gridColumnPreference";
 import { saveVideoGenerateDraft } from "@/lib/videoGenerateDraft";
 import type { AdminUser, AdminVideoTaskResult, TaskSource, VideoTaskResult, VideoTaskSceneConfig } from "@/types";
@@ -364,30 +365,13 @@ function filterBySelectedUser(user = selectedUserInfo.value) {
   void loadVideoTasks(true);
 }
 
-async function handleDownloadVideo(task: Pick<VideoTaskResult, "id" | "videos">) {
-  const rawVideoUrl = task.videos[0]?.video_url || "";
-  const videoUrl = withApiBaseUrl(rawVideoUrl);
-  if (!videoUrl) {
+function handleDownloadVideo(task: Pick<VideoTaskResult, "id" | "videos">) {
+  if (!task.videos[0]?.video_url) {
     message.warning("当前没有可下载的原视频");
     return;
   }
   try {
-    const headers: Record<string, string> = {};
-    const token = localStorage.getItem("token");
-    if (token && rawVideoUrl && !/^https?:\/\//.test(rawVideoUrl)) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    const response = await fetch(videoUrl, { headers });
-    if (!response.ok) throw new Error("download_failed");
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = `${task.id}.${task.videos[0]?.video_format || "mp4"}`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    triggerDirectDownload(task.videos[0]?.video_url || "", `${task.id}.${task.videos[0]?.video_format || "mp4"}`);
   } catch {
     message.error("原视频下载失败");
   }

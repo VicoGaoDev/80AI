@@ -45,6 +45,7 @@ import AdminUserInfoDialog from "@/components/admin/AdminUserInfoDialog.vue";
 import HistoryDetailDialog from "@/components/history/HistoryDetailDialog.vue";
 import VideoTaskDetailDialog from "@/components/video/VideoTaskDetailDialog.vue";
 import { withApiBaseUrl, withBaseUrl } from "@/lib/assets";
+import { triggerDirectDownload } from "@/lib/directDownload";
 import { getTaskImageFailureMessage } from "@/lib/generationErrors";
 import { USER_ASSET_DRAG_MIME, decodeDraggedUserAsset } from "@/lib/userAssetDrag";
 import {
@@ -2658,7 +2659,7 @@ function getNodeVideoCoverUrl(node: CanvasNode | null | undefined) {
 function getNodeVideoUrl(node: CanvasNode | null | undefined) {
   const video = getNodeVideoTask(node)?.videos?.find((item) => item.status === "success" && item.video_url)
     || getNodeVideoTask(node)?.videos?.[0];
-  return video?.video_url || "";
+  return withApiBaseUrl(video?.video_url || "");
 }
 
 function canRenderNodeVideo(node: CanvasNode | null | undefined) {
@@ -2801,12 +2802,10 @@ function handleVideoDetailDownload(item: VideoTaskResult) {
     downloadNode(node);
     return;
   }
-  const url = item.videos.find((video) => video.status === "success" && video.video_url)?.video_url || item.videos[0]?.video_url || "";
+  const url =
+    item.videos.find((video) => video.status === "success" && video.video_url)?.video_url || item.videos[0]?.video_url || "";
   if (!url) return;
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `banana_video_${item.id}.mp4`;
-  a.click();
+  triggerDirectDownload(url, `banana_video_${item.id}.mp4`);
 }
 
 function refillGenerateConfigFromNode(node: CanvasNode) {
@@ -3557,10 +3556,7 @@ function downloadNode(node: CanvasNode) {
   if (isVideoTaskNode(node)) {
     const videoUrl = getNodeVideoUrl(node);
     if (!videoUrl) return;
-    const a = document.createElement("a");
-    a.href = videoUrl;
-    a.download = `banana_video_${node.video_task_id || node.id}.mp4`;
-    a.click();
+    triggerDirectDownload(videoUrl, `banana_video_${node.video_task_id || node.id}.mp4`);
     return;
   }
   const image = node.task?.images?.find((item) => item.status === "success");
