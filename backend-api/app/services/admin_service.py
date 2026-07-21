@@ -17,10 +17,6 @@ from app.services.prompt_reverse_service import (
     PROMPT_REVERSE_MODEL,
 )
 from app.services.task_service import ENQUEUE_FAILURE_DESCRIPTION, TASK_FAILURE_REFUND_DESCRIPTION
-from app.services.video_task_service import (
-    VIDEO_TASK_ENQUEUE_REFUND_PREFIX,
-    VIDEO_TASK_FAILURE_REFUND_PREFIX,
-)
 from app.services.task_type_service import (
     TASK_TYPE_IMAGE_EDIT,
     TASK_TYPE_INPAINT,
@@ -88,11 +84,7 @@ def _get_refunded_task_ids(db: Session, task_ids: list[int]) -> set[int]:
 
 
 def _task_credit_refund_filter():
-    return or_(
-        CreditLog.description.in_(TASK_CREDIT_REFUND_DESCRIPTIONS),
-        CreditLog.description.like(f"{VIDEO_TASK_FAILURE_REFUND_PREFIX} %"),
-        CreditLog.description.like(f"{VIDEO_TASK_ENQUEUE_REFUND_PREFIX} %"),
-    )
+    return CreditLog.description.in_(TASK_CREDIT_REFUND_DESCRIPTIONS)
 
 
 def _serialize_user(user: User) -> dict:
